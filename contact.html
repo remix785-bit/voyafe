@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Contact — Velodyssée</title>
+  <meta name="description" content="Contacter Rémi à propos de Velodyssée — ou s'inscrire pour recevoir les journaux de bord dès le départ." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <nav class="nav scrolled" id="nav">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-logo" style="color:var(--color-text)">Velodyssée</a>
+      <button class="nav-toggle" aria-label="Menu" id="navToggle"><span></span><span></span><span></span></button>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="index.html">Accueil</a></li>
+        <li><a href="voyage.html">L'expédition</a></li>
+        <li><a href="itineraire.html">Itinéraire</a></li>
+        <li><a href="blog/index.html">Journal de bord</a></li>
+        <li><a href="asso.html">L'association</a></li>
+        <li><a href="contact.html">Contact</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <section class="page-hero">
+    <div class="container">
+      <p class="hero-eyebrow">Restons en contact</p>
+      <h1>Contact</h1>
+      <p class="lead">Une question, une proposition, ou simplement envie de suivre l'aventure — écrivez-moi.</p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:4rem; align-items:start;">
+
+        <div>
+          <h2 style="font-size:1.5rem; margin-bottom:1.5rem;">Pourquoi écrire ?</h2>
+          <div style="display:flex; flex-direction:column; gap:1.5rem;">
+            <div style="padding:1.5rem; background:var(--color-surface); border-radius:var(--radius); border:1px solid var(--color-border);">
+              <strong style="display:block; margin-bottom:0.5rem;">✉ Recevoir les journaux de bord</strong>
+              <p style="margin:0; color:var(--color-text-muted); font-size:0.95rem;">Inscrivez-vous pour être notifié à chaque nouvelle publication depuis la route.</p>
+            </div>
+            <div style="padding:1.5rem; background:var(--color-surface); border-radius:var(--radius); border:1px solid var(--color-border);">
+              <strong style="display:block; margin-bottom:0.5rem;">🤝 Partenariat ou collaboration</strong>
+              <p style="margin:0; color:var(--color-text-muted); font-size:0.95rem;">Vous souhaitez soutenir le projet ou proposer une collaboration — n'hésitez pas.</p>
+            </div>
+            <div style="padding:1.5rem; background:var(--color-surface); border-radius:var(--radius); border:1px solid var(--color-border);">
+              <strong style="display:block; margin-bottom:0.5rem;">🌍 Conseils de route</strong>
+              <p style="margin:0; color:var(--color-text-muted); font-size:0.95rem;">Vous connaissez un des pays du parcours ? Vos conseils sont les bienvenus.</p>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="contact-form">
+            <h2 style="font-size:1.5rem; margin-bottom:1.5rem;">Envoyer un message</h2>
+            <form id="contactForm">
+              <div class="form-group">
+                <label for="name">Prénom / Nom</label>
+                <input type="text" id="name" name="name" placeholder="Votre nom" required />
+              </div>
+              <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" placeholder="votre@email.com" required />
+              </div>
+              <div class="form-group">
+                <label for="sujet">Sujet</label>
+                <input type="text" id="sujet" name="sujet" placeholder="Pourquoi vous écrivez" />
+              </div>
+              <div class="form-group">
+                <label for="message">Message</label>
+                <textarea id="message" name="message" placeholder="Votre message..." required></textarea>
+              </div>
+              <button type="submit" class="btn btn-primary" style="width:100%;">Envoyer</button>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <span class="footer-logo">Velodyssée</span>
+          <p>Jakarta → France · à vélo · Oct. 2027</p>
+        </div>
+        <nav class="footer-nav">
+          <a href="voyage.html">L'expédition</a>
+          <a href="itineraire.html">Itinéraire</a>
+          <a href="blog/index.html">Journal</a>
+          <a href="asso.html">L'association</a>
+          <a href="contact.html">Contact</a>
+        </nav>
+      </div>
+      <div class="footer-bottom"><p>© 2027 Rémi — Velodyssée</p></div>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+  <style>
+    @media (max-width: 768px) {
+      section.section > .container > div { grid-template-columns: 1fr !important; }
+    }
+  </style>
+</body>
+</html>

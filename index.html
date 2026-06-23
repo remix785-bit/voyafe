@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Velodyssée — Jakarta → France à vélo</title>
+  <meta name="description" content="Velodyssée : une expédition cycliste solo de Jakarta, Indonésie, jusqu'en France. 14 500 km, 21 pays, 14 à 18 mois de route." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- NAV -->
+  <nav class="nav" id="nav">
+    <div class="nav-inner">
+      <a href="index.html" class="nav-logo">Velodyssée</a>
+      <button class="nav-toggle" aria-label="Menu" id="navToggle">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="index.html">Accueil</a></li>
+        <li><a href="voyage.html">L'expédition</a></li>
+        <li><a href="itineraire.html">Itinéraire</a></li>
+        <li><a href="blog/index.html">Journal de bord</a></li>
+        <li><a href="asso.html">L'association</a></li>
+        <li><a href="contact.html">Contact</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <header class="hero">
+    <div class="hero-bg">
+      <div class="hero-overlay"></div>
+    </div>
+    <div class="hero-content">
+      <p class="hero-eyebrow">Octobre 2027 · Départ Jakarta</p>
+      <h1 class="hero-title">Velodyssée</h1>
+      <p class="hero-subtitle">Jakarta → France · 14 500 km · 21 pays · à vélo</p>
+      <div class="hero-ctas">
+        <a href="voyage.html" class="btn btn-primary">Découvrir l'expédition</a>
+        <a href="itineraire.html" class="btn btn-outline">Voir l'itinéraire</a>
+      </div>
+    </div>
+    <div class="hero-scroll">
+      <span>Défiler</span>
+      <svg width="16" height="24" viewBox="0 0 16 24" fill="none"><rect x="6" y="2" width="4" height="8" rx="2" fill="white" opacity="0.6"/><path d="M8 16 L4 20 M8 16 L12 20" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.6"/></svg>
+    </div>
+  </header>
+
+  <!-- STATS BAND -->
+  <section class="stats-band">
+    <div class="container">
+      <div class="stats-grid">
+        <div class="stat">
+          <span class="stat-number">14 500 km</span>
+          <span class="stat-label">de route</span>
+        </div>
+        <div class="stat">
+          <span class="stat-number">21</span>
+          <span class="stat-label">pays traversés</span>
+        </div>
+        <div class="stat">
+          <span class="stat-number">14–18</span>
+          <span class="stat-label">mois de voyage</span>
+        </div>
+        <div class="stat">
+          <span class="stat-number">Solo</span>
+          <span class="stat-label">à vélo chargé</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- INTRO -->
+  <section class="section intro-section">
+    <div class="container container-narrow">
+      <h2 class="section-title">Une route d'Asie du Sud-Est jusqu'au cœur de l'Europe</h2>
+      <p class="lead">En octobre 2027, Rémi enfourche son vélo à Jakarta et prend la route vers la France. 14 500 à 18 000 kilomètres traversant l'Indonésie, la Malaisie, la Thaïlande, le Cambodge, le Laos, la Chine, l'Asie centrale, le Caucase, la Turquie et les Balkans.</p>
+      <p>Ce n'est pas une course ni une performance sportive. C'est une immersion lente dans le monde — les paysages, les rencontres, les cultures — portée par une conviction simple : le monde est plus beau et plus généreux qu'on ne le croit.</p>
+      <p>Chaque semaine, Rémi publie un journal de bord depuis la route, partagé notamment avec les enfants hospitalisés en France partenaires de l'association <strong>L'enfant @ l'hôpital</strong>.</p>
+      <a href="voyage.html" class="btn btn-primary">En savoir plus</a>
+    </div>
+  </section>
+
+  <!-- ROUTE PREVIEW -->
+  <section class="section route-section">
+    <div class="container">
+      <h2 class="section-title centered">Le grand tracé</h2>
+      <div class="route-map-placeholder">
+        <div class="route-dots">
+          <div class="route-dot active">
+            <span class="dot-label">Jakarta</span>
+            <span class="dot-country">Indonésie</span>
+          </div>
+          <div class="route-line"></div>
+          <div class="route-dot">
+            <span class="dot-label">Kuala Lumpur</span>
+            <span class="dot-country">Malaisie</span>
+          </div>
+          <div class="route-line"></div>
+          <div class="route-dot">
+            <span class="dot-label">Bangkok</span>
+            <span class="dot-country">Thaïlande</span>
+          </div>
+          <div class="route-line"></div>
+          <div class="route-dot">
+            <span class="dot-label">Siem Reap</span>
+            <span class="dot-country">Cambodge</span>
+          </div>
+          <div class="route-line"></div>
+          <div class="route-dot">
+            <span class="dot-label">Vientiane</span>
+            <span class="dot-country">Laos</span>
+          </div>
+          <div class="route-line"></div>
+          <div class="route-dot">
+            <span class="dot-label">Yunnan → Xinjiang</span>
+            <span class="dot-country">Chine</span>
+          </div>
+          <div class="route-line"></div>
+          <div class="route-dot">
+            <span class="dot-label">Bishkek / Tachkent</span>
+            <span class="dot-country">Asie centrale</span>
+          </div>
+          <div class="route-line"></div>
+          <div class="route-dot">
+            <span class="dot-label">Tbilissi / Bakou</span>
+            <span class="dot-country">Caucase</span>
+          </div>
+          <div class="route-line"></div>
+          <div class="route-dot">
+            <span class="dot-label">Istanbul</span>
+            <span class="dot-country">Turquie</span>
+          </div>
+          <div class="route-line"></div>
+          <div class="route-dot">
+            <span class="dot-label">Balkans → Italie</span>
+            <span class="dot-country">Europe</span>
+          </div>
+          <div class="route-line"></div>
+          <div class="route-dot end">
+            <span class="dot-label">France</span>
+            <span class="dot-country">Arrivée</span>
+          </div>
+        </div>
+      </div>
+      <div class="centered" style="margin-top: 3rem;">
+        <a href="itineraire.html" class="btn btn-primary">Voir l'itinéraire complet</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- JOURNAL PREVIEW -->
+  <section class="section blog-preview">
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">Journal de bord</h2>
+        <a href="blog/index.html" class="see-all">Tous les articles →</a>
+      </div>
+      <div class="cards-grid">
+        <article class="card card-placeholder">
+          <div class="card-img-placeholder"></div>
+          <div class="card-body">
+            <span class="card-tag">Avant le départ</span>
+            <h3>Les préparatifs commencent</h3>
+            <p>Les journaux de voyage seront publiés ici dès le départ en octobre 2027. En attendant, retrouvez les coulisses des préparatifs.</p>
+            <a href="blog/index.html" class="card-link">Lire →</a>
+          </div>
+        </article>
+        <article class="card card-placeholder card-coming">
+          <div class="card-body centered">
+            <div class="coming-soon-icon">✦</div>
+            <h3>Les récits arrivent en octobre 2027</h3>
+            <p>Abonnez-vous pour recevoir les premiers journaux de route dès le départ de Jakarta.</p>
+            <a href="contact.html" class="btn btn-primary">Me prévenir</a>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ASSO BAND -->
+  <section class="asso-band">
+    <div class="container">
+      <div class="asso-inner">
+        <div class="asso-text">
+          <p class="asso-eyebrow">Partenaire du voyage</p>
+          <h2>L'enfant @ l'hôpital</h2>
+          <p>Ce voyage est lié au programme <strong>Voyageurs Solidaires</strong> de l'association L'enfant @ l'hôpital. Chaque semaine, un journal de bord est partagé sur la plateforme <strong>Kolibri</strong> avec les enfants hospitalisés en France — pour leur apporter un peu du monde, depuis la route.</p>
+          <a href="asso.html" class="btn btn-primary">En savoir plus</a>
+        </div>
+        <div class="asso-visual">
+          <div class="asso-quote">
+            <blockquote>
+              "Le monde est plus beau et plus généreux qu'on ne le croit."
+            </blockquote>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <span class="footer-logo">Velodyssée</span>
+          <p>Jakarta → France · à vélo · Oct. 2027</p>
+        </div>
+        <nav class="footer-nav">
+          <a href="voyage.html">L'expédition</a>
+          <a href="itineraire.html">Itinéraire</a>
+          <a href="blog/index.html">Journal</a>
+          <a href="asso.html">L'association</a>
+          <a href="contact.html">Contact</a>
+        </nav>
+      </div>
+      <div class="footer-bottom">
+        <p>© 2027 Rémi — Velodyssée</p>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+</body>
+</html>

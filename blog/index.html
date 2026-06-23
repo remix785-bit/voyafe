@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Journal de bord — Velodyssée</title>
+  <meta name="description" content="Les journaux de route de Velodyssée — récits hebdomadaires depuis la selle, de Jakarta jusqu'en France." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/style.css" />
+  <style>
+    .blog-hero-note {
+      background: var(--color-accent-light);
+      border-left: 4px solid var(--color-accent);
+      border-radius: var(--radius);
+      padding: 1.5rem 2rem;
+      margin-bottom: 3rem;
+    }
+    .blog-hero-note p { margin: 0; color: var(--color-text-muted); }
+    .blog-hero-note strong { color: var(--color-text); }
+    .blog-filters {
+      display: flex;
+      gap: 0.75rem;
+      margin-bottom: 2.5rem;
+      flex-wrap: wrap;
+    }
+    .filter-btn {
+      padding: 0.4rem 1rem;
+      border-radius: 99px;
+      border: 1px solid var(--color-border);
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      background: var(--color-surface);
+      color: var(--color-text-muted);
+      transition: all var(--transition);
+    }
+    .filter-btn.active, .filter-btn:hover {
+      background: var(--color-accent);
+      border-color: var(--color-accent);
+      color: #fff;
+    }
+    .blog-coming {
+      text-align: center;
+      padding: 6rem 2rem;
+      border: 2px dashed var(--color-border);
+      border-radius: var(--radius-lg);
+    }
+    .blog-coming .coming-icon { font-size: 3rem; margin-bottom: 1rem; }
+    .blog-coming h3 { margin-bottom: 0.75rem; }
+    .blog-coming p { color: var(--color-text-muted); max-width: 400px; margin: 0 auto 1.5rem; }
+  </style>
+</head>
+<body>
+
+  <nav class="nav scrolled" id="nav">
+    <div class="nav-inner">
+      <a href="../index.html" class="nav-logo" style="color:var(--color-text)">Velodyssée</a>
+      <button class="nav-toggle" aria-label="Menu" id="navToggle"><span></span><span></span><span></span></button>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="../index.html">Accueil</a></li>
+        <li><a href="../voyage.html">L'expédition</a></li>
+        <li><a href="../itineraire.html">Itinéraire</a></li>
+        <li><a href="index.html">Journal de bord</a></li>
+        <li><a href="../asso.html">L'association</a></li>
+        <li><a href="../contact.html">Contact</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <section class="page-hero">
+    <div class="container">
+      <p class="hero-eyebrow">Depuis la route</p>
+      <h1>Journal de bord</h1>
+      <p class="lead">Récits hebdomadaires publiés depuis la selle. Du bitume, des paysages, des gens.</p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+
+      <div class="blog-hero-note">
+        <p><strong>Le voyage commence en octobre 2027.</strong> Les journaux de bord seront publiés ici toutes les semaines depuis la route. En attendant, retrouvez ci-dessous les premières notes de préparation.</p>
+      </div>
+
+      <div class="blog-filters">
+        <button class="filter-btn active">Tous</button>
+        <button class="filter-btn">Avant le départ</button>
+        <button class="filter-btn">Indonésie</button>
+        <button class="filter-btn">Asie du Sud-Est</button>
+        <button class="filter-btn">Chine</button>
+        <button class="filter-btn">Asie centrale</button>
+        <button class="filter-btn">Caucase</button>
+        <button class="filter-btn">Europe</button>
+      </div>
+
+      <!-- Pre-departure articles placeholder -->
+      <div class="blog-grid" style="margin-bottom: 3rem;">
+        <article class="card">
+          <div class="card-img-placeholder" style="background:linear-gradient(135deg,#1a3a2a,#2d5a3d);"></div>
+          <div class="card-body">
+            <span class="card-tag">Avant le départ</span>
+            <h3>Pourquoi Jakarta comme point de départ ?</h3>
+            <p>Le choix du point zéro n'est pas anodin. Jakarta comme bout du monde, comme symbole d'un départ radical.</p>
+            <a href="article-1.html" class="card-link">Lire l'article →</a>
+          </div>
+        </article>
+        <article class="card">
+          <div class="card-img-placeholder" style="background:linear-gradient(135deg,#1a2a3a,#2d3d5a);"></div>
+          <div class="card-body">
+            <span class="card-tag">Avant le départ</span>
+            <h3>Le vélo : choix, équipement, logistique</h3>
+            <p>Quel vélo pour 14 500 km ? Du matériel au budget, les arbitrages pour un bikepacking au long cours.</p>
+            <a href="article-2.html" class="card-link">Lire l'article →</a>
+          </div>
+        </article>
+      </div>
+
+      <!-- Coming soon -->
+      <div class="blog-coming">
+        <div class="coming-icon">🌏</div>
+        <h3>Les récits de route arrivent en octobre 2027</h3>
+        <p>Inscrivez-vous pour recevoir une notification à chaque nouveau journal publié depuis la route.</p>
+        <a href="../contact.html" class="btn btn-primary">Me prévenir au départ</a>
+      </div>
+
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <span class="footer-logo">Velodyssée</span>
+          <p>Jakarta → France · à vélo · Oct. 2027</p>
+        </div>
+        <nav class="footer-nav">
+          <a href="../voyage.html">L'expédition</a>
+          <a href="../itineraire.html">Itinéraire</a>
+          <a href="index.html">Journal</a>
+          <a href="../asso.html">L'association</a>
+          <a href="../contact.html">Contact</a>
+        </nav>
+      </div>
+      <div class="footer-bottom"><p>© 2027 Rémi — Velodyssée</p></div>
+    </div>
+  </footer>
+
+  <script src="../js/main.js"></script>
+</body>
+</html>
