@@ -485,6 +485,45 @@ dialog::backdrop {
   margin: -6px 0 0;
 }
 
+.day-picker {
+  display: flex;
+  gap: 6px;
+}
+
+.day-btn {
+  flex: 1;
+  padding: 10px 0;
+  text-align: center;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.day-btn.active {
+  background: var(--accent-grad);
+  color: #fff;
+  border-color: transparent;
+}
+
+.today-banner {
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  background: var(--accent-grad);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.today-banner .tb-icon { font-size: 24px; line-height: 1; }
+.today-banner .tb-title { font-weight: 700; font-size: 14px; }
+.today-banner .tb-meta { font-size: 12px; opacity: 0.9; margin-top: 2px; }
+
 .field-group {
   display: flex;
   flex-direction: column;

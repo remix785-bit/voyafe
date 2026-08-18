@@ -26,6 +26,12 @@
         if (g.elevationGain === undefined) g.elevationGain = null;
         if (g.elevationLoss === undefined) g.elevationLoss = null;
         if (g.targetTimeSec === undefined) g.targetTimeSec = null;
+        if (!g.trainingDayOffsets) {
+          g.trainingDayOffsets = WEEKDAY_OFFSETS[g.sessionsPerWeek] || WEEKDAY_OFFSETS[3];
+        }
+        if (!g.startDate) {
+          g.startDate = g.startMonday || null;
+        }
       });
       return data;
     } catch (e) {
@@ -490,12 +496,13 @@
   }
 
   function generatePlan(goal, profile) {
-    var startMonday = nextMonday(todayDate());
+    var startDate = goal.startDate ? parseISO(goal.startDate) : nextMonday(todayDate());
+    var gridMonday = mondayOf(startDate);
     var targetDate = parseISO(goal.targetDate);
-    var totalWeeks = Math.max(1, Math.ceil(diffDays(targetDate, startMonday) / 7));
+    var totalWeeks = Math.max(1, Math.ceil(diffDays(targetDate, gridMonday) / 7));
     var taperWeeks = taperWeeksFor(goal, totalWeeks);
     var progWeeks = Math.max(1, totalWeeks - taperWeeks);
-    var offsets = WEEKDAY_OFFSETS[goal.sessionsPerWeek];
+    var offsets = goal.trainingDayOffsets && goal.trainingDayOffsets.length ? goal.trainingDayOffsets : WEEKDAY_OFFSETS[3];
     var currentZones = getActiveZones(profile);
     var goalZones = computeGoalZones(goal);
     var ambitious = isAmbitiousGoal(goal, profile);
@@ -505,14 +512,16 @@
     goal.totalWeeks = totalWeeks;
     goal.taperWeeks = taperWeeks;
     goal.progWeeks = progWeeks;
-    goal.startMonday = toISO(startMonday);
+    goal.startMonday = toISO(gridMonday);
+    goal.startDate = toISO(startDate);
+    goal.sessionsPerWeek = offsets.length;
     goal.level = (profile && profile.level) || "intermediaire";
 
     var weeklyLongDist = computeWeeklyLongDistances(goal, profile);
     var sessions = [];
 
     for (var w = 0; w < totalWeeks; w++) {
-      var weekStart = addDays(startMonday, w * 7);
+      var weekStart = addDays(gridMonday, w * 7);
       var phase = phaseForWeek(goal, w);
       var isTaper = phase === "taper";
       var longDist = weeklyLongDist[w];
@@ -523,6 +532,7 @@
 
       offsets.forEach(function (offset, i) {
         var date = addDays(weekStart, offset);
+        if (date < startDate) return;
         if (diffDays(date, targetDate) > 0) return;
         var type = types[i];
         var dist;
@@ -693,9 +703,28 @@
     return { done: done, total: total, percent: total ? Math.round((done / total) * 100) : 0 };
   }
 
+  function renderTodayBanner() {
+    var todayISO = toISO(todayDate());
+    var todaysSessions = state.planSessions.filter(function (s) { return !s.done && s.date === todayISO; });
+    var slot = document.getElementById("today-banner-slot");
+    if (!todaysSessions.length) {
+      slot.innerHTML = "";
+      return;
+    }
+    var s = todaysSessions[0];
+    var paceStr = formatPaceSec(s.paceSecPerKm);
+    slot.innerHTML = '<div class="today-banner" data-session-id="' + s.id + '">' +
+      '<div class="tb-icon">🏃</div>' +
+      '<div><div class="tb-title">Séance du jour : ' + s.type + '</div>' +
+      '<div class="tb-meta">' + fmtKm(s.targetDistance) + (paceStr ? ' · ' + paceStr : '') + ' — à toi de jouer !</div></div>' +
+      '</div>';
+  }
+
   function renderDashboard() {
     var today = todayDate();
     var range = weekRange(today);
+
+    renderTodayBanner();
 
     var goalsEl = document.getElementById("goals-countdown");
     var upcoming = activeGoals()
@@ -1057,14 +1086,50 @@
 
   // ---------- dialogs & forms ----------
 
+  var DEFAULT_TRAINING_DAYS = [1, 3, 5];
+  var MAX_TRAINING_DAYS = 3;
+
+  function setupDayPicker() {
+    var picker = document.getElementById("day-picker");
+    var buttons = Array.prototype.slice.call(picker.querySelectorAll(".day-btn"));
+
+    function setSelectedDays(days) {
+      buttons.forEach(function (b) {
+        b.classList.toggle("active", days.indexOf(parseInt(b.dataset.day, 10)) !== -1);
+      });
+    }
+
+    function getSelectedDays() {
+      return buttons.filter(function (b) { return b.classList.contains("active"); })
+        .map(function (b) { return parseInt(b.dataset.day, 10); })
+        .sort(function (a, b) { return a - b; });
+    }
+
+    buttons.forEach(function (b) {
+      b.addEventListener("click", function () {
+        var active = b.classList.contains("active");
+        if (!active && getSelectedDays().length >= MAX_TRAINING_DAYS) return;
+        b.classList.toggle("active");
+      });
+    });
+
+    return { setSelectedDays: setSelectedDays, getSelectedDays: getSelectedDays };
+  }
+
   function setupGoalDialog() {
     var dlg = document.getElementById("dlg-goal");
     var sportSelect = document.getElementById("goal-sport");
     var trailFields = document.getElementById("goal-trail-fields");
+    var dayPicker = setupDayPicker();
 
     document.getElementById("btn-new-goal").addEventListener("click", function () {
       document.getElementById("form-goal").reset();
       trailFields.hidden = true;
+      dayPicker.setSelectedDays(DEFAULT_TRAINING_DAYS);
+      var startInput = document.getElementById("goal-start-date");
+      var todayISO = toISO(todayDate());
+      startInput.min = todayISO;
+      startInput.value = toISO(nextMonday(todayDate()));
       dlg.showModal();
     });
     dlg.querySelectorAll("[data-close]").forEach(function (b) {
@@ -1074,13 +1139,19 @@
       trailFields.hidden = sportSelect.value !== "trail";
     });
 
-    document.getElementById("form-goal").addEventListener("submit", function () {
+    document.getElementById("form-goal").addEventListener("submit", function (e) {
       var name = document.getElementById("goal-name").value.trim();
       var distance = parseFloat(document.getElementById("goal-distance").value);
       var targetDate = document.getElementById("goal-date").value;
-      var sessionsPerWeek = parseInt(document.getElementById("goal-sessions").value, 10);
+      var startDate = document.getElementById("goal-start-date").value;
+      var trainingDayOffsets = dayPicker.getSelectedDays();
       var sport = sportSelect.value;
-      if (!name || !distance || !targetDate) return;
+      if (!name || !distance || !targetDate || !startDate) return;
+      if (!trainingDayOffsets.length) {
+        e.preventDefault();
+        alert("Choisis au moins un jour d'entraînement.");
+        return;
+      }
 
       var elevGain = sport === "trail" ? (parseFloat(document.getElementById("goal-elevation-gain").value) || null) : null;
       var elevLoss = sport === "trail" ? (parseFloat(document.getElementById("goal-elevation-loss").value) || null) : null;
@@ -1091,7 +1162,9 @@
         name: name,
         targetDistance: distance,
         targetDate: targetDate,
-        sessionsPerWeek: sessionsPerWeek,
+        startDate: startDate,
+        trainingDayOffsets: trainingDayOffsets,
+        sessionsPerWeek: trainingDayOffsets.length,
         sport: sport,
         elevationGain: elevGain,
         elevationLoss: elevLoss,
@@ -1392,6 +1465,11 @@
       if (check) { toggleSession(check.dataset.sessionId); return; }
       var del = e.target.closest(".btn-delete-goal");
       if (del) { deleteGoal(del.dataset.goalId); return; }
+    });
+
+    document.getElementById("today-banner-slot").addEventListener("click", function (e) {
+      var card = e.target.closest(".today-banner");
+      if (card) openSessionDone(card.dataset.sessionId);
     });
 
     document.getElementById("runs-list").addEventListener("click", function (e) {

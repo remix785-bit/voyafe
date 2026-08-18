@@ -35,6 +35,7 @@
 
   <!-- DASHBOARD -->
   <section class="view" id="view-dashboard" data-view="dashboard">
+    <div id="today-banner-slot"></div>
     <div class="card-grid" id="goals-countdown"></div>
 
     <div class="card">
@@ -141,13 +142,19 @@
     <label>Temps objectif (optionnel)
       <input type="text" id="goal-target-time" placeholder="hh:mm:ss ou mm:ss">
     </label>
-    <label>Séances par semaine
-      <select id="goal-sessions">
-        <option value="1">1</option>
-        <option value="2">2</option>
-        <option value="3" selected>3</option>
-      </select>
+    <label>Date de début du plan
+      <input type="date" id="goal-start-date" required>
     </label>
+    <label style="margin-bottom: -6px;">Jours d'entraînement (3 max)</label>
+    <div class="day-picker" id="day-picker">
+      <button type="button" class="day-btn" data-day="0">L</button>
+      <button type="button" class="day-btn" data-day="1">M</button>
+      <button type="button" class="day-btn" data-day="2">M</button>
+      <button type="button" class="day-btn" data-day="3">J</button>
+      <button type="button" class="day-btn" data-day="4">V</button>
+      <button type="button" class="day-btn" data-day="5">S</button>
+      <button type="button" class="day-btn" data-day="6">D</button>
+    </div>
     <div class="dlg-actions">
       <button type="button" class="btn btn-ghost" data-close>Annuler</button>
       <button type="submit" class="btn btn-primary">Créer le plan</button>
