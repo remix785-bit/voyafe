@@ -308,7 +308,11 @@
       else if (goal.sport === "trail") quality = "Côtes";
       else quality = "Seuil";
     } else if (phase === "base") {
-      quality = "Côtes";
+      if (goal.sport === "trail") {
+        quality = (w % 3 === 2) ? "Récupération" : "Côtes";
+      } else {
+        quality = (w % 3 === 0) ? "Côtes" : "Récupération";
+      }
     } else if (phase === "dev") {
       if (goal.sport === "trail") {
         quality = (w % 2 === 0) ? "Côtes" : "VMA longue";
@@ -525,6 +529,7 @@
         if (type === "Sortie longue") dist = longDist;
         else if (type === "Endurance fondamentale") dist = Math.round(longDist * 0.6 * 10) / 10;
         else if (type === "Activation") dist = Math.max(3, Math.round(longDist * 0.25 * 10) / 10);
+        else if (type === "Récupération") dist = Math.max(3, Math.round(longDist * 0.35 * 10) / 10);
         else dist = Math.round(longDist * 0.45 * 10) / 10;
 
         var elevTarget = (elevRatio && (type === "Sortie longue" || type === "Côtes")) ? Math.round(dist * elevRatio) : 0;
