@@ -279,6 +279,26 @@ h1, h2, h3 { margin: 0; }
 .sport-badge.route { background: rgba(255, 90, 54, 0.15); color: var(--accent-1); }
 .sport-badge.trail { background: rgba(47, 179, 106, 0.15); color: var(--success); }
 
+.acwr-value {
+  font-size: 32px;
+  font-weight: 800;
+}
+
+.acwr-status {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  margin-top: 4px;
+}
+
+.acwr-insuffisant { background: rgba(107, 114, 128, 0.18); color: var(--text-muted); }
+.acwr-sous-charge { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
+.acwr-optimale { background: rgba(47, 179, 106, 0.15); color: var(--success); }
+.acwr-vigilance { background: rgba(255, 159, 28, 0.18); color: #d97706; }
+.acwr-risque { background: rgba(229, 72, 77, 0.15); color: var(--danger); }
+
 .goal-warning {
   background: rgba(229, 72, 77, 0.12);
   color: var(--danger);
@@ -307,7 +327,24 @@ h1, h2, h3 { margin: 0; }
   text-transform: uppercase;
   letter-spacing: 0.04em;
   margin: 0 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
+
+.phase-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.phase-base { background: rgba(107, 114, 128, 0.18); color: var(--text-muted); }
+.phase-dev { background: rgba(255, 90, 54, 0.15); color: var(--accent-1); }
+.phase-peak { background: rgba(247, 37, 133, 0.15); color: var(--accent-2); }
+.phase-taper { background: rgba(47, 179, 106, 0.15); color: var(--success); }
 
 .session-item {
   display: flex;

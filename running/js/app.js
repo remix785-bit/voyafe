@@ -113,6 +113,10 @@
     return (Math.round(n * 10) / 10).toString().replace(".", ",") + " km";
   }
 
+  function fmtNum(n) {
+    return (Math.round(n * 10) / 10).toString().replace(".", ",");
+  }
+
   function parseTimeToSeconds(str) {
     if (!str) return null;
     str = str.trim();
@@ -213,14 +217,60 @@
 
   // ---------- coaching engine: plan generation ----------
 
-  function sessionTypesForWeek(goal, w, isTaper) {
+  function taperWeeksFor(goal, totalWeeks) {
+    if (totalWeeks < 3) return 0;
+    var d = goal.targetDistance;
+    var isUltraTrail = goal.sport === "trail" && d >= 60;
+    if (isUltraTrail) return Math.min(3, totalWeeks - 1);
+    if (d >= 35) return Math.min(2, totalWeeks - 1);
+    if (d >= 18) return Math.min(2, totalWeeks - 1);
+    return Math.min(1, totalWeeks - 1);
+  }
+
+  function phaseForWeek(goal, w) {
+    if (w >= goal.progWeeks) return "taper";
+    var baseEnd = Math.max(1, Math.round(goal.progWeeks * 0.35));
+    var devEnd = Math.max(baseEnd + 1, Math.round(goal.progWeeks * 0.7));
+    if (w < baseEnd) return "base";
+    if (w < devEnd) return "dev";
+    return "peak";
+  }
+
+  var PHASE_LABELS = {
+    base: "Base",
+    dev: "Développement",
+    peak: "Pic",
+    taper: "Affûtage"
+  };
+
+  function sessionTypesForWeek(goal, w, phase) {
     var n = goal.sessionsPerWeek;
     if (n === 1) return ["Sortie longue"];
     if (n === 2) return ["Endurance fondamentale", "Sortie longue"];
+
+    var isFinalWeek = w === goal.totalWeeks - 1;
     var quality;
-    if (isTaper) quality = "Activation";
-    else if (goal.sport === "trail") quality = "Côtes";
-    else quality = (w % 2 === 0) ? "Fractionné" : "Seuil";
+
+    if (phase === "taper") {
+      if (isFinalWeek) quality = "Activation";
+      else if (goal.sport === "trail") quality = "Côtes";
+      else quality = "Seuil";
+    } else if (phase === "base") {
+      quality = "Côtes";
+    } else if (phase === "dev") {
+      if (goal.sport === "trail") {
+        quality = (w % 2 === 0) ? "Côtes" : "VMA longue";
+      } else {
+        var cycle = w % 3;
+        quality = cycle === 0 ? "VMA courte" : cycle === 1 ? "Seuil" : "VMA longue";
+      }
+    } else {
+      if (goal.sport === "trail") {
+        quality = (w % 2 === 0) ? "Allure spécifique" : "Côtes";
+      } else {
+        quality = (w % 2 === 0) ? "Allure spécifique" : "Seuil";
+      }
+    }
     return [quality, "Endurance fondamentale", "Sortie longue"];
   }
 
@@ -228,6 +278,8 @@
     if (!zones) return null;
     switch (type) {
       case "Fractionné": return zones.z5;
+      case "VMA courte": return Math.round((zones.z5 + (zones.speed || zones.z5)) / 2);
+      case "VMA longue": return zones.z5;
       case "Côtes": return zones.z5;
       case "Seuil": return zones.z4;
       case "Endurance fondamentale": return zones.z2;
@@ -241,7 +293,10 @@
   function parisTrainingSpot(type, sport) {
     switch (type) {
       case "Fractionné":
+      case "VMA courte":
+      case "VMA longue":
       case "Seuil":
+      case "Allure spécifique":
         return "Idéal sur piste d'athlétisme, quais de Seine ou Champ de Mars pour des repères de distance fiables.";
       case "Côtes":
         return "Buttes-Chaumont ou Montmartre : les seuls vrais reliefs praticables intra-muros.";
@@ -260,6 +315,9 @@
 
   function buildSessionPaceAndDetail(type, distanceKm, zones, opts) {
     var pace = zonePaceFor(type, zones);
+    if (type === "Allure spécifique") {
+      pace = opts.goalPace || (zones ? zones.z3 : null);
+    }
     var paceStr = formatPaceSec(pace);
     var detail;
 
@@ -271,6 +329,27 @@
         detail = "Échauffement 15min facile. " + reps + " x " + repM + "m" +
           (paceStr ? " à " + paceStr + " (zone 5)" : " en fractionné soutenu") +
           ", récupération " + recover + " trot très facile entre les répétitions. Retour au calme 10min.";
+        break;
+      }
+      case "VMA courte": {
+        var reps3 = Math.max(8, Math.min(16, Math.round(distanceKm * 3)));
+        detail = "Échauffement 15min facile + gammes/lignes droites. " + reps3 + " x 30sec rapide" +
+          (paceStr ? " (proche " + paceStr + ", zone 5+)" : "") +
+          " / 30sec récupération active trot, en 1-2 blocs avec 2-3min de récupération entre les blocs si besoin. Retour au calme 10min.";
+        break;
+      }
+      case "VMA longue": {
+        var repMin = distanceKm <= 5 ? 3 : 4;
+        var reps4 = Math.max(4, Math.min(8, Math.round(distanceKm / 1.2)));
+        detail = "Échauffement 15min facile. " + reps4 + " x " + repMin + "min" +
+          (paceStr ? " à " + paceStr + " (zone 5)" : " à allure VO2max") +
+          ", récupération " + repMin + "min trot très facile entre les répétitions. Retour au calme 10min.";
+        break;
+      }
+      case "Allure spécifique": {
+        detail = "Échauffement 15min facile. " + fmtNum(distanceKm) + "km au total à l'allure objectif" +
+          (paceStr ? " (" + paceStr + ")" : "") +
+          ", en 2-3 blocs avec 2-3min de récupération trot entre chaque, pour habituer le corps au rythme de course. Retour au calme 10min.";
         break;
       }
       case "Côtes": {
@@ -285,18 +364,18 @@
       case "Seuil": {
         var mins = pace ? Math.round(((distanceKm * pace) / 60) * 0.7) : null;
         detail = "Échauffement 15min facile. " +
-          (mins ? mins + "min continu" : distanceKm + "km") +
+          (mins ? mins + "min continu" : fmtNum(distanceKm) + "km") +
           (paceStr ? " en zone 4 (" + paceStr + ")" : " à allure soutenue mais tenable") +
           ", effort régulier sans à-coups. Retour au calme 10min.";
         break;
       }
       case "Endurance fondamentale": {
-        detail = distanceKm + "km en zone 2" + (paceStr ? " (" + paceStr + ")" : "") +
+        detail = fmtNum(distanceKm) + "km en zone 2" + (paceStr ? " (" + paceStr + ")" : "") +
           ", effort confortable, tu dois pouvoir parler.";
         break;
       }
       case "Sortie longue": {
-        detail = distanceKm + "km en zone 2-3" + (paceStr ? " (autour de " + paceStr + ")" : "") + ", régulier";
+        detail = fmtNum(distanceKm) + "km en zone 2-3" + (paceStr ? " (autour de " + paceStr + ")" : "") + ", régulier";
         if (opts.sport === "trail" && opts.elevTarget) {
           detail += ", D+ ~" + opts.elevTarget + "m, gère l'effort en montée, mouline en descente";
         }
@@ -307,11 +386,11 @@
         break;
       }
       case "Activation": {
-        detail = distanceKm + "km très facile (zone 1) avec 4 à 6 accélérations progressives de 15-20sec (retour au calme entre chaque), pour rester réactif sans fatiguer.";
+        detail = fmtNum(distanceKm) + "km très facile (zone 1) avec 4 à 6 accélérations progressives de 15-20sec (retour au calme entre chaque), pour rester réactif sans fatiguer.";
         break;
       }
       case "Récupération": {
-        detail = "Footing très facile " + distanceKm + "km (zone 1" + (paceStr ? ", " + paceStr + " ou plus lent" : "") + "), focus relâchement et respiration.";
+        detail = "Footing très facile " + fmtNum(distanceKm) + "km (zone 1" + (paceStr ? ", " + paceStr + " ou plus lent" : "") + "), focus relâchement et respiration.";
         break;
       }
       default:
@@ -346,8 +425,10 @@
       arr.push(val);
       prev = val;
     }
+    var peakActual = prev;
     for (var t = 0; t < taperWeeks; t++) {
-      arr.push(Math.round(longRunCap * 0.6 * 10) / 10);
+      var taperRatio = Math.max(0.35, 0.70 - t * 0.15);
+      arr.push(Math.round(peakActual * taperRatio * 10) / 10);
     }
     return arr;
   }
@@ -356,8 +437,7 @@
     var startMonday = nextMonday(todayDate());
     var targetDate = parseISO(goal.targetDate);
     var totalWeeks = Math.max(1, Math.ceil(diffDays(targetDate, startMonday) / 7));
-    var longRace = goal.sport === "trail" && goal.targetDistance >= 42;
-    var taperWeeks = totalWeeks >= 3 ? (longRace ? Math.min(2, totalWeeks - 1) : 1) : 0;
+    var taperWeeks = taperWeeksFor(goal, totalWeeks);
     var progWeeks = Math.max(1, totalWeeks - taperWeeks);
     var offsets = WEEKDAY_OFFSETS[goal.sessionsPerWeek];
     var zones = getActiveZones(profile);
@@ -375,10 +455,11 @@
 
     for (var w = 0; w < totalWeeks; w++) {
       var weekStart = addDays(startMonday, w * 7);
-      var isTaper = w >= progWeeks;
+      var phase = phaseForWeek(goal, w);
+      var isTaper = phase === "taper";
       var longDist = weeklyLongDist[w];
 
-      var types = sessionTypesForWeek(goal, w, isTaper);
+      var types = sessionTypesForWeek(goal, w, phase);
 
       offsets.forEach(function (offset, i) {
         var date = addDays(weekStart, offset);
@@ -386,9 +467,9 @@
         var type = types[i];
         var dist;
         if (type === "Sortie longue") dist = longDist;
-        else if (type === "Endurance fondamentale") dist = Math.round(longDist * 0.5 * 10) / 10;
+        else if (type === "Endurance fondamentale") dist = Math.round(longDist * 0.6 * 10) / 10;
         else if (type === "Activation") dist = Math.max(3, Math.round(longDist * 0.25 * 10) / 10);
-        else dist = Math.round(longDist * 0.4 * 10) / 10;
+        else dist = Math.round(longDist * 0.45 * 10) / 10;
 
         var elevTarget = (elevRatio && (type === "Sortie longue" || type === "Côtes")) ? Math.round(dist * elevRatio) : 0;
         var isGoalPaceWeek = !isTaper && !!goalPace && (w >= progWeeks - 2);
@@ -404,6 +485,7 @@
           id: uid(),
           goalId: goal.id,
           week: w + 1,
+          phase: phase,
           date: toISO(date),
           type: type,
           targetDistance: dist,
@@ -471,6 +553,70 @@
 
   // ---------- rendering: dashboard ----------
 
+  var INTENSITY_FACTOR = {
+    "Récupération": 0.7,
+    "Endurance fondamentale": 1.0,
+    "Activation": 0.9,
+    "Sortie longue": 1.15,
+    "Seuil": 1.35,
+    "VMA courte": 1.6,
+    "VMA longue": 1.55,
+    "Fractionné": 1.5,
+    "Côtes": 1.45,
+    "Allure spécifique": 1.4,
+    "Course": 1.7
+  };
+
+  function runLoad(run) {
+    var factor = INTENSITY_FACTOR[run.type] || 1.0;
+    return run.distance * factor;
+  }
+
+  function computeACWR() {
+    var today = todayDate();
+    var acuteStart = addDays(today, -6);
+    var chronicStart = addDays(today, -27);
+    var acute = 0;
+    var chronic = 0;
+    var hasChronicData = false;
+    state.runs.forEach(function (r) {
+      var rd = parseISO(r.date);
+      if (rd < chronicStart || rd > today) return;
+      var load = runLoad(r);
+      chronic += load;
+      hasChronicData = true;
+      if (rd >= acuteStart) acute += load;
+    });
+    if (!hasChronicData) return { acute: 0, chronic: 0, ratio: null, status: "insuffisant" };
+    var chronicWeekly = chronic / 4;
+    if (chronicWeekly <= 0) return { acute: acute, chronic: 0, ratio: null, status: "insuffisant" };
+    var ratio = acute / chronicWeekly;
+    var status;
+    if (ratio < 0.8) status = "sous-charge";
+    else if (ratio <= 1.3) status = "optimale";
+    else if (ratio <= 1.5) status = "vigilance";
+    else status = "risque";
+    return { acute: acute, chronic: chronicWeekly, ratio: ratio, status: status };
+  }
+
+  var ACWR_LABELS = {
+    "insuffisant": ["Pas assez de données", "Ajoute au moins 2 semaines de courses pour calculer ta charge (ACWR)."],
+    "sous-charge": ["Sous-charge", "Charge en dessous de ta moyenne récente : marge de progression."],
+    "optimale": ["Zone optimale", "Charge d'entraînement équilibrée par rapport à tes 4 dernières semaines."],
+    "vigilance": ["Vigilance", "Charge en hausse rapide, sois attentif aux signaux de fatigue."],
+    "risque": ["Risque élevé", "Hausse de charge trop rapide : envisage une semaine plus légère."]
+  };
+
+  function renderACWR() {
+    var acwr = computeACWR();
+    var labels = ACWR_LABELS[acwr.status];
+    var valueStr = acwr.ratio === null ? "--" : acwr.ratio.toFixed(2);
+    document.getElementById("acwr-display").innerHTML =
+      '<div class="acwr-value">' + valueStr + '</div>' +
+      '<div class="acwr-status acwr-' + acwr.status + '">' + labels[0] + '</div>' +
+      '<div class="dlg-hint" style="margin:8px 0 0;">' + labels[1] + '</div>';
+  }
+
   function goalProgress(goal) {
     var sessions = sessionsForGoal(goal.id);
     var total = sessions.length;
@@ -527,6 +673,8 @@
     document.getElementById("totals-stats").innerHTML =
       stat(fmtKm(monthDistance), "Ce mois-ci") +
       stat(fmtKm(yearDistance), "Cette année");
+
+    renderACWR();
 
     drawWeekChart(document.getElementById("week-chart"), last8WeeksData());
 
@@ -730,7 +878,9 @@
 
     var weeksHtml = Object.keys(byWeek).sort(function (a, b) { return a - b; }).map(function (w) {
       var items = byWeek[w].map(renderSessionItem).join("");
-      return '<div class="week-block"><h4>Semaine ' + w + '</h4>' + items + '</div>';
+      var phase = byWeek[w][0] && byWeek[w][0].phase;
+      var phaseLabel = phase ? ' <span class="phase-badge phase-' + phase + '">' + PHASE_LABELS[phase] + '</span>' : "";
+      return '<div class="week-block"><h4>Semaine ' + w + phaseLabel + '</h4>' + items + '</div>';
     }).join("");
 
     var metaParts = [goal.targetDistance + " km", formatDateFull(goal.targetDate)];
