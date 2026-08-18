@@ -281,8 +281,8 @@
 
   function phaseForWeek(goal, w) {
     if (w >= goal.progWeeks) return "taper";
-    var baseEnd = Math.max(1, Math.round(goal.progWeeks * 0.35));
-    var devEnd = Math.max(baseEnd + 1, Math.round(goal.progWeeks * 0.7));
+    var baseEnd = Math.max(1, Math.round(goal.progWeeks * 0.4));
+    var devEnd = Math.max(baseEnd + 1, Math.round(goal.progWeeks * 0.8));
     if (w < baseEnd) return "base";
     if (w < devEnd) return "dev";
     return "peak";
