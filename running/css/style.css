@@ -345,6 +345,7 @@ h1, h2, h3 { margin: 0; }
 .phase-dev { background: rgba(255, 90, 54, 0.15); color: var(--accent-1); }
 .phase-peak { background: rgba(247, 37, 133, 0.15); color: var(--accent-2); }
 .phase-taper { background: rgba(47, 179, 106, 0.15); color: var(--success); }
+.phase-decharge { background: rgba(255, 159, 28, 0.18); color: #d97706; }
 
 .session-item {
   display: flex;

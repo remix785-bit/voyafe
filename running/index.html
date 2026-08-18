@@ -174,6 +174,9 @@
     <label>Durée réelle (minutes)
       <input type="number" id="done-duration" min="0" step="1" required>
     </label>
+    <label>Ressenti d'effort RPE (1-10)
+      <input type="number" id="done-rpe" min="1" max="10" step="1" placeholder="1 = très facile, 10 = maximal">
+    </label>
     <label>Notes (optionnel)
       <textarea id="done-notes" rows="2"></textarea>
     </label>
@@ -195,13 +198,10 @@
     <label>Type de séance
       <select id="run-type">
         <option>Endurance fondamentale</option>
-        <option>VMA courte</option>
-        <option>VMA longue</option>
-        <option>Fractionné</option>
+        <option>VMA</option>
         <option>Seuil</option>
-        <option>Allure spécifique</option>
-        <option>Côtes</option>
         <option>Sortie longue</option>
+        <option>Côtes</option>
         <option>Activation</option>
         <option>Récupération</option>
         <option>Course</option>
@@ -212,6 +212,9 @@
     </label>
     <label>Durée (minutes)
       <input type="number" id="run-duration" min="0" step="1" required>
+    </label>
+    <label>Ressenti d'effort RPE (1-10)
+      <input type="number" id="run-rpe" min="1" max="10" step="1" placeholder="1 = très facile, 10 = maximal">
     </label>
     <label>Dénivelé (m, optionnel)
       <input type="number" id="run-elevation" min="0" step="1">
@@ -235,55 +238,25 @@
 <dialog id="dlg-profile">
   <form method="dialog" id="form-profile" class="dlg-form">
     <h2>Mon profil coureur</h2>
-    <label>Niveau
-      <select id="profile-level">
-        <option value="debutant">Débutant</option>
-        <option value="intermediaire" selected>Intermédiaire</option>
-        <option value="confirme">Confirmé</option>
-      </select>
+    <p class="dlg-hint">Ta VMA (vitesse maximale aérobie) sert de base au calcul de toutes tes allures d'entraînement. Renseigne-la directement si tu la connais, sinon indique une performance récente pour l'estimer.</p>
+    <label>VMA connue (km/h, optionnel)
+      <input type="number" id="profile-vma" min="0" step="0.1" placeholder="Ex: 16.5">
     </label>
-    <p class="dlg-hint">Ton niveau ajuste la prudence de la progression (hausse de volume, fréquence des semaines de récupération, plafond de la plus longue sortie).</p>
-    <p class="dlg-hint">Tes temps de référence servent à calculer tes allures d'entraînement (méthode équivalence de performance).</p>
-    <label>1 km
-      <input type="text" id="ref-1k" placeholder="mm:ss">
+    <p class="dlg-hint">Performance récente (utilisée si la VMA n'est pas renseignée directement)</p>
+    <label>Distance (km)
+      <input type="number" id="perf-distance" min="0" step="any" placeholder="Ex: 10">
     </label>
-    <label>5 km
-      <input type="text" id="ref-5k" placeholder="mm:ss">
+    <label>Temps
+      <input type="text" id="perf-time" placeholder="hh:mm:ss ou mm:ss">
     </label>
-    <label>10 km
-      <input type="text" id="ref-10k" placeholder="mm:ss">
+    <label>Date de la performance
+      <input type="date" id="perf-date">
     </label>
-    <label>Semi-marathon
-      <input type="text" id="ref-semi" placeholder="hh:mm:ss">
+    <label>Plus longue sortie actuelle (km)
+      <input type="number" id="profile-long-run" min="0" step="any" placeholder="Ex: 12">
     </label>
 
-    <div id="zones-computed" class="zones-grid"></div>
-
-    <label class="checkbox-label">
-      <input type="checkbox" id="zones-manual-toggle">
-      Définir mes allures manuellement
-    </label>
-
-    <div class="field-group" id="zones-manual-fields" hidden>
-      <label>Zone 1 · Récupération
-        <input type="text" id="zone-1" placeholder="mm:ss/km">
-      </label>
-      <label>Zone 2 · Fondamentale
-        <input type="text" id="zone-2" placeholder="mm:ss/km">
-      </label>
-      <label>Zone 3 · Marathon / Tempo
-        <input type="text" id="zone-3" placeholder="mm:ss/km">
-      </label>
-      <label>Zone 4 · Seuil
-        <input type="text" id="zone-4" placeholder="mm:ss/km">
-      </label>
-      <label>Zone 5 · VMA / Intervalle
-        <input type="text" id="zone-5" placeholder="mm:ss/km">
-      </label>
-      <label>Vitesse (allure 1km, optionnel)
-        <input type="text" id="zone-speed" placeholder="mm:ss/km">
-      </label>
-    </div>
+    <div id="vma-preview" class="zones-grid"></div>
 
     <div class="dlg-actions">
       <button type="button" class="btn btn-ghost" data-close>Annuler</button>

@@ -16,11 +16,22 @@
       data.planSessions = data.planSessions || [];
       data.runs = data.runs || [];
       data.profile = data.profile || {};
-      data.profile.refTimes = data.profile.refTimes || { t1k: null, t5k: null, t10k: null, tSemi: null };
-      data.profile.zonesMode = data.profile.zonesMode || "auto";
-      data.profile.manualZones = data.profile.manualZones || { z1: null, z2: null, z3: null, z4: null, z5: null, speed: null };
-      data.profile.level = data.profile.level || "intermediaire";
-      data.profile.zonesHistory = data.profile.zonesHistory || [];
+      if (data.profile.vmaKmh === undefined) data.profile.vmaKmh = null;
+      if (!data.profile.recentPerformance) {
+        var legacy = data.profile.refTimes || {};
+        var fallback = legacy.t10k ? [10, legacy.t10k] : legacy.t5k ? [5, legacy.t5k] : legacy.tSemi ? [21.0975, legacy.tSemi] : legacy.t1k ? [1, legacy.t1k] : null;
+        data.profile.recentPerformance = fallback
+          ? { distanceKm: fallback[0], timeSec: fallback[1], date: toISO(todayDate()) }
+          : { distanceKm: null, timeSec: null, date: null };
+      }
+      if (data.profile.currentLongRunKm === undefined) data.profile.currentLongRunKm = null;
+      data.profile.vmaHistory = data.profile.vmaHistory || [];
+      delete data.profile.refTimes;
+      delete data.profile.zonesMode;
+      delete data.profile.manualZones;
+      delete data.profile.level;
+      delete data.profile.zonesHistory;
+
       data.goals.forEach(function (g) {
         if (!g.sport) g.sport = "route";
         if (g.elevationGain === undefined) g.elevationGain = null;
@@ -35,7 +46,10 @@
       });
       return data;
     } catch (e) {
-      return { goals: [], planSessions: [], runs: [], profile: { refTimes: {}, zonesMode: "auto", manualZones: {}, level: "intermediaire", zonesHistory: [] } };
+      return {
+        goals: [], planSessions: [], runs: [],
+        profile: { vmaKmh: null, recentPerformance: { distanceKm: null, timeSec: null, date: null }, currentLongRunKm: null, vmaHistory: [] }
+      };
     }
   }
 
@@ -145,424 +159,422 @@
     return m + ":" + String(s).padStart(2, "0");
   }
 
-  // ---------- coaching engine: pace zones ----------
+  // ============================================================
+  // Coaching engine — VMA-based methodology (spec followed literally)
+  // ============================================================
+
+  // ---------- §2: pace engine ----------
 
   function riegelPredict(t, d1, d2) {
     return t * Math.pow(d2 / d1, 1.06);
   }
 
-  function zonesFromKnownPerformances(known) {
-    if (!known.length) return null;
+  var PCT_VMA_TABLE = [
+    [1.5, 1.00],
+    [3, 0.95],
+    [5, 0.90],
+    [10, 0.85],
+    [21.0975, 0.80],
+    [42.195, 0.75]
+  ];
 
-    function paceAt(d) {
-      var estimates = known.map(function (e) {
-        var dk = e[0], tk = e[1];
-        var predicted = dk === d ? tk : riegelPredict(tk, dk, d);
-        return predicted / d;
-      });
-      return estimates.reduce(function (a, b) { return a + b; }, 0) / estimates.length;
+  function pctVMAForDistance(distanceKm) {
+    var table = PCT_VMA_TABLE;
+    if (distanceKm <= table[0][0]) return table[0][1];
+    var last = table[table.length - 1];
+    if (distanceKm >= last[0]) {
+      var prev = table[table.length - 2];
+      var slope = (last[1] - prev[1]) / (last[0] - prev[0]);
+      return Math.max(0.60, last[1] + slope * (distanceKm - last[0]));
     }
-
-    var T = paceAt(16);
-    var E = T + 70;
-    return {
-      z1: E + 40,
-      z2: E,
-      z3: paceAt(42.195),
-      z4: T,
-      z5: paceAt(5),
-      speed: paceAt(1)
-    };
+    for (var i = 0; i < table.length - 1; i++) {
+      var a = table[i], b = table[i + 1];
+      if (distanceKm >= a[0] && distanceKm <= b[0]) {
+        var t = (distanceKm - a[0]) / (b[0] - a[0]);
+        return a[1] + (b[1] - a[1]) * t;
+      }
+    }
+    return 0.75;
   }
 
-  function computeZonesFromRefTimes(refTimes) {
-    var known = [];
-    if (refTimes.t1k) known.push([1, refTimes.t1k]);
-    if (refTimes.t5k) known.push([5, refTimes.t5k]);
-    if (refTimes.t10k) known.push([10, refTimes.t10k]);
-    if (refTimes.tSemi) known.push([21.0975, refTimes.tSemi]);
-    return zonesFromKnownPerformances(known);
+  function estimateVMA(perf) {
+    if (!perf || !perf.distanceKm || !perf.timeSec) return null;
+    var pct = pctVMAForDistance(perf.distanceKm);
+    var speedKmh = perf.distanceKm / (perf.timeSec / 3600);
+    return speedKmh / pct;
   }
 
-  function computeGoalZones(goal) {
-    if (!goal.targetTimeSec) return null;
-    return zonesFromKnownPerformances([[goal.targetDistance, goal.targetTimeSec]]);
-  }
-
-  function blendedZonesForWeek(currentZones, goalZones, weekIndex, progWeeks, ambitious) {
-    if (!goalZones) return currentZones;
-    if (!currentZones) return goalZones;
-    var maxBlend = ambitious ? 0.55 : 0.85;
-    var t = progWeeks > 1 ? weekIndex / (progWeeks - 1) : 1;
-    var blend = 0.1 + (maxBlend - 0.1) * Math.min(1, Math.max(0, t));
-    function lerp(a, b) { return a + (b - a) * blend; }
-    return {
-      z1: lerp(currentZones.z1, goalZones.z1),
-      z2: lerp(currentZones.z2, goalZones.z2),
-      z3: lerp(currentZones.z3, goalZones.z3),
-      z4: lerp(currentZones.z4, goalZones.z4),
-      z5: lerp(currentZones.z5, goalZones.z5),
-      speed: lerp(currentZones.speed, goalZones.speed)
-    };
-  }
-
-  function getActiveZones(profile) {
+  function getVMA(profile) {
     if (!profile) return null;
-    if (profile.zonesMode === "manual") {
-      var mz = profile.manualZones;
-      if (mz && mz.z1 && mz.z2 && mz.z3 && mz.z4 && mz.z5) return mz;
-      return null;
-    }
-    return computeZonesFromRefTimes(profile.refTimes || {});
+    if (profile.vmaKmh) return profile.vmaKmh;
+    return estimateVMA(profile.recentPerformance);
   }
 
-  function currentFitnessKnownPairs(profile) {
-    if (!profile) return [];
-    if (profile.zonesMode === "manual") {
-      var mz = profile.manualZones;
-      return (mz && mz.z4) ? [[16, mz.z4 * 16]] : [];
-    }
-    var refTimes = profile.refTimes || {};
-    var known = [];
-    if (refTimes.t1k) known.push([1, refTimes.t1k]);
-    if (refTimes.t5k) known.push([5, refTimes.t5k]);
-    if (refTimes.t10k) known.push([10, refTimes.t10k]);
-    if (refTimes.tSemi) known.push([21.0975, refTimes.tSemi]);
-    return known;
+  function paceFromPctVMA(vmaKmh, pct) {
+    if (!vmaKmh || !pct) return null;
+    var speedKmh = vmaKmh * pct;
+    return Math.round(3600 / speedKmh);
   }
 
-  function predictedPaceForDistance(profile, distanceKm) {
-    var known = currentFitnessKnownPairs(profile);
-    if (!known.length) return null;
-    var estimates = known.map(function (e) {
-      var dk = e[0], tk = e[1];
-      var predicted = dk === distanceKm ? tk : riegelPredict(tk, dk, distanceKm);
-      return predicted / distanceKm;
-    });
-    return estimates.reduce(function (a, b) { return a + b; }, 0) / estimates.length;
+  function distanceFromPace(paceSecPerKm, minutes) {
+    if (!paceSecPerKm) return 0;
+    return (minutes * 60) / paceSecPerKm;
+  }
+
+  function computeGoalTiming(goal, vmaKmh) {
+    var pct = pctVMAForDistance(goal.targetDistance);
+    var predictedTimeSec = vmaKmh ? (goal.targetDistance / (vmaKmh * pct)) * 3600 : null;
+    if (goal.targetTimeSec && !goal.targetTimeEstimated) {
+      var ambitious = predictedTimeSec ? goal.targetTimeSec < predictedTimeSec * 0.97 : false;
+      return { targetTimeSec: goal.targetTimeSec, ambitious: ambitious };
+    }
+    return { targetTimeSec: predictedTimeSec ? Math.round(predictedTimeSec) : goal.targetTimeSec, ambitious: false };
   }
 
   function isAmbitiousGoal(goal, profile) {
-    if (!goal.targetTimeSec) return false;
-    var predictedPace = predictedPaceForDistance(profile, goal.targetDistance);
-    if (predictedPace === null) return false;
-    var goalPace = goal.targetTimeSec / goal.targetDistance;
-    return goalPace < predictedPace * 0.97;
+    var vma = getVMA(profile);
+    if (!vma || !goal.targetTimeSec) return false;
+    return computeGoalTiming(goal, vma).ambitious;
   }
 
-  var LEVEL_PARAMS = {
-    debutant: { growthCap: 1.10, cutbackEvery: 3, longRunCapRatio: 0.65, startLongRatio: 0.30 },
-    intermediaire: { growthCap: 1.15, cutbackEvery: 4, longRunCapRatio: 0.75, startLongRatio: 0.35 },
-    confirme: { growthCap: 1.20, cutbackEvery: 5, longRunCapRatio: 0.85, startLongRatio: 0.40 }
-  };
-
-  function levelParams(profile) {
-    return LEVEL_PARAMS[(profile && profile.level) || "intermediaire"];
-  }
-
-  function snapshotZones() {
-    var zones = getActiveZones(state.profile);
-    if (!zones) return;
+  function snapshotVMA() {
+    var vma = getVMA(state.profile);
+    if (!vma) return;
     var today = toISO(todayDate());
-    var history = state.profile.zonesHistory;
+    var history = state.profile.vmaHistory;
     var last = history[history.length - 1];
     if (last && last.date === today) {
-      last.z4 = zones.z4;
+      last.vmaKmh = vma;
     } else {
-      history.push({ date: today, z4: zones.z4 });
+      history.push({ date: today, vmaKmh: vma });
     }
   }
 
-  // ---------- coaching engine: plan generation ----------
+  // ---------- §3: plan duration, phases, taper ----------
 
-  function taperWeeksFor(goal, totalWeeks) {
-    if (totalWeeks < 3) return 0;
-    var d = goal.targetDistance;
-    var isUltraTrail = goal.sport === "trail" && d >= 60;
-    if (isUltraTrail) return Math.min(3, totalWeeks - 1);
-    if (d >= 35) return Math.min(2, totalWeeks - 1);
-    if (d >= 18) return Math.min(2, totalWeeks - 1);
-    return Math.min(1, totalWeeks - 1);
+  var MIN_WEEKS_TABLE = [[5, 4], [10, 6], [21.0975, 8], [42.195, 10]];
+  var TAPER_DAYS_TABLE = [[5, 5], [10, 7], [21.0975, 10], [42.195, 14]];
+
+  function lookupByDistance(table, distanceKm) {
+    for (var i = 0; i < table.length; i++) {
+      if (distanceKm <= table[i][0]) return table[i][1];
+    }
+    return table[table.length - 1][1];
+  }
+
+  function minWeeksFor(distanceKm) { return lookupByDistance(MIN_WEEKS_TABLE, distanceKm); }
+  function taperDaysFor(distanceKm) { return lookupByDistance(TAPER_DAYS_TABLE, distanceKm); }
+
+  function splitPhases(totalWeeks, distanceKm) {
+    var condensed = totalWeeks < minWeeksFor(distanceKm);
+    var taperDays = condensed ? Math.min(taperDaysFor(distanceKm), 7) : taperDaysFor(distanceKm);
+    var taperWeeks = Math.max(1, Math.ceil(taperDays / 7));
+    taperWeeks = Math.min(taperWeeks, Math.max(0, totalWeeks - 1));
+    var remaining = Math.max(1, totalWeeks - taperWeeks);
+    var baseWeeks, devWeeks, peakWeeks;
+    if (condensed) {
+      baseWeeks = 0;
+      devWeeks = Math.max(1, Math.round(remaining * 0.6));
+      peakWeeks = Math.max(1, remaining - devWeeks);
+    } else {
+      baseWeeks = Math.round(remaining * 0.35);
+      devWeeks = Math.round(remaining * 0.40);
+      peakWeeks = remaining - baseWeeks - devWeeks;
+      if (peakWeeks < 1) {
+        peakWeeks = 1;
+        devWeeks = Math.max(1, remaining - baseWeeks - peakWeeks);
+      }
+    }
+    return { taperDays: taperDays, taperWeeks: taperWeeks, baseWeeks: baseWeeks, devWeeks: devWeeks, peakWeeks: peakWeeks, condensed: condensed };
   }
 
   function phaseForWeek(goal, w) {
     if (w >= goal.progWeeks) return "taper";
-    var baseEnd = Math.max(1, Math.round(goal.progWeeks * 0.4));
-    var devEnd = Math.max(baseEnd + 1, Math.round(goal.progWeeks * 0.8));
-    if (w < baseEnd) return "base";
-    if (w < devEnd) return "dev";
+    if (w < goal.baseWeeks) return "base";
+    if (w < goal.baseWeeks + goal.devWeeks) return "dev";
     return "peak";
   }
 
-  var PHASE_LABELS = {
-    base: "Base",
-    dev: "Développement",
-    peak: "Pic",
-    taper: "Affûtage"
+  var PHASE_LABELS = { base: "Base", dev: "Développement", peak: "Pic", taper: "Affûtage" };
+
+  // ---------- §4 + §5: session templates & lever-rotation progression ----------
+
+  var PHASE_TEMPLATES = {
+    base: { vmaReps: 8, vmaMeters: 400, vmaPct: 1.00, vmaRecoverSec: 90, seuilMin: 15, seuilBlocks: 1, seuilPct: 0.85, seuilRecoverMin: 0, longTailPct: 0 },
+    dev: { vmaReps: 10, vmaMeters: 400, vmaPct: 1.025, vmaRecoverSec: 75, seuilMin: 10, seuilBlocks: 3, seuilPct: 0.87, seuilRecoverMin: 2, longTailPct: 0.25 },
+    peak: { vmaReps: 12, vmaMeters: 400, vmaPct: 1.075, vmaRecoverSec: 60, seuilMin: 20, seuilBlocks: 2, seuilPct: 0.88, seuilRecoverMin: 3, longTailPct: 0.375 }
   };
 
-  function sessionTypesForWeek(goal, w, phase) {
-    var n = goal.sessionsPerWeek;
-    if (n === 1) return ["Sortie longue"];
-    if (n === 2) return ["Endurance fondamentale", "Sortie longue"];
+  var LEVER_INCREMENTS = {
+    base: { long_run: 1.5, seuil: 2, vma: 1 },
+    dev: { long_run: 2.0, seuil: 3, vma: 2 },
+    peak: { long_run: 1.0, seuil: 2, vma: 1 }
+  };
 
-    var isFinalWeek = w === goal.totalWeeks - 1;
-    var quality;
+  var LONG_TAIL_PCT_VMA = 0.80;
+  var LONG_BASE_PCT_VMA = 0.725;
 
-    if (phase === "taper") {
-      if (isFinalWeek) quality = "Activation";
-      else if (goal.sport === "trail") quality = (w % 2 === 0) ? "Côtes" : "Allure spécifique";
-      else quality = (w % 2 === 0) ? "Seuil" : "Allure spécifique";
-    } else if (phase === "base") {
-      if (goal.sport === "trail") {
-        quality = (w % 3 === 2) ? "Récupération" : "Côtes";
-      } else {
-        quality = (w % 3 === 0) ? "Côtes" : "Récupération";
+  function buildWeeklyParams(goal) {
+    var progWeeks = goal.progWeeks;
+    var distancePic = Math.min(0.65 * goal.targetDistance, 32);
+    var longRunKm = goal.currentLongRunKm || 12;
+    var seuilMin = null, vmaReps = null, currentPhase = null;
+    var weeks = [];
+
+    for (var w = 0; w < progWeeks; w++) {
+      var weekIndex = w + 1;
+      var phase = phaseForWeek(goal, w);
+      if (phase !== currentPhase) {
+        seuilMin = PHASE_TEMPLATES[phase].seuilMin;
+        vmaReps = PHASE_TEMPLATES[phase].vmaReps;
+        currentPhase = phase;
       }
-    } else if (phase === "dev") {
-      var cycle = w % 3;
-      if (goal.sport === "trail") {
-        quality = cycle === 0 ? "Côtes" : cycle === 1 ? "Seuil" : "VMA longue";
+
+      var isDecharge = weekIndex % 4 === 0;
+      var lever = null;
+      if (isDecharge) {
+        longRunKm = Math.max(goal.currentLongRunKm || 8, Math.round(longRunKm * 0.72 * 10) / 10);
+        seuilMin = Math.max(8, Math.round(seuilMin * 0.72));
+        vmaReps = Math.max(4, Math.round(vmaReps * 0.72));
       } else {
-        quality = cycle === 0 ? "VMA courte" : cycle === 1 ? "Seuil" : "VMA longue";
+        var leverIdx = (weekIndex - 1) % 3;
+        lever = ["long_run", "seuil", "vma"][leverIdx];
+        var inc = LEVER_INCREMENTS[phase];
+        if (lever === "long_run" && longRunKm < distancePic) {
+          var step = Math.min(inc.long_run, 0.10 * longRunKm, 2);
+          longRunKm = Math.min(distancePic, Math.round((longRunKm + step) * 10) / 10);
+        } else if (lever === "seuil") {
+          seuilMin = seuilMin + inc.seuil;
+        } else if (lever === "vma") {
+          vmaReps = vmaReps + inc.vma;
+        }
       }
-    } else {
-      if (goal.sport === "trail") {
-        quality = (w % 2 === 0) ? "Allure spécifique" : "Côtes";
-      } else {
-        quality = (w % 2 === 0) ? "Allure spécifique" : "Seuil";
-      }
+
+      weeks.push({
+        phase: phase, isDecharge: isDecharge, lever: lever,
+        longRunKm: Math.round(longRunKm * 10) / 10,
+        seuilMin: seuilMin, vmaReps: vmaReps
+      });
     }
-    return [quality, "Endurance fondamentale", "Sortie longue"];
+    return weeks;
   }
 
-  function zonePaceFor(type, zones) {
-    if (!zones) return null;
-    switch (type) {
-      case "Fractionné": return zones.z5;
-      case "VMA courte": return Math.round((zones.z5 + (zones.speed || zones.z5)) / 2);
-      case "VMA longue": return zones.z5;
-      case "Côtes": return zones.z5;
-      case "Seuil": return zones.z4;
-      case "Endurance fondamentale": return zones.z2;
-      case "Sortie longue": return Math.round((zones.z2 + zones.z3) / 2);
-      case "Récupération": return zones.z1;
-      case "Activation": return zones.z1;
-      default: return null;
+  function vmaSessionDetail(vmaKmh, reps, meters, pct, recoverSec, opts) {
+    var pace = paceFromPctVMA(vmaKmh, pct);
+    var paceStr = formatPaceSec(pace);
+    var distanceKm = Math.round((reps * meters / 1000) * 10) / 10;
+    var detail = "Échauffement 15min facile + gammes/lignes droites. " + reps + " x " + meters + "m" +
+      (paceStr ? " à " + paceStr : "") + " (" + Math.round(pct * 100) + "% VMA), récupération " + recoverSec + "sec trot. Retour au calme 10min.";
+    var spot = parisTrainingSpot("VMA", opts && opts.sport);
+    if (spot) detail += " " + spot;
+    return { pace: pace, distanceKm: Math.max(distanceKm, 1), detail: detail };
+  }
+
+  function seuilSessionDetail(vmaKmh, durationMin, blocks, pct, recoverMin, opts) {
+    var pace = paceFromPctVMA(vmaKmh, pct);
+    var paceStr = formatPaceSec(pace);
+    var totalMin = durationMin * blocks;
+    var distanceKm = Math.round(distanceFromPace(pace, totalMin) * 10) / 10;
+    var blocText = blocks > 1
+      ? blocks + " x " + durationMin + "min" + (paceStr ? " à " + paceStr : "") + ", récupération " + recoverMin + "min trot"
+      : durationMin + "min continu" + (paceStr ? " à " + paceStr : "");
+    var detail = "Échauffement 15min facile. " + blocText + " (" + Math.round(pct * 100) + "% VMA), effort régulier sans à-coups. Retour au calme 10min.";
+    var spot = parisTrainingSpot("Seuil", opts && opts.sport);
+    if (spot) detail += " " + spot;
+    return { pace: pace, distanceKm: Math.max(distanceKm, 1), detail: detail };
+  }
+
+  function longueSessionDetail(vmaKmh, distanceKm, tailPct, opts) {
+    var basePace = paceFromPctVMA(vmaKmh, LONG_BASE_PCT_VMA);
+    var basePaceStr = formatPaceSec(basePace);
+    var detail = fmtNum(distanceKm) + "km à allure fondamentale" + (basePaceStr ? " (" + basePaceStr + ")" : "") + ", régulier";
+    if (tailPct > 0) {
+      var tailKm = Math.round(distanceKm * tailPct * 10) / 10;
+      var tailPace = paceFromPctVMA(vmaKmh, LONG_TAIL_PCT_VMA);
+      detail += ". Termine les " + fmtNum(tailKm) + " derniers km à allure spécifique" + (tailPace ? " (" + formatPaceSec(tailPace) + ")" : "");
     }
+    if (opts && opts.sport === "trail" && opts.elevTarget) {
+      detail += ", D+ ~" + opts.elevTarget + "m, gère l'effort en montée, mouline en descente";
+    }
+    detail += ".";
+    var spot = parisTrainingSpot("Sortie longue", opts && opts.sport);
+    if (spot) detail += " " + spot;
+    return { pace: basePace, detail: detail };
   }
 
   function parisTrainingSpot(type, sport) {
-    switch (type) {
-      case "Fractionné":
-      case "VMA courte":
-      case "VMA longue":
-      case "Seuil":
-      case "Allure spécifique":
-        return "Idéal sur piste d'athlétisme, quais de Seine ou Champ de Mars pour des repères de distance fiables.";
-      case "Côtes":
-        return "Buttes-Chaumont ou Montmartre : les seuls vrais reliefs praticables intra-muros.";
-      case "Endurance fondamentale":
-      case "Activation":
-      case "Récupération":
-        return "Bois de Vincennes, Bois de Boulogne ou berges de Seine.";
-      case "Sortie longue":
-        return sport === "trail"
-          ? "Pars en forêt si possible (Fontainebleau, Meudon, Saint-Cloud) pour du vrai dénivelé ; sinon grandes boucles au Bois de Vincennes/Boulogne."
-          : "Bois de Vincennes ou Bois de Boulogne, grandes boucles à plat.";
-      default:
-        return null;
+    if (type === "VMA" || type === "Seuil") {
+      return "Idéal sur piste d'athlétisme, quais de Seine ou Champ de Mars pour des repères de distance fiables.";
+    }
+    if (type === "Sortie longue") {
+      return sport === "trail"
+        ? "Pars en forêt si possible (Fontainebleau, Meudon, Saint-Cloud) pour du vrai dénivelé ; sinon grandes boucles au Bois de Vincennes/Boulogne."
+        : "Bois de Vincennes ou Bois de Boulogne, grandes boucles à plat.";
+    }
+    return null;
+  }
+
+  // ---------- §6: detailed taper sequence (14-day marathon template, scaled) ----------
+
+  var TAPER_CHECKPOINTS_14 = [
+    { daysBefore: 14, kind: "longue", pctOfPeak: 0.60, tailPct: 0.15 },
+    { daysBefore: 10, kind: "vma-sharp" },
+    { daysBefore: 7, kind: "longue", pctOfPeak: 0.375, tailPct: 0 },
+    { daysBefore: 4, kind: "vma-accel" },
+    { daysBefore: 1.5, kind: "shakeout" }
+  ];
+
+  function taperCheckpointsFor(taperDays) {
+    var scale = taperDays / 14;
+    var seen = {};
+    var out = [];
+    TAPER_CHECKPOINTS_14.forEach(function (c) {
+      var d = Math.max(1, Math.round(c.daysBefore * scale));
+      if (seen[d]) return;
+      seen[d] = true;
+      out.push({ daysBefore: d, kind: c.kind, pctOfPeak: c.pctOfPeak, tailPct: c.tailPct });
+    });
+    return out;
+  }
+
+  function nearestCheckpoint(checkpoints, daysBefore) {
+    var best = checkpoints[0];
+    var bestDiff = Math.abs(daysBefore - best.daysBefore);
+    checkpoints.forEach(function (c) {
+      var diff = Math.abs(daysBefore - c.daysBefore);
+      if (diff < bestDiff) { best = c; bestDiff = diff; }
+    });
+    return best;
+  }
+
+  function buildTaperSession(checkpoint, peakLongRunKm, vmaKmh, opts) {
+    switch (checkpoint.kind) {
+      case "longue": {
+        var dist = Math.round(peakLongRunKm * checkpoint.pctOfPeak * 10) / 10;
+        var built = longueSessionDetail(vmaKmh, dist, checkpoint.tailPct, opts);
+        return { type: "Sortie longue", targetDistance: Math.max(dist, 3), pace: built.pace, detail: built.detail };
+      }
+      case "vma-sharp": {
+        var built2 = vmaSessionDetail(vmaKmh, 4, 400, 1.00, 90, opts);
+        built2.detail = built2.detail.replace("Échauffement 15min facile + gammes/lignes droites.", "Affûtage : échauffement 15min. Séance courte et vive, pas de charge.");
+        return { type: "VMA", targetDistance: built2.distanceKm, pace: built2.pace, detail: built2.detail };
+      }
+      case "vma-accel": {
+        var paceAccel = paceFromPctVMA(vmaKmh, 1.05);
+        var detail = "Footing très facile 15-20min puis 4 à 6 x 20sec accélérations progressives" +
+          (paceAccel ? " (proche " + formatPaceSec(paceAccel) + ")" : "") +
+          ", retour au calme entre chaque. Objectif : réactivité neuromusculaire, sans créer de fatigue.";
+        var spot = parisTrainingSpot("VMA", opts && opts.sport);
+        if (spot) detail += " " + spot;
+        return { type: "VMA", targetDistance: 4, pace: paceFromPctVMA(vmaKmh, LONG_BASE_PCT_VMA), detail: detail };
+      }
+      case "shakeout":
+      default: {
+        var easyPace = paceFromPctVMA(vmaKmh, LONG_BASE_PCT_VMA);
+        return {
+          type: "Sortie longue",
+          targetDistance: 4,
+          pace: easyPace,
+          detail: "Footing très court et facile, 20-25min" + (easyPace ? " (" + formatPaceSec(easyPace) + " ou plus lent)" : "") + ". Objectif : relâchement, jambes fraîches pour le jour J."
+        };
+      }
     }
   }
 
-  function buildSessionPaceAndDetail(type, distanceKm, zones, opts) {
-    var pace = zonePaceFor(type, zones);
-    if (type === "Allure spécifique") {
-      pace = opts.goalPace || (zones ? zones.z3 : null);
-    }
-    var paceStr = formatPaceSec(pace);
-    var detail;
-
-    switch (type) {
-      case "Fractionné": {
-        var repM = distanceKm <= 4 ? 400 : distanceKm <= 6 ? 600 : 1000;
-        var reps = Math.max(4, Math.round((distanceKm * 1000 * 0.6) / repM));
-        var recover = repM <= 400 ? "1min30" : repM <= 600 ? "2min" : "2min30";
-        detail = "Échauffement 15min facile. " + reps + " x " + repM + "m" +
-          (paceStr ? " à " + paceStr + " (zone 5)" : " en fractionné soutenu") +
-          ", récupération " + recover + " trot très facile entre les répétitions. Retour au calme 10min.";
-        break;
-      }
-      case "VMA courte": {
-        var reps3 = Math.max(8, Math.min(16, Math.round(distanceKm * 3)));
-        detail = "Échauffement 15min facile + gammes/lignes droites. " + reps3 + " x 30sec rapide" +
-          (paceStr ? " (proche " + paceStr + ", zone 5+)" : "") +
-          " / 30sec récupération active trot, en 1-2 blocs avec 2-3min de récupération entre les blocs si besoin. Retour au calme 10min.";
-        break;
-      }
-      case "VMA longue": {
-        var repMin = distanceKm <= 5 ? 3 : 4;
-        var reps4 = Math.max(4, Math.min(8, Math.round(distanceKm / 1.2)));
-        detail = "Échauffement 15min facile. " + reps4 + " x " + repMin + "min" +
-          (paceStr ? " à " + paceStr + " (zone 5)" : " à allure VO2max") +
-          ", récupération " + repMin + "min trot très facile entre les répétitions. Retour au calme 10min.";
-        break;
-      }
-      case "Allure spécifique": {
-        detail = "Échauffement 15min facile. " + fmtNum(distanceKm) + "km au total à l'allure objectif" +
-          (paceStr ? " (" + paceStr + ")" : "") +
-          ", en 2-3 blocs avec 2-3min de récupération trot entre chaque, pour habituer le corps au rythme de course. Retour au calme 10min.";
-        break;
-      }
-      case "Côtes": {
-        var reps2 = Math.max(5, Math.round(distanceKm * 2));
-        detail = "Échauffement 15min. " + reps2 + " x 45sec en côte (pente 6-8%) à effort soutenu" +
-          (paceStr ? " (proche zone 5, " + paceStr + " à plat)" : "") +
-          ", redescente lente en récupération. " +
-          (opts.elevTarget ? "D+ cumulé de la séance ~" + opts.elevTarget + "m. " : "") +
-          "Retour au calme 10min.";
-        break;
-      }
-      case "Seuil": {
-        var mins = pace ? Math.round(((distanceKm * pace) / 60) * 0.7) : null;
-        detail = "Échauffement 15min facile. " +
-          (mins ? mins + "min continu" : fmtNum(distanceKm) + "km") +
-          (paceStr ? " en zone 4 (" + paceStr + ")" : " à allure soutenue mais tenable") +
-          ", effort régulier sans à-coups. Retour au calme 10min.";
-        break;
-      }
-      case "Endurance fondamentale": {
-        detail = fmtNum(distanceKm) + "km en zone 2" + (paceStr ? " (" + paceStr + ")" : "") +
-          ", effort confortable, tu dois pouvoir parler.";
-        break;
-      }
-      case "Sortie longue": {
-        detail = fmtNum(distanceKm) + "km en zone 2-3" + (paceStr ? " (autour de " + paceStr + ")" : "") + ", régulier";
-        if (opts.sport === "trail" && opts.elevTarget) {
-          detail += ", D+ ~" + opts.elevTarget + "m, gère l'effort en montée, mouline en descente";
-        }
-        if (opts.isGoalPaceWeek && opts.goalPace) {
-          detail += ". Termine les 2-3 derniers km à l'allure objectif (" + formatPaceSec(opts.goalPace) + ")";
-        }
-        detail += ".";
-        break;
-      }
-      case "Activation": {
-        detail = fmtNum(distanceKm) + "km très facile (zone 1) avec 4 à 6 accélérations progressives de 15-20sec (retour au calme entre chaque), pour rester réactif sans fatiguer.";
-        break;
-      }
-      case "Récupération": {
-        detail = "Footing très facile " + fmtNum(distanceKm) + "km (zone 1" + (paceStr ? ", " + paceStr + " ou plus lent" : "") + "), focus relâchement et respiration.";
-        break;
-      }
-      default:
-        detail = "";
-    }
-    var spot = parisTrainingSpot(type, opts.sport);
-    if (spot) detail += " " + spot;
-    return { pace: pace, detail: detail };
-  }
-
-  function computeWeeklyLongDistances(goal, profile) {
-    var params = levelParams(profile);
-    var totalWeeks = goal.totalWeeks, taperWeeks = goal.taperWeeks, progWeeks = goal.progWeeks;
-    var isLongRace = goal.targetDistance > 32;
-    var longRunCap = isLongRace ? Math.round(goal.targetDistance * params.longRunCapRatio * 10) / 10 : goal.targetDistance;
-    var startLong = Math.max(2, Math.round(longRunCap * params.startLongRatio * 10) / 10);
-    var arr = [];
-    var prev = startLong;
-
-    for (var w = 0; w < progWeeks; w++) {
-      var isCutback = w > 0 && (w + 1) % params.cutbackEvery === 0 && w < progWeeks - 1;
-      var val;
-      if (w === 0) {
-        val = startLong;
-      } else if (isCutback) {
-        val = Math.max(startLong, prev * 0.75);
-      } else {
-        var linearTarget = startLong + (longRunCap - startLong) * ((w + 1) / progWeeks);
-        val = Math.min(linearTarget, prev * params.growthCap);
-      }
-      val = Math.round(val * 10) / 10;
-      arr.push(val);
-      prev = val;
-    }
-    var peakActual = prev;
-    for (var t = 0; t < taperWeeks; t++) {
-      var taperRatio = Math.max(0.35, 0.70 - t * 0.15);
-      arr.push(Math.round(peakActual * taperRatio * 10) / 10);
-    }
-    return arr;
-  }
+  // ---------- generator ----------
 
   function generatePlan(goal, profile) {
     var startDate = goal.startDate ? parseISO(goal.startDate) : nextMonday(todayDate());
     var gridMonday = mondayOf(startDate);
     var targetDate = parseISO(goal.targetDate);
-    var totalWeeks = Math.max(1, Math.ceil(diffDays(targetDate, gridMonday) / 7));
-    var taperWeeks = taperWeeksFor(goal, totalWeeks);
-    var progWeeks = Math.max(1, totalWeeks - taperWeeks);
+    var totalWeeks = Math.max(1, Math.floor(diffDays(targetDate, gridMonday) / 7));
+    var split = splitPhases(totalWeeks, goal.targetDistance);
+    var progWeeks = totalWeeks - split.taperWeeks;
     var offsets = goal.trainingDayOffsets && goal.trainingDayOffsets.length ? goal.trainingDayOffsets : WEEKDAY_OFFSETS[3];
-    var currentZones = getActiveZones(profile);
-    var goalZones = computeGoalZones(goal);
-    var ambitious = isAmbitiousGoal(goal, profile);
-    var goalPace = goal.targetTimeSec ? goal.targetTimeSec / goal.targetDistance : null;
+    var vmaKmh = getVMA(profile);
     var elevRatio = (goal.sport === "trail" && goal.elevationGain) ? goal.elevationGain / goal.targetDistance : 0;
 
     goal.totalWeeks = totalWeeks;
-    goal.taperWeeks = taperWeeks;
+    goal.taperWeeks = split.taperWeeks;
+    goal.taperDays = split.taperDays;
+    goal.baseWeeks = split.baseWeeks;
+    goal.devWeeks = split.devWeeks;
+    goal.peakWeeks = split.peakWeeks;
     goal.progWeeks = progWeeks;
+    goal.condensed = split.condensed;
     goal.startMonday = toISO(gridMonday);
     goal.startDate = toISO(startDate);
     goal.sessionsPerWeek = offsets.length;
-    goal.level = (profile && profile.level) || "intermediaire";
+    if (goal.currentLongRunKm === undefined || goal.currentLongRunKm === null) {
+      goal.currentLongRunKm = (profile && profile.currentLongRunKm) || 12;
+    }
 
-    var weeklyLongDist = computeWeeklyLongDistances(goal, profile);
+    var timing = computeGoalTiming(goal, vmaKmh);
+    goal.targetTimeEstimated = !goal.targetTimeSec;
+    goal.targetTimeSec = timing.targetTimeSec;
+
+    var weeklyParams = buildWeeklyParams(goal);
+    var peakLongRunKm = weeklyParams.length ? weeklyParams[weeklyParams.length - 1].longRunKm : (goal.currentLongRunKm || 12);
+    var taperCheckpoints = taperCheckpointsFor(goal.taperDays);
+
     var sessions = [];
 
     for (var w = 0; w < totalWeeks; w++) {
       var weekStart = addDays(gridMonday, w * 7);
       var phase = phaseForWeek(goal, w);
       var isTaper = phase === "taper";
-      var longDist = weeklyLongDist[w];
-      var blendIdx = Math.min(w, progWeeks - 1);
-      var zones = blendedZonesForWeek(currentZones, goalZones, blendIdx, progWeeks, ambitious);
-
-      var types = sessionTypesForWeek(goal, w, phase);
+      var wp = !isTaper ? weeklyParams[w] : null;
+      var tmpl = !isTaper ? PHASE_TEMPLATES[phase] : null;
 
       offsets.forEach(function (offset, i) {
         var date = addDays(weekStart, offset);
         if (date < startDate) return;
         if (diffDays(date, targetDate) >= 0) return;
-        var type = types[i];
-        var dist;
-        if (type === "Sortie longue") dist = longDist;
-        else if (type === "Endurance fondamentale") dist = Math.round(longDist * 0.6 * 10) / 10;
-        else if (type === "Activation") dist = Math.max(3, Math.round(longDist * 0.25 * 10) / 10);
-        else if (type === "Récupération") dist = Math.max(3, Math.round(longDist * 0.35 * 10) / 10);
-        else dist = Math.round(longDist * 0.45 * 10) / 10;
 
-        var elevTarget = (elevRatio && (type === "Sortie longue" || type === "Côtes")) ? Math.round(dist * elevRatio) : 0;
-        var isGoalPaceWeek = !isTaper && !!goalPace && (w >= progWeeks - 2);
+        var opts = { sport: goal.sport };
+        var type, targetDistance, pace, detail, elevTarget = 0, lever = null, isDecharge = false;
 
-        var built = buildSessionPaceAndDetail(type, dist, zones, {
-          goalPace: goalPace,
-          isGoalPaceWeek: isGoalPaceWeek,
-          elevTarget: elevTarget,
-          sport: goal.sport
-        });
+        if (isTaper) {
+          var daysBefore = diffDays(targetDate, date);
+          var checkpoint = nearestCheckpoint(taperCheckpoints, daysBefore);
+          var built = buildTaperSession(checkpoint, peakLongRunKm, vmaKmh, opts);
+          type = built.type;
+          targetDistance = built.targetDistance;
+          pace = built.pace;
+          detail = built.detail;
+          if (type === "Sortie longue" && elevRatio) elevTarget = Math.round(targetDistance * elevRatio);
+        } else {
+          // slot i maps to the fixed weekly structure: 0=VMA, 1=Seuil, 2=Sortie longue (or fewer if custom day count < 3)
+          var n = offsets.length;
+          var roleIdx = n === 3 ? i : (n === 2 ? (i === 0 ? 1 : 2) : 2);
+          if (roleIdx === 0) {
+            var vb = vmaSessionDetail(vmaKmh, wp.vmaReps, tmpl.vmaMeters, tmpl.vmaPct, tmpl.vmaRecoverSec, opts);
+            type = "VMA"; targetDistance = vb.distanceKm; pace = vb.pace; detail = vb.detail;
+          } else if (roleIdx === 1) {
+            var sb = seuilSessionDetail(vmaKmh, wp.seuilMin, tmpl.seuilBlocks, tmpl.seuilPct, tmpl.seuilRecoverMin, opts);
+            type = "Seuil"; targetDistance = sb.distanceKm; pace = sb.pace; detail = sb.detail;
+          } else {
+            elevTarget = elevRatio ? Math.round(wp.longRunKm * elevRatio) : 0;
+            var lb = longueSessionDetail(vmaKmh, wp.longRunKm, tmpl.longTailPct, { sport: goal.sport, elevTarget: elevTarget });
+            type = "Sortie longue"; targetDistance = wp.longRunKm; pace = lb.pace; detail = lb.detail;
+          }
+          lever = wp.lever;
+          isDecharge = wp.isDecharge;
+        }
 
         sessions.push({
           id: uid(),
           goalId: goal.id,
           week: w + 1,
           phase: phase,
+          lever: lever,
+          isDecharge: isDecharge,
           date: toISO(date),
           type: type,
-          targetDistance: dist,
+          targetDistance: targetDistance,
           elevTarget: elevTarget || null,
-          paceSecPerKm: built.pace,
-          description: built.detail,
+          paceSecPerKm: pace,
+          description: detail,
           done: false,
           linkedRunId: null
         });
@@ -572,31 +584,33 @@
   }
 
   function recalcSessionsForProfile() {
-    var currentZones = getActiveZones(state.profile);
-    var goalZonesCache = {};
-    var ambitiousCache = {};
+    var vmaKmh = getVMA(state.profile);
+    if (!vmaKmh) return;
     state.planSessions.forEach(function (s) {
       if (s.done) return;
       var goal = state.goals.find(function (g) { return g.id === s.goalId; });
       if (!goal || goal.progWeeks == null) return;
-      if (!(goal.id in goalZonesCache)) {
-        goalZonesCache[goal.id] = computeGoalZones(goal);
-        ambitiousCache[goal.id] = isAmbitiousGoal(goal, state.profile);
-      }
+      var opts = { sport: goal.sport, elevTarget: s.elevTarget };
       var w = s.week - 1;
-      var isTaper = w >= goal.progWeeks;
-      var blendIdx = Math.min(w, goal.progWeeks - 1);
-      var zones = blendedZonesForWeek(currentZones, goalZonesCache[goal.id], blendIdx, goal.progWeeks, ambitiousCache[goal.id]);
-      var goalPace = goal.targetTimeSec ? goal.targetTimeSec / goal.targetDistance : null;
-      var isGoalPaceWeek = !isTaper && !!goalPace && (w >= goal.progWeeks - 2);
-      var built = buildSessionPaceAndDetail(s.type, s.targetDistance, zones, {
-        goalPace: goalPace,
-        isGoalPaceWeek: isGoalPaceWeek,
-        elevTarget: s.elevTarget,
-        sport: goal.sport
-      });
-      s.paceSecPerKm = built.pace;
-      s.description = built.detail;
+      var phase = phaseForWeek(goal, w);
+      if (phase === "taper") return; // taper structures are checkpoint-based, not VMA-parametrized beyond pace already baked in; skip fine recalibration here
+      var tmpl = PHASE_TEMPLATES[phase];
+      if (!tmpl) return;
+      if (s.type === "VMA") {
+        var vb = vmaSessionDetail(vmaKmh, Math.round((s.targetDistance * 1000) / tmpl.vmaMeters), tmpl.vmaMeters, tmpl.vmaPct, tmpl.vmaRecoverSec, opts);
+        s.paceSecPerKm = vb.pace;
+        s.description = vb.detail;
+      } else if (s.type === "Seuil") {
+        var priorTotalMin = s.paceSecPerKm ? (s.targetDistance * s.paceSecPerKm) / 60 : tmpl.seuilMin * tmpl.seuilBlocks;
+        var durMin = Math.max(1, Math.round((priorTotalMin / tmpl.seuilBlocks) * 10) / 10);
+        var sb = seuilSessionDetail(vmaKmh, durMin, tmpl.seuilBlocks, tmpl.seuilPct, tmpl.seuilRecoverMin, opts);
+        s.paceSecPerKm = sb.pace;
+        s.description = sb.detail;
+      } else if (s.type === "Sortie longue") {
+        var lb = longueSessionDetail(vmaKmh, s.targetDistance, tmpl.longTailPct, opts);
+        s.paceSecPerKm = lb.pace;
+        s.description = lb.detail;
+      }
     });
   }
 
@@ -632,23 +646,14 @@
 
   // ---------- rendering: dashboard ----------
 
-  var INTENSITY_FACTOR = {
-    "Récupération": 0.7,
-    "Endurance fondamentale": 1.0,
-    "Activation": 0.9,
-    "Sortie longue": 1.15,
-    "Seuil": 1.35,
-    "VMA courte": 1.6,
-    "VMA longue": 1.55,
-    "Fractionné": 1.5,
-    "Côtes": 1.45,
-    "Allure spécifique": 1.4,
-    "Course": 1.7
+  var DEFAULT_RPE = {
+    "Récupération": 3, "Endurance fondamentale": 4, "Activation": 3,
+    "Sortie longue": 5, "Seuil": 7, "VMA": 8, "Côtes": 7, "Course": 8
   };
 
   function runLoad(run) {
-    var factor = INTENSITY_FACTOR[run.type] || 1.0;
-    return run.distance * factor;
+    var rpe = run.rpe || DEFAULT_RPE[run.type] || 5;
+    return run.duration * rpe;
   }
 
   function computeACWR() {
@@ -679,11 +684,11 @@
   }
 
   var ACWR_LABELS = {
-    "insuffisant": ["Pas assez de données", "Ajoute au moins 2 semaines de courses pour calculer ta charge (ACWR)."],
+    "insuffisant": ["Pas assez de données", "Ajoute au moins 2 semaines de courses (avec RPE) pour calculer ta charge (ACWR)."],
     "sous-charge": ["Sous-charge", "Charge en dessous de ta moyenne récente : marge de progression."],
     "optimale": ["Zone optimale", "Charge d'entraînement équilibrée par rapport à tes 4 dernières semaines."],
     "vigilance": ["Vigilance", "Charge en hausse rapide, sois attentif aux signaux de fatigue."],
-    "risque": ["Risque élevé", "Hausse de charge trop rapide : envisage une semaine plus légère."]
+    "risque": ["Risque élevé", "ACWR > 1.5 : hausse de charge trop rapide, une semaine de décharge est recommandée."]
   };
 
   function renderACWR() {
@@ -738,7 +743,7 @@
         '<div class="g-name">' + escapeHtml(g.name) + '</div>' +
         '<div class="g-days">J-' + days + '</div>' +
         '<div class="g-meta">' + g.targetDistance + ' km · ' + formatDateFull(g.targetDate) +
-        (g.targetTimeSec ? ' · objectif ' + formatSecondsToTime(g.targetTimeSec) + ' (' + formatPaceSec(g.targetTimeSec / g.targetDistance) + ')' : '') + '</div>' +
+        (g.targetTimeSec ? ' · objectif ' + formatSecondsToTime(g.targetTimeSec) + ' (' + formatPaceSec(g.targetTimeSec / g.targetDistance) + ')' + (g.targetTimeEstimated ? ' estimé' : '') : '') + '</div>' +
         '<div class="goal-progress-bar"><div class="goal-progress-fill" style="width:' + prog.percent + '%"></div></div>' +
         '<div class="g-meta">' + prog.done + '/' + prog.total + ' séances réalisées (' + prog.percent + '%)</div>' +
         '</div>';
@@ -779,7 +784,7 @@
 
     var trendCanvas = document.getElementById("trend-chart");
     var trendEmpty = document.getElementById("trend-empty");
-    var history = state.profile.zonesHistory;
+    var history = state.profile.vmaHistory;
     if (history.length >= 2) {
       trendCanvas.hidden = false;
       trendEmpty.hidden = true;
@@ -902,10 +907,10 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cssWidth, cssHeight);
 
-    var values = history.map(function (h) { return h.z4; });
+    var values = history.map(function (h) { return h.vmaKmh; });
     var minV = Math.min.apply(null, values);
     var maxV = Math.max.apply(null, values);
-    if (minV === maxV) { minV -= 10; maxV += 10; }
+    if (minV === maxV) { minV -= 0.5; maxV += 0.5; }
 
     var padX = 6;
     var topPad = 16;
@@ -916,14 +921,14 @@
 
     function pointAt(i) {
       var x = padX + (history.length === 1 ? chartW / 2 : chartW * (i / (history.length - 1)));
-      var t = (history[i].z4 - minV) / (maxV - minV);
-      var y = topPad + t * chartH;
+      var t = (history[i].vmaKmh - minV) / (maxV - minV);
+      var y = topPad + (1 - t) * chartH;
       return [x, y];
     }
 
     var grad = ctx.createLinearGradient(0, topPad, 0, topPad + chartH);
-    grad.addColorStop(0, "#FF5A36");
-    grad.addColorStop(1, "#F72585");
+    grad.addColorStop(0, "#F72585");
+    grad.addColorStop(1, "#FF5A36");
     ctx.strokeStyle = grad;
     ctx.lineWidth = 2.5;
     ctx.lineJoin = "round";
@@ -949,7 +954,7 @@
     ctx.textAlign = "right";
     ctx.fillText(formatDateShort(history[history.length - 1].date), cssWidth - padX, cssHeight - 4);
     ctx.textAlign = "left";
-    ctx.fillText("Zone 4 (seuil) : " + formatPaceSec(minV) + " au mieux", padX, topPad - 5);
+    ctx.fillText("VMA : " + maxV.toFixed(1) + " km/h au mieux", padX, topPad - 5);
   }
 
   // ---------- rendering: plan ----------
@@ -977,9 +982,11 @@
 
     var weeksHtml = Object.keys(byWeek).sort(function (a, b) { return a - b; }).map(function (w) {
       var items = byWeek[w].map(renderSessionItem).join("");
-      var phase = byWeek[w][0] && byWeek[w][0].phase;
+      var wk = byWeek[w][0];
+      var phase = wk && wk.phase;
       var phaseLabel = phase ? ' <span class="phase-badge phase-' + phase + '">' + PHASE_LABELS[phase] + '</span>' : "";
-      return '<div class="week-block"><h4>Semaine ' + w + phaseLabel + '</h4>' + items + '</div>';
+      var dechargeLabel = wk && wk.isDecharge ? ' <span class="phase-badge phase-decharge">Décharge</span>' : "";
+      return '<div class="week-block"><h4>Semaine ' + w + phaseLabel + dechargeLabel + '</h4>' + items + '</div>';
     }).join("");
 
     var metaParts = [goal.targetDistance + " km", formatDateFull(goal.targetDate)];
@@ -988,21 +995,24 @@
     }
     if (goal.targetTimeSec) {
       var goalPaceStr = formatPaceSec(goal.targetTimeSec / goal.targetDistance);
-      metaParts.push("objectif " + formatSecondsToTime(goal.targetTimeSec) + (goalPaceStr ? " (" + goalPaceStr + ")" : ""));
+      metaParts.push("objectif " + formatSecondsToTime(goal.targetTimeSec) + (goalPaceStr ? " (" + goalPaceStr + ")" : "") + (goal.targetTimeEstimated ? " · estimé depuis ta VMA" : ""));
     }
+    if (goal.condensed) metaParts.push("plan condensé");
     metaParts.push(days >= 0 ? "J-" + days : "terminé");
 
     var badge = goal.sport === "trail" ?
       '<span class="sport-badge trail">Trail</span>' : '<span class="sport-badge route">Route</span>';
     var warning = isAmbitiousGoal(goal, state.profile) ?
-      '<div class="goal-warning">Objectif ambitieux par rapport à tes temps de référence actuels — le plan vise quand même cette allure, mais progresse plus prudemment sur le reste des séances.</div>' : "";
+      '<div class="goal-warning">Objectif ambitieux par rapport à ta VMA actuelle — le plan vise quand même cette allure sur les séances spécifiques.</div>' : "";
+    var condensedNote = goal.condensed ?
+      '<div class="goal-warning" style="background:rgba(255,159,28,0.15);color:#d97706;">Moins de temps que la durée minimale recommandée pour cette distance : plan condensé (base et développement fusionnés, affûtage raccourci).</div>' : "";
 
     return '<div class="goal-card" data-goal-id="' + goal.id + '">' +
       '<div class="goal-card-head">' +
       '<div><h3>' + escapeHtml(goal.name) + ' ' + badge + '</h3>' +
       '<div class="g-sub">' + metaParts.join(" · ") + '</div></div>' +
       '<button class="btn btn-ghost btn-small btn-delete-goal" data-goal-id="' + goal.id + '">Supprimer</button>' +
-      '</div>' + warning + weeksHtml + '</div>';
+      '</div>' + warning + condensedNote + weeksHtml + '</div>';
   }
 
   function renderSessionItem(s) {
@@ -1169,6 +1179,7 @@
         elevationGain: elevGain,
         elevationLoss: elevLoss,
         targetTimeSec: targetTimeSec,
+        currentLongRunKm: (state.profile && state.profile.currentLongRunKm) || null,
         status: "active",
         createdAt: toISO(todayDate())
       };
@@ -1179,55 +1190,35 @@
     });
   }
 
-  function zoneRow(label, sec) {
-    return '<div class="zone-row"><span>' + label + '</span><strong>' + (formatPaceSec(sec) || "--") + '</strong></div>';
-  }
-
-  function renderZonesPreview() {
-    var refTimes = {
-      t1k: parseTimeToSeconds(document.getElementById("ref-1k").value),
-      t5k: parseTimeToSeconds(document.getElementById("ref-5k").value),
-      t10k: parseTimeToSeconds(document.getElementById("ref-10k").value),
-      tSemi: parseTimeToSeconds(document.getElementById("ref-semi").value)
-    };
-    var zones = computeZonesFromRefTimes(refTimes);
-    var el = document.getElementById("zones-computed");
-    if (!zones) {
-      el.innerHTML = '<p class="dlg-hint" style="margin:0;">Renseigne au moins un temps de référence pour calculer tes allures.</p>';
+  function renderVmaPreview() {
+    var distance = parseFloat(document.getElementById("perf-distance").value);
+    var timeSec = parseTimeToSeconds(document.getElementById("perf-time").value);
+    var directVma = parseFloat(document.getElementById("profile-vma").value);
+    var el = document.getElementById("vma-preview");
+    var vma = directVma || (distance && timeSec ? estimateVMA({ distanceKm: distance, timeSec: timeSec }) : null);
+    if (!vma) {
+      el.innerHTML = '<p class="dlg-hint" style="margin:0;">Renseigne ta VMA ou une performance récente pour calculer tes allures.</p>';
       return;
     }
     el.innerHTML =
-      zoneRow("Zone 1 · Récupération", zones.z1) +
-      zoneRow("Zone 2 · Fondamentale", zones.z2) +
-      zoneRow("Zone 3 · Marathon / Tempo", zones.z3) +
-      zoneRow("Zone 4 · Seuil", zones.z4) +
-      zoneRow("Zone 5 · VMA / Intervalle", zones.z5) +
-      zoneRow("Vitesse · allure 1km", zones.speed);
+      '<div class="zone-row"><span>VMA' + (directVma ? '' : ' (estimée)') + '</span><strong>' + vma.toFixed(1) + ' km/h</strong></div>' +
+      '<div class="zone-row"><span>Endurance fondamentale (72,5%)</span><strong>' + formatPaceSec(paceFromPctVMA(vma, LONG_BASE_PCT_VMA)) + '</strong></div>' +
+      '<div class="zone-row"><span>Allure spécifique (80%)</span><strong>' + formatPaceSec(paceFromPctVMA(vma, LONG_TAIL_PCT_VMA)) + '</strong></div>' +
+      '<div class="zone-row"><span>Seuil (85%)</span><strong>' + formatPaceSec(paceFromPctVMA(vma, 0.85)) + '</strong></div>' +
+      '<div class="zone-row"><span>VMA (100%)</span><strong>' + formatPaceSec(paceFromPctVMA(vma, 1.00)) + '</strong></div>';
   }
 
   function setupProfileDialog() {
     var dlg = document.getElementById("dlg-profile");
-    var manualToggle = document.getElementById("zones-manual-toggle");
-    var manualFields = document.getElementById("zones-manual-fields");
-    var computedFields = document.getElementById("zones-computed");
 
     document.getElementById("btn-profile").addEventListener("click", function () {
       var p = state.profile;
-      document.getElementById("profile-level").value = p.level;
-      document.getElementById("ref-1k").value = formatSecondsToTime(p.refTimes.t1k);
-      document.getElementById("ref-5k").value = formatSecondsToTime(p.refTimes.t5k);
-      document.getElementById("ref-10k").value = formatSecondsToTime(p.refTimes.t10k);
-      document.getElementById("ref-semi").value = formatSecondsToTime(p.refTimes.tSemi);
-      manualToggle.checked = p.zonesMode === "manual";
-      manualFields.hidden = p.zonesMode !== "manual";
-      computedFields.hidden = p.zonesMode === "manual";
-      document.getElementById("zone-1").value = formatPaceSec(p.manualZones.z1) || "";
-      document.getElementById("zone-2").value = formatPaceSec(p.manualZones.z2) || "";
-      document.getElementById("zone-3").value = formatPaceSec(p.manualZones.z3) || "";
-      document.getElementById("zone-4").value = formatPaceSec(p.manualZones.z4) || "";
-      document.getElementById("zone-5").value = formatPaceSec(p.manualZones.z5) || "";
-      document.getElementById("zone-speed").value = formatPaceSec(p.manualZones.speed) || "";
-      renderZonesPreview();
+      document.getElementById("profile-vma").value = p.vmaKmh || "";
+      document.getElementById("perf-distance").value = p.recentPerformance.distanceKm || "";
+      document.getElementById("perf-time").value = p.recentPerformance.timeSec ? formatSecondsToTime(p.recentPerformance.timeSec) : "";
+      document.getElementById("perf-date").value = p.recentPerformance.date || toISO(todayDate());
+      document.getElementById("profile-long-run").value = p.currentLongRunKm || "";
+      renderVmaPreview();
       dlg.showModal();
     });
 
@@ -1235,34 +1226,20 @@
       b.addEventListener("click", function () { dlg.close(); });
     });
 
-    ["ref-1k", "ref-5k", "ref-10k", "ref-semi"].forEach(function (id) {
-      document.getElementById(id).addEventListener("input", renderZonesPreview);
-    });
-
-    manualToggle.addEventListener("change", function () {
-      manualFields.hidden = !manualToggle.checked;
-      computedFields.hidden = manualToggle.checked;
+    ["profile-vma", "perf-distance", "perf-time"].forEach(function (id) {
+      document.getElementById(id).addEventListener("input", renderVmaPreview);
     });
 
     document.getElementById("form-profile").addEventListener("submit", function () {
-      state.profile.level = document.getElementById("profile-level").value;
-      state.profile.refTimes = {
-        t1k: parseTimeToSeconds(document.getElementById("ref-1k").value),
-        t5k: parseTimeToSeconds(document.getElementById("ref-5k").value),
-        t10k: parseTimeToSeconds(document.getElementById("ref-10k").value),
-        tSemi: parseTimeToSeconds(document.getElementById("ref-semi").value)
+      state.profile.vmaKmh = parseFloat(document.getElementById("profile-vma").value) || null;
+      state.profile.recentPerformance = {
+        distanceKm: parseFloat(document.getElementById("perf-distance").value) || null,
+        timeSec: parseTimeToSeconds(document.getElementById("perf-time").value),
+        date: document.getElementById("perf-date").value || null
       };
-      state.profile.zonesMode = manualToggle.checked ? "manual" : "auto";
-      state.profile.manualZones = {
-        z1: parseTimeToSeconds(document.getElementById("zone-1").value),
-        z2: parseTimeToSeconds(document.getElementById("zone-2").value),
-        z3: parseTimeToSeconds(document.getElementById("zone-3").value),
-        z4: parseTimeToSeconds(document.getElementById("zone-4").value),
-        z5: parseTimeToSeconds(document.getElementById("zone-5").value),
-        speed: parseTimeToSeconds(document.getElementById("zone-speed").value)
-      };
+      state.profile.currentLongRunKm = parseFloat(document.getElementById("profile-long-run").value) || null;
       recalcSessionsForProfile();
-      snapshotZones();
+      snapshotVMA();
       saveData();
       renderAll();
     });
@@ -1279,6 +1256,7 @@
       if (!session) return;
       var distance = parseFloat(document.getElementById("done-distance").value) || 0;
       var duration = parseFloat(document.getElementById("done-duration").value) || 0;
+      var rpe = parseInt(document.getElementById("done-rpe").value, 10) || null;
       var notes = document.getElementById("done-notes").value.trim();
 
       var run = {
@@ -1287,6 +1265,7 @@
         type: session.type,
         distance: distance,
         duration: duration,
+        rpe: rpe,
         elevation: session.elevTarget || null,
         notes: notes,
         linkedPlanId: session.id
@@ -1326,17 +1305,17 @@
   }
 
   var REF_DISTANCES = [
-    [1, "t1k", "1 km"],
-    [5, "t5k", "5 km"],
-    [10, "t10k", "10 km"],
-    [21.0975, "tSemi", "semi-marathon"]
+    [1, "1 km"],
+    [5, "5 km"],
+    [10, "10 km"],
+    [21.0975, "semi-marathon"]
   ];
 
   function matchRefDistance(d) {
     for (var i = 0; i < REF_DISTANCES.length; i++) {
       var target = REF_DISTANCES[i][0];
       if (Math.abs(d - target) / target <= 0.07) {
-        return { key: REF_DISTANCES[i][1], label: REF_DISTANCES[i][2] };
+        return { distanceKm: target, label: REF_DISTANCES[i][1] };
       }
     }
     return null;
@@ -1355,7 +1334,7 @@
       row.hidden = true;
       return;
     }
-    document.getElementById("run-ref-label").textContent = "Utiliser comme nouveau temps de référence (" + match.label + ")";
+    document.getElementById("run-ref-label").textContent = "Utiliser comme nouvelle performance de référence (" + match.label + ")";
     row.hidden = false;
   }
 
@@ -1389,6 +1368,7 @@
         type: document.getElementById("run-type").value,
         distance: distance,
         duration: duration,
+        rpe: parseInt(document.getElementById("run-rpe").value, 10) || null,
         elevation: document.getElementById("run-elevation").value ? parseFloat(document.getElementById("run-elevation").value) : null,
         notes: document.getElementById("run-notes").value.trim()
       };
@@ -1405,9 +1385,9 @@
       if (!refRow.hidden && document.getElementById("run-is-ref").checked) {
         var match = matchRefDistance(distance);
         if (match) {
-          state.profile.refTimes[match.key] = Math.round(duration * 60);
+          state.profile.recentPerformance = { distanceKm: match.distanceKm, timeSec: Math.round(duration * 60), date: data.date };
           recalcSessionsForProfile();
-          snapshotZones();
+          snapshotVMA();
         }
       }
 
@@ -1430,6 +1410,7 @@
         document.getElementById("run-type").value = run.type;
         document.getElementById("run-distance").value = run.distance;
         document.getElementById("run-duration").value = run.duration;
+        document.getElementById("run-rpe").value = run.rpe || "";
         document.getElementById("run-elevation").value = run.elevation || "";
         document.getElementById("run-notes").value = run.notes || "";
       }
