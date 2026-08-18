@@ -1,4 +1,4 @@
-const CACHE_NAME = "runplan-v1";
+const CACHE_NAME = "runplan-v2";
 const ASSETS = [
   "./",
   "./index.html",
@@ -25,18 +25,36 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
+function isAppShell(pathname) {
+  return pathname.endsWith(".html") || pathname.endsWith(".js") ||
+    pathname.endsWith(".css") || pathname.endsWith(".json") || pathname.endsWith("/");
+}
+
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request)
+  const url = new URL(event.request.url);
+
+  if (isAppShell(url.pathname)) {
+    event.respondWith(
+      fetch(event.request)
         .then((response) => {
           const copy = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
           return response;
         })
-        .catch(() => cached);
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  event.respondWith(
+    caches.match(event.request).then((cached) => {
+      if (cached) return cached;
+      return fetch(event.request).then((response) => {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        return response;
+      });
     })
   );
 });
