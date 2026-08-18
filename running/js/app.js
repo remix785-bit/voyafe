@@ -533,7 +533,7 @@
       offsets.forEach(function (offset, i) {
         var date = addDays(weekStart, offset);
         if (date < startDate) return;
-        if (diffDays(date, targetDate) > 0) return;
+        if (diffDays(date, targetDate) >= 0) return;
         var type = types[i];
         var dist;
         if (type === "Sortie longue") dist = longDist;
