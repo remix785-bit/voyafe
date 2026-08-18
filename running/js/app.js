@@ -856,6 +856,11 @@
     } else {
       trendCanvas.hidden = true;
       trendEmpty.hidden = false;
+      if (history.length === 1) {
+        trendEmpty.innerHTML = 'VMA actuelle : <strong>' + fmtNum(history[0].vmaKmh) + ' km/h</strong> (depuis le ' + formatDateShort(history[0].date) + '). Coche tes séances ou enregistre une course pour voir ta progression apparaître ici.';
+      } else {
+        trendEmpty.textContent = "Renseigne ta VMA dans ton profil pour commencer à suivre ta progression.";
+      }
     }
 
     var upcomingGoals = activeGoals();
@@ -1000,7 +1005,7 @@
     ctx.textAlign = "right";
     ctx.fillText(formatDateShort(history[history.length - 1].date), cssWidth - padX, cssHeight - 4);
     ctx.textAlign = "left";
-    ctx.fillText("VMA : " + maxV.toFixed(1) + " km/h au mieux", padX, topPad - 5);
+    ctx.fillText("VMA : " + fmtNum(maxV) + " km/h au mieux", padX, topPad - 5);
   }
 
   // ---------- rendering: plan ----------
@@ -1334,6 +1339,7 @@
       state.runs.push(run);
       session.done = true;
       session.linkedRunId = run.id;
+      snapshotVMA();
       saveData();
       renderAll();
     });
@@ -1448,9 +1454,9 @@
         if (match) {
           state.profile.recentPerformance = { distanceKm: match.distanceKm, timeSec: Math.round(duration * 60), date: data.date };
           recalcSessionsForProfile();
-          snapshotVMA();
         }
       }
+      snapshotVMA();
 
       saveData();
       renderAll();
