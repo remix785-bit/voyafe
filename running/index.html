@@ -109,7 +109,7 @@
       </select>
     </label>
     <label>Distance de la course (km)
-      <input type="number" id="goal-distance" min="1" step="0.1" required>
+      <input type="number" id="goal-distance" min="1" step="any" required>
     </label>
     <div class="field-group" id="goal-trail-fields" hidden>
       <label>D+ dénivelé positif (m)
@@ -146,7 +146,7 @@
     <p class="dlg-hint" id="session-done-target"></p>
     <input type="hidden" id="done-session-id">
     <label>Distance réelle (km)
-      <input type="number" id="done-distance" min="0" step="0.01" required>
+      <input type="number" id="done-distance" min="0" step="any" required>
     </label>
     <label>Durée réelle (minutes)
       <input type="number" id="done-duration" min="0" step="1" required>
@@ -182,13 +182,17 @@
       </select>
     </label>
     <label>Distance (km)
-      <input type="number" id="run-distance" min="0" step="0.01" required>
+      <input type="number" id="run-distance" min="0" step="any" required>
     </label>
     <label>Durée (minutes)
       <input type="number" id="run-duration" min="0" step="1" required>
     </label>
     <label>Dénivelé (m, optionnel)
       <input type="number" id="run-elevation" min="0" step="1">
+    </label>
+    <label class="checkbox-label" id="run-ref-row" hidden>
+      <input type="checkbox" id="run-is-ref" checked>
+      <span id="run-ref-label">Utiliser comme nouveau temps de référence</span>
     </label>
     <label>Notes (optionnel)
       <textarea id="run-notes" rows="2"></textarea>
@@ -227,20 +231,23 @@
     </label>
 
     <div class="field-group" id="zones-manual-fields" hidden>
-      <label>Allure fondamentale (E)
-        <input type="text" id="zone-E" placeholder="mm:ss/km">
+      <label>Zone 1 · Récupération
+        <input type="text" id="zone-1" placeholder="mm:ss/km">
       </label>
-      <label>Allure marathon (M)
-        <input type="text" id="zone-M" placeholder="mm:ss/km">
+      <label>Zone 2 · Fondamentale
+        <input type="text" id="zone-2" placeholder="mm:ss/km">
       </label>
-      <label>Allure seuil (T)
-        <input type="text" id="zone-T" placeholder="mm:ss/km">
+      <label>Zone 3 · Marathon / Tempo
+        <input type="text" id="zone-3" placeholder="mm:ss/km">
       </label>
-      <label>Allure intervalle (I)
-        <input type="text" id="zone-I" placeholder="mm:ss/km">
+      <label>Zone 4 · Seuil
+        <input type="text" id="zone-4" placeholder="mm:ss/km">
       </label>
-      <label>Allure répétition (R)
-        <input type="text" id="zone-R" placeholder="mm:ss/km">
+      <label>Zone 5 · VMA / Intervalle
+        <input type="text" id="zone-5" placeholder="mm:ss/km">
+      </label>
+      <label>Vitesse (allure 1km, optionnel)
+        <input type="text" id="zone-speed" placeholder="mm:ss/km">
       </label>
     </div>
 
