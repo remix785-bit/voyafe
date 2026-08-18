@@ -306,7 +306,7 @@
     if (phase === "taper") {
       if (isFinalWeek) quality = "Activation";
       else if (goal.sport === "trail") quality = (w % 2 === 0) ? "Côtes" : "Allure spécifique";
-      else quality = "Seuil";
+      else quality = (w % 2 === 0) ? "Seuil" : "Allure spécifique";
     } else if (phase === "base") {
       if (goal.sport === "trail") {
         quality = (w % 3 === 2) ? "Récupération" : "Côtes";
