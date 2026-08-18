@@ -43,13 +43,24 @@
     </div>
 
     <div class="card">
+      <h2>Totaux</h2>
+      <div class="stat-row" id="totals-stats"></div>
+    </div>
+
+    <div class="card">
       <h2>Volume hebdomadaire</h2>
       <canvas id="week-chart" width="600" height="220" role="img" aria-label="Graphique du volume de course des 8 dernières semaines"></canvas>
     </div>
 
     <div class="card">
-      <h2>Prochaine séance</h2>
-      <div id="next-session">Aucune séance planifiée.</div>
+      <h2>Évolution de la forme</h2>
+      <canvas id="trend-chart" width="600" height="160" role="img" aria-label="Évolution de l'allure seuil dans le temps"></canvas>
+      <div id="trend-empty" class="empty-state" hidden>Ajoute plusieurs temps de référence dans le temps (profil ou courses) pour voir ta progression ici.</div>
+    </div>
+
+    <div class="card">
+      <h2>Semaine à venir</h2>
+      <div id="upcoming-week">Aucune séance planifiée.</div>
     </div>
 
     <div class="card">
@@ -209,6 +220,14 @@
 <dialog id="dlg-profile">
   <form method="dialog" id="form-profile" class="dlg-form">
     <h2>Mon profil coureur</h2>
+    <label>Niveau
+      <select id="profile-level">
+        <option value="debutant">Débutant</option>
+        <option value="intermediaire" selected>Intermédiaire</option>
+        <option value="confirme">Confirmé</option>
+      </select>
+    </label>
+    <p class="dlg-hint">Ton niveau ajuste la prudence de la progression (hausse de volume, fréquence des semaines de récupération, plafond de la plus longue sortie).</p>
     <p class="dlg-hint">Tes temps de référence servent à calculer tes allures d'entraînement (méthode équivalence de performance).</p>
     <label>1 km
       <input type="text" id="ref-1k" placeholder="mm:ss">

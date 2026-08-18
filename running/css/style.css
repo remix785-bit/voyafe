@@ -158,10 +158,27 @@ h1, h2, h3 { margin: 0; }
   color: var(--text-muted);
 }
 
-#week-chart {
+#week-chart, #trend-chart {
   width: 100%;
   height: auto;
   display: block;
+}
+#trend-chart[hidden] {
+  display: none;
+}
+
+.goal-progress-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.3);
+  overflow: hidden;
+  margin-top: 10px;
+}
+
+.goal-progress-fill {
+  height: 100%;
+  background: #fff;
+  border-radius: 999px;
 }
 
 .section-actions {

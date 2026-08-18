@@ -19,6 +19,8 @@
       data.profile.refTimes = data.profile.refTimes || { t1k: null, t5k: null, t10k: null, tSemi: null };
       data.profile.zonesMode = data.profile.zonesMode || "auto";
       data.profile.manualZones = data.profile.manualZones || { z1: null, z2: null, z3: null, z4: null, z5: null, speed: null };
+      data.profile.level = data.profile.level || "intermediaire";
+      data.profile.zonesHistory = data.profile.zonesHistory || [];
       data.goals.forEach(function (g) {
         if (!g.sport) g.sport = "route";
         if (g.elevationGain === undefined) g.elevationGain = null;
@@ -27,7 +29,7 @@
       });
       return data;
     } catch (e) {
-      return { goals: [], planSessions: [], runs: [], profile: { refTimes: {}, zonesMode: "auto", manualZones: {} } };
+      return { goals: [], planSessions: [], runs: [], profile: { refTimes: {}, zonesMode: "auto", manualZones: {}, level: "intermediaire", zonesHistory: [] } };
     }
   }
 
@@ -186,6 +188,29 @@
     return goalPace < zones.z4 * 0.98;
   }
 
+  var LEVEL_PARAMS = {
+    debutant: { growthCap: 1.10, cutbackEvery: 3, longRunCapRatio: 0.65, startLongRatio: 0.30 },
+    intermediaire: { growthCap: 1.15, cutbackEvery: 4, longRunCapRatio: 0.75, startLongRatio: 0.35 },
+    confirme: { growthCap: 1.20, cutbackEvery: 5, longRunCapRatio: 0.85, startLongRatio: 0.40 }
+  };
+
+  function levelParams(profile) {
+    return LEVEL_PARAMS[(profile && profile.level) || "intermediaire"];
+  }
+
+  function snapshotZones() {
+    var zones = getActiveZones(state.profile);
+    if (!zones) return;
+    var today = toISO(todayDate());
+    var history = state.profile.zonesHistory;
+    var last = history[history.length - 1];
+    if (last && last.date === today) {
+      last.z4 = zones.z4;
+    } else {
+      history.push({ date: today, z4: zones.z4 });
+    }
+  }
+
   // ---------- coaching engine: plan generation ----------
 
   function sessionTypesForWeek(goal, w, isTaper) {
@@ -297,16 +322,17 @@
     return { pace: pace, detail: detail };
   }
 
-  function computeWeeklyLongDistances(goal) {
+  function computeWeeklyLongDistances(goal, profile) {
+    var params = levelParams(profile);
     var totalWeeks = goal.totalWeeks, taperWeeks = goal.taperWeeks, progWeeks = goal.progWeeks;
     var isLongRace = goal.targetDistance > 32;
-    var longRunCap = isLongRace ? Math.round(goal.targetDistance * 0.75 * 10) / 10 : goal.targetDistance;
-    var startLong = Math.max(2, Math.round(longRunCap * 0.35 * 10) / 10);
+    var longRunCap = isLongRace ? Math.round(goal.targetDistance * params.longRunCapRatio * 10) / 10 : goal.targetDistance;
+    var startLong = Math.max(2, Math.round(longRunCap * params.startLongRatio * 10) / 10);
     var arr = [];
     var prev = startLong;
 
     for (var w = 0; w < progWeeks; w++) {
-      var isCutback = w > 0 && (w + 1) % 4 === 0 && w < progWeeks - 1;
+      var isCutback = w > 0 && (w + 1) % params.cutbackEvery === 0 && w < progWeeks - 1;
       var val;
       if (w === 0) {
         val = startLong;
@@ -314,7 +340,7 @@
         val = Math.max(startLong, prev * 0.75);
       } else {
         var linearTarget = startLong + (longRunCap - startLong) * ((w + 1) / progWeeks);
-        val = Math.min(linearTarget, prev * 1.15);
+        val = Math.min(linearTarget, prev * params.growthCap);
       }
       val = Math.round(val * 10) / 10;
       arr.push(val);
@@ -342,8 +368,9 @@
     goal.taperWeeks = taperWeeks;
     goal.progWeeks = progWeeks;
     goal.startMonday = toISO(startMonday);
+    goal.level = (profile && profile.level) || "intermediaire";
 
-    var weeklyLongDist = computeWeeklyLongDistances(goal);
+    var weeklyLongDist = computeWeeklyLongDistances(goal, profile);
     var sessions = [];
 
     for (var w = 0; w < totalWeeks; w++) {
@@ -444,6 +471,13 @@
 
   // ---------- rendering: dashboard ----------
 
+  function goalProgress(goal) {
+    var sessions = sessionsForGoal(goal.id);
+    var total = sessions.length;
+    var done = sessions.filter(function (s) { return s.done; }).length;
+    return { done: done, total: total, percent: total ? Math.round((done / total) * 100) : 0 };
+  }
+
   function renderDashboard() {
     var today = todayDate();
     var range = weekRange(today);
@@ -455,10 +489,13 @@
 
     goalsEl.innerHTML = upcoming.length ? upcoming.map(function (g) {
       var days = diffDays(parseISO(g.targetDate), today);
+      var prog = goalProgress(g);
       return '<div class="goal-countdown">' +
         '<div class="g-name">' + escapeHtml(g.name) + '</div>' +
         '<div class="g-days">J-' + days + '</div>' +
         '<div class="g-meta">' + g.targetDistance + ' km · ' + formatDateFull(g.targetDate) + '</div>' +
+        '<div class="goal-progress-bar"><div class="goal-progress-fill" style="width:' + prog.percent + '%"></div></div>' +
+        '<div class="g-meta">' + prog.done + '/' + prog.total + ' séances réalisées (' + prog.percent + '%)</div>' +
         '</div>';
     }).join("") : '<div class="empty-state">Aucun objectif actif. Crée ton premier plan dans l\'onglet Plan.</div>';
 
@@ -478,25 +515,59 @@
       stat(String(weekRuns.length), "Sorties") +
       stat(fmtKm(plannedDistance), "Prévu");
 
+    var monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    var yearStart = new Date(today.getFullYear(), 0, 1);
+    var monthDistance = state.runs.reduce(function (s, r) {
+      return parseISO(r.date) >= monthStart ? s + r.distance : s;
+    }, 0);
+    var yearDistance = state.runs.reduce(function (s, r) {
+      return parseISO(r.date) >= yearStart ? s + r.distance : s;
+    }, 0);
+
+    document.getElementById("totals-stats").innerHTML =
+      stat(fmtKm(monthDistance), "Ce mois-ci") +
+      stat(fmtKm(yearDistance), "Cette année");
+
     drawWeekChart(document.getElementById("week-chart"), last8WeeksData());
 
-    var upcomingSessions = state.planSessions
-      .filter(function (s) { return !s.done; })
-      .sort(function (a, b) { return parseISO(a.date) - parseISO(b.date); });
-    var nextEl = document.getElementById("next-session");
-    if (upcomingSessions.length) {
-      var s = upcomingSessions[0];
-      var overdue = diffDays(parseISO(s.date), today) < 0;
-      var paceStr = formatPaceSec(s.paceSecPerKm);
-      nextEl.innerHTML =
-        '<div class="session-item" style="border:none;padding:0;">' +
-        '<div class="session-check next-check' + (overdue ? ' overdue' : '') + '"></div>' +
-        '<div class="session-body">' +
-        '<div class="session-type">' + s.type + (overdue ? ' (en retard)' : '') + '</div>' +
-        '<div class="session-meta">' + formatDateFull(s.date) + ' · ' + fmtKm(s.targetDistance) + (paceStr ? ' · ' + paceStr : '') + '</div>' +
-        '</div></div>';
+    var trendCanvas = document.getElementById("trend-chart");
+    var trendEmpty = document.getElementById("trend-empty");
+    var history = state.profile.zonesHistory;
+    if (history.length >= 2) {
+      trendCanvas.hidden = false;
+      trendEmpty.hidden = true;
+      drawTrendChart(trendCanvas, history);
     } else {
-      nextEl.innerHTML = '<div class="empty-state">Aucune séance planifiée.</div>';
+      trendCanvas.hidden = true;
+      trendEmpty.hidden = false;
+    }
+
+    var upcomingWeekSessions = state.planSessions
+      .filter(function (s) {
+        if (s.done) return false;
+        var sd = parseISO(s.date);
+        return sd >= today && sd <= addDays(today, 6);
+      })
+      .sort(function (a, b) { return parseISO(a.date) - parseISO(b.date); });
+    var overdueSessions = state.planSessions
+      .filter(function (s) { return !s.done && diffDays(parseISO(s.date), today) < 0; })
+      .sort(function (a, b) { return parseISO(a.date) - parseISO(b.date); });
+    var weekListSessions = overdueSessions.concat(upcomingWeekSessions);
+
+    var upcomingEl = document.getElementById("upcoming-week");
+    if (weekListSessions.length) {
+      upcomingEl.innerHTML = weekListSessions.map(function (s) {
+        var overdue = diffDays(parseISO(s.date), today) < 0;
+        var paceStr = formatPaceSec(s.paceSecPerKm);
+        return '<div class="session-item">' +
+          '<div class="session-check next-check' + (overdue ? ' overdue' : '') + '"></div>' +
+          '<div class="session-body">' +
+          '<div class="session-type">' + s.type + (overdue ? ' (en retard)' : '') + '</div>' +
+          '<div class="session-meta">' + formatDateShort(s.date) + ' · ' + fmtKm(s.targetDistance) + (paceStr ? ' · ' + paceStr : '') + '</div>' +
+          '</div></div>';
+      }).join("");
+    } else {
+      upcomingEl.innerHTML = '<div class="empty-state">Aucune séance planifiée.</div>';
     }
 
     var runsWithDistance = state.runs.filter(function (r) { return r.distance > 0; });
@@ -571,6 +642,67 @@
       ctx.textAlign = "center";
       ctx.fillText(d.label, x + barWidth / 2, cssHeight - 6);
     });
+  }
+
+  function drawTrendChart(canvas, history) {
+    var dpr = window.devicePixelRatio || 1;
+    var cssWidth = canvas.clientWidth || 300;
+    var cssHeight = 140;
+    canvas.width = cssWidth * dpr;
+    canvas.height = cssHeight * dpr;
+    canvas.style.height = cssHeight + "px";
+    var ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssWidth, cssHeight);
+
+    var values = history.map(function (h) { return h.z4; });
+    var minV = Math.min.apply(null, values);
+    var maxV = Math.max.apply(null, values);
+    if (minV === maxV) { minV -= 10; maxV += 10; }
+
+    var padX = 6;
+    var topPad = 16;
+    var bottomPad = 20;
+    var chartW = cssWidth - padX * 2;
+    var chartH = cssHeight - topPad - bottomPad;
+    var mutedColor = getComputedStyle(document.documentElement).getPropertyValue("--text-muted").trim() || "#888";
+
+    function pointAt(i) {
+      var x = padX + (history.length === 1 ? chartW / 2 : chartW * (i / (history.length - 1)));
+      var t = (history[i].z4 - minV) / (maxV - minV);
+      var y = topPad + t * chartH;
+      return [x, y];
+    }
+
+    var grad = ctx.createLinearGradient(0, topPad, 0, topPad + chartH);
+    grad.addColorStop(0, "#FF5A36");
+    grad.addColorStop(1, "#F72585");
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 2.5;
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    history.forEach(function (h, i) {
+      var p = pointAt(i);
+      if (i === 0) ctx.moveTo(p[0], p[1]); else ctx.lineTo(p[0], p[1]);
+    });
+    ctx.stroke();
+
+    ctx.fillStyle = "#FF5A36";
+    history.forEach(function (h, i) {
+      var p = pointAt(i);
+      ctx.beginPath();
+      ctx.arc(p[0], p[1], 3, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    ctx.fillStyle = mutedColor;
+    ctx.font = "10px sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(formatDateShort(history[0].date), padX, cssHeight - 4);
+    ctx.textAlign = "right";
+    ctx.fillText(formatDateShort(history[history.length - 1].date), cssWidth - padX, cssHeight - 4);
+    ctx.textAlign = "left";
+    ctx.fillText("Zone 4 (seuil) : " + formatPaceSec(minV) + " au mieux", padX, topPad - 5);
   }
 
   // ---------- rendering: plan ----------
@@ -785,6 +917,7 @@
 
     document.getElementById("btn-profile").addEventListener("click", function () {
       var p = state.profile;
+      document.getElementById("profile-level").value = p.level;
       document.getElementById("ref-1k").value = formatSecondsToTime(p.refTimes.t1k);
       document.getElementById("ref-5k").value = formatSecondsToTime(p.refTimes.t5k);
       document.getElementById("ref-10k").value = formatSecondsToTime(p.refTimes.t10k);
@@ -816,6 +949,7 @@
     });
 
     document.getElementById("form-profile").addEventListener("submit", function () {
+      state.profile.level = document.getElementById("profile-level").value;
       state.profile.refTimes = {
         t1k: parseTimeToSeconds(document.getElementById("ref-1k").value),
         t5k: parseTimeToSeconds(document.getElementById("ref-5k").value),
@@ -832,6 +966,7 @@
         speed: parseTimeToSeconds(document.getElementById("zone-speed").value)
       };
       recalcSessionsForProfile();
+      snapshotZones();
       saveData();
       renderAll();
     });
@@ -976,6 +1111,7 @@
         if (match) {
           state.profile.refTimes[match.key] = Math.round(duration * 60);
           recalcSessionsForProfile();
+          snapshotZones();
         }
       }
 
