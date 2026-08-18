@@ -305,7 +305,7 @@
 
     if (phase === "taper") {
       if (isFinalWeek) quality = "Activation";
-      else if (goal.sport === "trail") quality = "Côtes";
+      else if (goal.sport === "trail") quality = (w % 2 === 0) ? "Côtes" : "Allure spécifique";
       else quality = "Seuil";
     } else if (phase === "base") {
       if (goal.sport === "trail") {
@@ -314,10 +314,10 @@
         quality = (w % 3 === 0) ? "Côtes" : "Récupération";
       }
     } else if (phase === "dev") {
+      var cycle = w % 3;
       if (goal.sport === "trail") {
-        quality = (w % 2 === 0) ? "Côtes" : "VMA longue";
+        quality = cycle === 0 ? "Côtes" : cycle === 1 ? "Seuil" : "VMA longue";
       } else {
-        var cycle = w % 3;
         quality = cycle === 0 ? "VMA courte" : cycle === 1 ? "Seuil" : "VMA longue";
       }
     } else {
