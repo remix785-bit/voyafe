@@ -1,7 +1,7 @@
 {
   "name": "RunPlan",
   "short_name": "RunPlan",
-  "description": "Suivi de plan d'entrainement et d'historique de course a pied",
+  "description": "Suivi de plan d'entraînement et d'historique de course à pied",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
