@@ -145,12 +145,7 @@
     return t * Math.pow(d2 / d1, 1.06);
   }
 
-  function computeZonesFromRefTimes(refTimes) {
-    var known = [];
-    if (refTimes.t1k) known.push([1, refTimes.t1k]);
-    if (refTimes.t5k) known.push([5, refTimes.t5k]);
-    if (refTimes.t10k) known.push([10, refTimes.t10k]);
-    if (refTimes.tSemi) known.push([21.0975, refTimes.tSemi]);
+  function zonesFromKnownPerformances(known) {
     if (!known.length) return null;
 
     function paceAt(d) {
@@ -174,6 +169,37 @@
     };
   }
 
+  function computeZonesFromRefTimes(refTimes) {
+    var known = [];
+    if (refTimes.t1k) known.push([1, refTimes.t1k]);
+    if (refTimes.t5k) known.push([5, refTimes.t5k]);
+    if (refTimes.t10k) known.push([10, refTimes.t10k]);
+    if (refTimes.tSemi) known.push([21.0975, refTimes.tSemi]);
+    return zonesFromKnownPerformances(known);
+  }
+
+  function computeGoalZones(goal) {
+    if (!goal.targetTimeSec) return null;
+    return zonesFromKnownPerformances([[goal.targetDistance, goal.targetTimeSec]]);
+  }
+
+  function blendedZonesForWeek(currentZones, goalZones, weekIndex, progWeeks, ambitious) {
+    if (!goalZones) return currentZones;
+    if (!currentZones) return goalZones;
+    var maxBlend = ambitious ? 0.55 : 0.85;
+    var t = progWeeks > 1 ? weekIndex / (progWeeks - 1) : 1;
+    var blend = 0.1 + (maxBlend - 0.1) * Math.min(1, Math.max(0, t));
+    function lerp(a, b) { return a + (b - a) * blend; }
+    return {
+      z1: lerp(currentZones.z1, goalZones.z1),
+      z2: lerp(currentZones.z2, goalZones.z2),
+      z3: lerp(currentZones.z3, goalZones.z3),
+      z4: lerp(currentZones.z4, goalZones.z4),
+      z5: lerp(currentZones.z5, goalZones.z5),
+      speed: lerp(currentZones.speed, goalZones.speed)
+    };
+  }
+
   function getActiveZones(profile) {
     if (!profile) return null;
     if (profile.zonesMode === "manual") {
@@ -184,12 +210,38 @@
     return computeZonesFromRefTimes(profile.refTimes || {});
   }
 
+  function currentFitnessKnownPairs(profile) {
+    if (!profile) return [];
+    if (profile.zonesMode === "manual") {
+      var mz = profile.manualZones;
+      return (mz && mz.z4) ? [[16, mz.z4 * 16]] : [];
+    }
+    var refTimes = profile.refTimes || {};
+    var known = [];
+    if (refTimes.t1k) known.push([1, refTimes.t1k]);
+    if (refTimes.t5k) known.push([5, refTimes.t5k]);
+    if (refTimes.t10k) known.push([10, refTimes.t10k]);
+    if (refTimes.tSemi) known.push([21.0975, refTimes.tSemi]);
+    return known;
+  }
+
+  function predictedPaceForDistance(profile, distanceKm) {
+    var known = currentFitnessKnownPairs(profile);
+    if (!known.length) return null;
+    var estimates = known.map(function (e) {
+      var dk = e[0], tk = e[1];
+      var predicted = dk === distanceKm ? tk : riegelPredict(tk, dk, distanceKm);
+      return predicted / distanceKm;
+    });
+    return estimates.reduce(function (a, b) { return a + b; }, 0) / estimates.length;
+  }
+
   function isAmbitiousGoal(goal, profile) {
     if (!goal.targetTimeSec) return false;
-    var zones = getActiveZones(profile);
-    if (!zones) return false;
+    var predictedPace = predictedPaceForDistance(profile, goal.targetDistance);
+    if (predictedPace === null) return false;
     var goalPace = goal.targetTimeSec / goal.targetDistance;
-    return goalPace < zones.z4 * 0.98;
+    return goalPace < predictedPace * 0.97;
   }
 
   var LEVEL_PARAMS = {
@@ -440,7 +492,9 @@
     var taperWeeks = taperWeeksFor(goal, totalWeeks);
     var progWeeks = Math.max(1, totalWeeks - taperWeeks);
     var offsets = WEEKDAY_OFFSETS[goal.sessionsPerWeek];
-    var zones = getActiveZones(profile);
+    var currentZones = getActiveZones(profile);
+    var goalZones = computeGoalZones(goal);
+    var ambitious = isAmbitiousGoal(goal, profile);
     var goalPace = goal.targetTimeSec ? goal.targetTimeSec / goal.targetDistance : null;
     var elevRatio = (goal.sport === "trail" && goal.elevationGain) ? goal.elevationGain / goal.targetDistance : 0;
 
@@ -458,6 +512,8 @@
       var phase = phaseForWeek(goal, w);
       var isTaper = phase === "taper";
       var longDist = weeklyLongDist[w];
+      var blendIdx = Math.min(w, progWeeks - 1);
+      var zones = blendedZonesForWeek(currentZones, goalZones, blendIdx, progWeeks, ambitious);
 
       var types = sessionTypesForWeek(goal, w, phase);
 
@@ -501,13 +557,21 @@
   }
 
   function recalcSessionsForProfile() {
-    var zones = getActiveZones(state.profile);
+    var currentZones = getActiveZones(state.profile);
+    var goalZonesCache = {};
+    var ambitiousCache = {};
     state.planSessions.forEach(function (s) {
       if (s.done) return;
       var goal = state.goals.find(function (g) { return g.id === s.goalId; });
       if (!goal || goal.progWeeks == null) return;
+      if (!(goal.id in goalZonesCache)) {
+        goalZonesCache[goal.id] = computeGoalZones(goal);
+        ambitiousCache[goal.id] = isAmbitiousGoal(goal, state.profile);
+      }
       var w = s.week - 1;
       var isTaper = w >= goal.progWeeks;
+      var blendIdx = Math.min(w, goal.progWeeks - 1);
+      var zones = blendedZonesForWeek(currentZones, goalZonesCache[goal.id], blendIdx, goal.progWeeks, ambitiousCache[goal.id]);
       var goalPace = goal.targetTimeSec ? goal.targetTimeSec / goal.targetDistance : null;
       var isGoalPaceWeek = !isTaper && !!goalPace && (w >= goal.progWeeks - 2);
       var built = buildSessionPaceAndDetail(s.type, s.targetDistance, zones, {
@@ -639,7 +703,8 @@
       return '<div class="goal-countdown">' +
         '<div class="g-name">' + escapeHtml(g.name) + '</div>' +
         '<div class="g-days">J-' + days + '</div>' +
-        '<div class="g-meta">' + g.targetDistance + ' km · ' + formatDateFull(g.targetDate) + '</div>' +
+        '<div class="g-meta">' + g.targetDistance + ' km · ' + formatDateFull(g.targetDate) +
+        (g.targetTimeSec ? ' · objectif ' + formatSecondsToTime(g.targetTimeSec) + ' (' + formatPaceSec(g.targetTimeSec / g.targetDistance) + ')' : '') + '</div>' +
         '<div class="goal-progress-bar"><div class="goal-progress-fill" style="width:' + prog.percent + '%"></div></div>' +
         '<div class="g-meta">' + prog.done + '/' + prog.total + ' séances réalisées (' + prog.percent + '%)</div>' +
         '</div>';
@@ -887,13 +952,16 @@
     if (goal.sport === "trail" && goal.elevationGain) {
       metaParts.push("D+ " + goal.elevationGain + "m" + (goal.elevationLoss ? " / D- " + goal.elevationLoss + "m" : ""));
     }
-    if (goal.targetTimeSec) metaParts.push("objectif " + formatSecondsToTime(goal.targetTimeSec));
+    if (goal.targetTimeSec) {
+      var goalPaceStr = formatPaceSec(goal.targetTimeSec / goal.targetDistance);
+      metaParts.push("objectif " + formatSecondsToTime(goal.targetTimeSec) + (goalPaceStr ? " (" + goalPaceStr + ")" : ""));
+    }
     metaParts.push(days >= 0 ? "J-" + days : "terminé");
 
     var badge = goal.sport === "trail" ?
       '<span class="sport-badge trail">Trail</span>' : '<span class="sport-badge route">Route</span>';
     var warning = isAmbitiousGoal(goal, state.profile) ?
-      '<div class="goal-warning">Objectif ambitieux par rapport à tes temps de référence actuels.</div>' : "";
+      '<div class="goal-warning">Objectif ambitieux par rapport à tes temps de référence actuels — le plan vise quand même cette allure, mais progresse plus prudemment sur le reste des séances.</div>' : "";
 
     return '<div class="goal-card" data-goal-id="' + goal.id + '">' +
       '<div class="goal-card-head">' +
