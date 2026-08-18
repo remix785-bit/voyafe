@@ -732,9 +732,13 @@
     var acwr = computeACWR();
     var labels = ACWR_LABELS[acwr.status];
     var valueStr = acwr.ratio === null ? "--" : acwr.ratio.toFixed(2);
+    var markerPct = acwr.ratio === null ? 0 : Math.max(0, Math.min(100, (acwr.ratio / 2) * 100));
+    var gauge = acwr.ratio === null ? "" :
+      '<div class="acwr-gauge"><div class="acwr-gauge-marker" style="left:' + markerPct + '%"></div></div>';
     document.getElementById("acwr-display").innerHTML =
       '<div class="acwr-value">' + valueStr + '</div>' +
       '<div class="acwr-status acwr-' + acwr.status + '">' + labels[0] + '</div>' +
+      gauge +
       '<div class="dlg-hint" style="margin:8px 0 0;">' + labels[1] + '</div>';
   }
 
@@ -1008,6 +1012,9 @@
     el.innerHTML = goals.map(renderGoalCard).join("");
   }
 
+  var SESSION_TYPE_CLASS = { "VMA": "vma", "Seuil": "seuil", "Sortie longue": "longue", "Course": "course" };
+  function sessionTypeClass(type) { return SESSION_TYPE_CLASS[type] || "autre"; }
+
   function renderGoalCard(goal) {
     var today = todayDate();
     var days = diffDays(parseISO(goal.targetDate), today);
@@ -1016,14 +1023,28 @@
     sessions.forEach(function (s) {
       (byWeek[s.week] = byWeek[s.week] || []).push(s);
     });
+    var weekNums = Object.keys(byWeek).map(Number).sort(function (a, b) { return a - b; });
+    var currentWeek = null;
+    weekNums.forEach(function (w) {
+      if (currentWeek !== null) return;
+      var hasUpcoming = byWeek[w].some(function (s) { return !s.done && diffDays(parseISO(s.date), today) >= 0; });
+      if (hasUpcoming) currentWeek = w;
+    });
+    if (currentWeek === null && weekNums.length) currentWeek = weekNums[weekNums.length - 1];
 
-    var weeksHtml = Object.keys(byWeek).sort(function (a, b) { return a - b; }).map(function (w) {
-      var items = byWeek[w].map(renderSessionItem).join("");
-      var wk = byWeek[w][0];
+    var weeksHtml = weekNums.map(function (w) {
+      var weekSessions = byWeek[w];
+      var items = weekSessions.map(renderSessionItem).join("");
+      var wk = weekSessions[0];
       var phase = wk && wk.phase;
       var phaseLabel = phase ? ' <span class="phase-badge phase-' + phase + '">' + PHASE_LABELS[phase] + '</span>' : "";
       var dechargeLabel = wk && wk.isDecharge ? ' <span class="phase-badge phase-decharge">Décharge</span>' : "";
-      return '<div class="week-block"><h4>Semaine ' + w + phaseLabel + dechargeLabel + '</h4>' + items + '</div>';
+      var preview = weekSessions.map(function (s) { return s.type; }).join(" · ");
+      var isOpen = w === currentWeek;
+      return '<details class="week-block"' + (isOpen ? " open" : "") + '>' +
+        '<summary><span class="week-title">Semaine ' + w + '</span>' + phaseLabel + dechargeLabel +
+        '<span class="week-preview">' + escapeHtml(preview) + '</span></summary>' +
+        '<div class="week-sessions">' + items + '</div></details>';
     }).join("");
 
     var metaParts = [goal.targetDistance + " km", formatDateFull(goal.targetDate)];
@@ -1065,7 +1086,7 @@
     if (paceStr) metaBits.push(paceStr);
     if (s.elevTarget) metaBits.push("D+ " + s.elevTarget + "m");
 
-    return '<div class="session-item">' +
+    return '<div class="session-item type-' + sessionTypeClass(s.type) + '">' +
       '<button class="session-check' + (s.done ? " done" : "") + (overdue ? " overdue" : "") + '" data-session-id="' + s.id + '">' +
       (s.done ? "&#10003;" : "") + '</button>' +
       '<div class="session-body">' +

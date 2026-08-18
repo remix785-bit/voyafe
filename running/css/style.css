@@ -92,6 +92,7 @@ h1, h2, h3 { margin: 0; }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
 .card h2 {
@@ -194,7 +195,10 @@ h1, h2, h3 { margin: 0; }
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
+  transition: transform 0.1s ease, opacity 0.1s ease;
 }
+
+.btn:active { transform: scale(0.96); opacity: 0.9; }
 
 .btn-primary {
   background: var(--accent-grad);
@@ -255,6 +259,7 @@ h1, h2, h3 { margin: 0; }
   border-radius: var(--radius);
   padding: 16px;
   margin-bottom: 14px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
 }
 
 .goal-card-head {
@@ -299,6 +304,32 @@ h1, h2, h3 { margin: 0; }
 .acwr-vigilance { background: rgba(255, 159, 28, 0.18); color: #d97706; }
 .acwr-risque { background: rgba(229, 72, 77, 0.15); color: var(--danger); }
 
+.acwr-gauge {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  margin-top: 14px;
+  background: linear-gradient(
+    90deg,
+    #3b82f6 0%, #3b82f6 40%,
+    var(--success) 40%, var(--success) 65%,
+    #d97706 65%, #d97706 75%,
+    var(--danger) 75%, var(--danger) 100%
+  );
+}
+
+.acwr-gauge-marker {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  border: 3px solid var(--text);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
 .goal-warning {
   background: rgba(229, 72, 77, 0.12);
   color: var(--danger);
@@ -316,21 +347,57 @@ h1, h2, h3 { margin: 0; }
 }
 
 .week-block {
-  margin-top: 14px;
+  margin-top: 10px;
   border-top: 1px solid var(--border);
-  padding-top: 10px;
+  padding-top: 4px;
 }
 
-.week-block h4 {
+.week-block summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 10px 2px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.week-block summary::-webkit-details-marker { display: none; }
+
+.week-block summary::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--text-muted);
+  border-bottom: 2px solid var(--text-muted);
+  transform: rotate(-45deg);
+  margin-left: auto;
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.week-block[open] summary::after {
+  transform: rotate(45deg);
+}
+
+.week-title {
   font-size: 12px;
+  font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  margin: 0 0 8px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
+
+.week-preview {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.week-block[open] .week-preview { display: none; }
+
+.week-sessions { padding-top: 2px; }
 
 .phase-badge {
   font-size: 10px;
@@ -351,16 +418,22 @@ h1, h2, h3 { margin: 0; }
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 0;
+  padding: 10px 0 10px 10px;
   border-bottom: 1px solid var(--border);
+  border-left: 3px solid transparent;
 }
 
 .session-item:last-child { border-bottom: none; }
 
+.session-item.type-vma { border-left-color: var(--accent-1); }
+.session-item.type-seuil { border-left-color: var(--accent-2); }
+.session-item.type-longue { border-left-color: var(--success); }
+.session-item.type-course { border-left-color: #3b82f6; }
+
 .session-check {
-  width: 26px;
-  height: 26px;
-  min-width: 26px;
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
   border-radius: 50%;
   border: 2px solid var(--border);
   background: none;
@@ -369,8 +442,11 @@ h1, h2, h3 { margin: 0; }
   align-items: center;
   justify-content: center;
   color: transparent;
-  font-size: 14px;
+  font-size: 15px;
+  transition: transform 0.1s ease;
 }
+
+.session-check:active { transform: scale(0.9); }
 
 .session-check.done {
   background: var(--success);
@@ -414,7 +490,11 @@ h1, h2, h3 { margin: 0; }
   align-items: center;
   gap: 10px;
   cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: transform 0.1s ease;
 }
+
+.run-item:active { transform: scale(0.985); }
 
 .run-item .r-left .r-type { font-weight: 600; font-size: 14px; }
 .run-item .r-left .r-date { font-size: 12px; color: var(--text-muted); }
@@ -493,6 +573,7 @@ dialog::backdrop {
 
 .day-btn {
   flex: 1;
+  min-height: 40px;
   padding: 10px 0;
   text-align: center;
   border-radius: 10px;
@@ -503,7 +584,10 @@ dialog::backdrop {
   font-weight: 700;
   font-family: inherit;
   cursor: pointer;
+  transition: transform 0.1s ease;
 }
+
+.day-btn:active { transform: scale(0.94); }
 
 .day-btn.active {
   background: var(--accent-grad);
