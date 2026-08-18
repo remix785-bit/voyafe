@@ -502,6 +502,17 @@ h1, h2, h3 { margin: 0; }
 .run-item .r-right .r-distance { font-weight: 700; }
 .run-item .r-right .r-pace { font-size: 12px; color: var(--text-muted); }
 
+.upcoming-goal-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent-1);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 14px 0 4px;
+}
+
+.upcoming-goal-name:first-child { margin-top: 0; }
+
 .empty-state {
   text-align: center;
   color: var(--text-muted);

@@ -661,6 +661,29 @@
     return state.planSessions.filter(function (s) { return s.goalId === goalId; });
   }
 
+  // The program's current week: the earliest week that still has an undone
+  // session. Independent of today's date, so a plan whose next session is
+  // more than a few calendar days out (sparse training days, plan not
+  // started yet) still surfaces its next batch of sessions.
+  function firstUndoneWeek(goal) {
+    var sessions = sessionsForGoal(goal.id).sort(function (a, b) { return parseISO(a.date) - parseISO(b.date); });
+    var byWeek = {};
+    sessions.forEach(function (s) { (byWeek[s.week] = byWeek[s.week] || []).push(s); });
+    var weekNums = Object.keys(byWeek).map(Number).sort(function (a, b) { return a - b; });
+    var currentWeek = null;
+    weekNums.forEach(function (w) {
+      if (currentWeek !== null) return;
+      if (byWeek[w].some(function (s) { return !s.done; })) currentWeek = w;
+    });
+    return { byWeek: byWeek, weekNums: weekNums, currentWeek: currentWeek };
+  }
+
+  function programWeekSessions(goal) {
+    var r = firstUndoneWeek(goal);
+    if (r.currentWeek === null) return [];
+    return r.byWeek[r.currentWeek].slice().sort(function (a, b) { return parseISO(a.date) - parseISO(b.date); });
+  }
+
   function weekRange(d) {
     var start = mondayOf(d);
     return [start, addDays(start, 6)];
@@ -835,33 +858,15 @@
       trendEmpty.hidden = false;
     }
 
-    var upcomingWeekSessions = state.planSessions
-      .filter(function (s) {
-        if (s.done) return false;
-        var sd = parseISO(s.date);
-        return sd >= today && sd <= addDays(today, 6);
-      })
-      .sort(function (a, b) { return parseISO(a.date) - parseISO(b.date); });
-    var overdueSessions = state.planSessions
-      .filter(function (s) { return !s.done && diffDays(parseISO(s.date), today) < 0; })
-      .sort(function (a, b) { return parseISO(a.date) - parseISO(b.date); });
-    var weekListSessions = overdueSessions.concat(upcomingWeekSessions);
-
+    var upcomingGoals = activeGoals();
     var upcomingEl = document.getElementById("upcoming-week");
-    if (weekListSessions.length) {
-      upcomingEl.innerHTML = weekListSessions.map(function (s) {
-        var overdue = diffDays(parseISO(s.date), today) < 0;
-        var paceStr = formatPaceSec(s.paceSecPerKm);
-        return '<div class="session-item">' +
-          '<div class="session-check next-check' + (overdue ? ' overdue' : '') + '"></div>' +
-          '<div class="session-body">' +
-          '<div class="session-type">' + s.type + (overdue ? ' (en retard)' : '') + '</div>' +
-          '<div class="session-meta">' + formatDateShort(s.date) + ' · ' + fmtKm(s.targetDistance) + (paceStr ? ' · ' + paceStr : '') + '</div>' +
-          '</div></div>';
-      }).join("");
-    } else {
-      upcomingEl.innerHTML = '<div class="empty-state">Aucune séance planifiée.</div>';
-    }
+    var upcomingHtml = upcomingGoals.map(function (g) {
+      var weekSessions = programWeekSessions(g);
+      if (!weekSessions.length) return "";
+      var heading = upcomingGoals.length > 1 ? '<div class="upcoming-goal-name">' + escapeHtml(g.name) + '</div>' : "";
+      return heading + weekSessions.map(renderSessionItem).join("");
+    }).join("");
+    upcomingEl.innerHTML = upcomingHtml || '<div class="empty-state">Aucune séance planifiée.</div>';
 
     var runsWithDistance = state.runs.filter(function (r) { return r.distance > 0; });
     var longest = runsWithDistance.reduce(function (m, r) { return r.distance > m ? r.distance : m; }, 0);
@@ -1018,19 +1023,9 @@
   function renderGoalCard(goal) {
     var today = todayDate();
     var days = diffDays(parseISO(goal.targetDate), today);
-    var sessions = sessionsForGoal(goal.id).sort(function (a, b) { return parseISO(a.date) - parseISO(b.date); });
-    var byWeek = {};
-    sessions.forEach(function (s) {
-      (byWeek[s.week] = byWeek[s.week] || []).push(s);
-    });
-    var weekNums = Object.keys(byWeek).map(Number).sort(function (a, b) { return a - b; });
-    var currentWeek = null;
-    weekNums.forEach(function (w) {
-      if (currentWeek !== null) return;
-      var hasUpcoming = byWeek[w].some(function (s) { return !s.done && diffDays(parseISO(s.date), today) >= 0; });
-      if (hasUpcoming) currentWeek = w;
-    });
-    if (currentWeek === null && weekNums.length) currentWeek = weekNums[weekNums.length - 1];
+    var r = firstUndoneWeek(goal);
+    var byWeek = r.byWeek, weekNums = r.weekNums;
+    var currentWeek = r.currentWeek !== null ? r.currentWeek : (weekNums.length ? weekNums[weekNums.length - 1] : null);
 
     var weeksHtml = weekNums.map(function (w) {
       var weekSessions = byWeek[w];
@@ -1517,6 +1512,11 @@
     document.getElementById("today-banner-slot").addEventListener("click", function (e) {
       var card = e.target.closest(".today-banner");
       if (card) openSessionDone(card.dataset.sessionId);
+    });
+
+    document.getElementById("upcoming-week").addEventListener("click", function (e) {
+      var check = e.target.closest(".session-check");
+      if (check) toggleSession(check.dataset.sessionId);
     });
 
     document.getElementById("runs-list").addEventListener("click", function (e) {
