@@ -484,9 +484,13 @@
   // ---------- generator ----------
 
   function generatePlan(goal, profile) {
-    var startDate = goal.startDate ? parseISO(goal.startDate) : nextMonday(todayDate());
-    var gridMonday = mondayOf(startDate);
     var targetDate = parseISO(goal.targetDate);
+    var startDate = goal.startDate ? parseISO(goal.startDate) : nextMonday(todayDate());
+    if (diffDays(startDate, targetDate) >= 0) {
+      var today = todayDate();
+      startDate = diffDays(targetDate, today) > 0 ? today : addDays(targetDate, -1);
+    }
+    var gridMonday = mondayOf(startDate);
     var totalWeeks = Math.max(1, Math.floor(diffDays(targetDate, gridMonday) / 7));
     var split = splitPhases(totalWeeks, goal.targetDistance);
     var progWeeks = totalWeeks - split.taperWeeks;
@@ -997,22 +1001,19 @@
       var goalPaceStr = formatPaceSec(goal.targetTimeSec / goal.targetDistance);
       metaParts.push("objectif " + formatSecondsToTime(goal.targetTimeSec) + (goalPaceStr ? " (" + goalPaceStr + ")" : "") + (goal.targetTimeEstimated ? " · estimé depuis ta VMA" : ""));
     }
-    if (goal.condensed) metaParts.push("plan condensé");
     metaParts.push(days >= 0 ? "J-" + days : "terminé");
 
     var badge = goal.sport === "trail" ?
       '<span class="sport-badge trail">Trail</span>' : '<span class="sport-badge route">Route</span>';
     var warning = isAmbitiousGoal(goal, state.profile) ?
       '<div class="goal-warning">Objectif ambitieux par rapport à ta VMA actuelle — le plan vise quand même cette allure sur les séances spécifiques.</div>' : "";
-    var condensedNote = goal.condensed ?
-      '<div class="goal-warning" style="background:rgba(255,159,28,0.15);color:#d97706;">Moins de temps que la durée minimale recommandée pour cette distance : plan condensé (base et développement fusionnés, affûtage raccourci).</div>' : "";
 
     return '<div class="goal-card" data-goal-id="' + goal.id + '">' +
       '<div class="goal-card-head">' +
       '<div><h3>' + escapeHtml(goal.name) + ' ' + badge + '</h3>' +
       '<div class="g-sub">' + metaParts.join(" · ") + '</div></div>' +
       '<button class="btn btn-ghost btn-small btn-delete-goal" data-goal-id="' + goal.id + '">Supprimer</button>' +
-      '</div>' + warning + condensedNote + weeksHtml + '</div>';
+      '</div>' + warning + weeksHtml + '</div>';
   }
 
   function renderSessionItem(s) {
@@ -1147,6 +1148,17 @@
     });
     sportSelect.addEventListener("change", function () {
       trailFields.hidden = sportSelect.value !== "trail";
+    });
+    document.getElementById("goal-date").addEventListener("change", function () {
+      var startInput = document.getElementById("goal-start-date");
+      var targetVal = this.value;
+      if (!targetVal) return;
+      var todayISO = toISO(todayDate());
+      var dayBeforeTarget = toISO(addDays(parseISO(targetVal), -1));
+      startInput.max = dayBeforeTarget < todayISO ? todayISO : dayBeforeTarget;
+      if (!startInput.value || startInput.value >= targetVal) {
+        startInput.value = todayISO < targetVal ? todayISO : dayBeforeTarget;
+      }
     });
 
     document.getElementById("form-goal").addEventListener("submit", function (e) {
