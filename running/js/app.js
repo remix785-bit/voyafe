@@ -314,10 +314,43 @@
   var LONG_TAIL_PCT_VMA = 0.80;
   var LONG_BASE_PCT_VMA = 0.725;
 
+  // Weekly training volume (VMA reps, seuil duration, long-run ceiling) scales with
+  // the chosen race distance and, for trail, its elevation gain -- intensity (%VMA
+  // paces) stays the same, only the amount of work per session/week changes.
+  var DISTANCE_LOAD_TABLE = [
+    [5, 0.55], [10, 0.75], [15, 0.85], [21.0975, 0.90],
+    [42.195, 1.00], [50, 1.08], [80, 1.20], [120, 1.32]
+  ];
+
+  function distanceLoadFactor(distanceKm) {
+    var table = DISTANCE_LOAD_TABLE;
+    if (distanceKm <= table[0][0]) return table[0][1];
+    var last = table[table.length - 1];
+    if (distanceKm >= last[0]) return last[1];
+    for (var i = 0; i < table.length - 1; i++) {
+      var a = table[i], b = table[i + 1];
+      if (distanceKm >= a[0] && distanceKm <= b[0]) {
+        var t = (distanceKm - a[0]) / (b[0] - a[0]);
+        return a[1] + (b[1] - a[1]) * t;
+      }
+    }
+    return 1.0;
+  }
+
+  function elevationLoadFactor(goal) {
+    if (goal.sport !== "trail" || !goal.elevationGain || !goal.targetDistance) return 1.0;
+    var mPerKm = goal.elevationGain / goal.targetDistance;
+    return 1 + Math.min(0.35, mPerKm / 250);
+  }
+
   function buildWeeklyParams(goal) {
     var progWeeks = goal.progWeeks;
-    var distancePic = Math.min(0.65 * goal.targetDistance, 32);
+    var elevFactor = elevationLoadFactor(goal);
+    var loadFactor = distanceLoadFactor(goal.targetDistance) * elevFactor;
+    var distancePic = Math.min(Math.min(0.65 * goal.targetDistance, 32) * elevFactor, 38);
     var longRunKm = goal.currentLongRunKm || 12;
+    var seuilFloor = Math.max(4, Math.round(8 * loadFactor));
+    var vmaFloor = Math.max(2, Math.round(4 * loadFactor));
     var seuilMin = null, vmaReps = null, currentPhase = null;
     var weeks = [];
 
@@ -325,8 +358,8 @@
       var weekIndex = w + 1;
       var phase = phaseForWeek(goal, w);
       if (phase !== currentPhase) {
-        seuilMin = PHASE_TEMPLATES[phase].seuilMin;
-        vmaReps = PHASE_TEMPLATES[phase].vmaReps;
+        seuilMin = Math.max(seuilFloor, Math.round(PHASE_TEMPLATES[phase].seuilMin * loadFactor));
+        vmaReps = Math.max(vmaFloor, Math.round(PHASE_TEMPLATES[phase].vmaReps * loadFactor));
         currentPhase = phase;
       }
 
@@ -334,8 +367,8 @@
       var lever = null;
       if (isDecharge) {
         longRunKm = Math.max(goal.currentLongRunKm || 8, Math.round(longRunKm * 0.72 * 10) / 10);
-        seuilMin = Math.max(8, Math.round(seuilMin * 0.72));
-        vmaReps = Math.max(4, Math.round(vmaReps * 0.72));
+        seuilMin = Math.max(seuilFloor, Math.round(seuilMin * 0.72));
+        vmaReps = Math.max(vmaFloor, Math.round(vmaReps * 0.72));
       } else {
         var leverIdx = (weekIndex - 1) % 3;
         lever = ["long_run", "seuil", "vma"][leverIdx];
@@ -344,9 +377,9 @@
           var step = Math.min(inc.long_run, 0.10 * longRunKm, 2);
           longRunKm = Math.min(distancePic, Math.round((longRunKm + step) * 10) / 10);
         } else if (lever === "seuil") {
-          seuilMin = seuilMin + inc.seuil;
+          seuilMin = seuilMin + Math.max(1, Math.round(inc.seuil * loadFactor));
         } else if (lever === "vma") {
-          vmaReps = vmaReps + inc.vma;
+          vmaReps = vmaReps + Math.max(1, Math.round(inc.vma * loadFactor));
         }
       }
 
