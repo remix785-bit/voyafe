@@ -65,6 +65,16 @@ h1, h2, h3 { margin: 0; }
 
 .topbar .brand-logo { display: none; }
 
+.icon-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px;
+  display: flex;
+}
+
 #app {
   max-width: 640px;
   margin: 0 auto;
@@ -237,8 +247,36 @@ h1, h2, h3 { margin: 0; }
   gap: 8px;
 }
 
-.goal-card-head h3 { font-size: 16px; }
-.goal-card-head .g-sub { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
+.goal-card-head h3 { font-size: 16px; display: inline; }
+.goal-card-head .g-sub { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
+.sport-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+.sport-badge.route { background: rgba(255, 90, 54, 0.15); color: var(--accent-1); }
+.sport-badge.trail { background: rgba(47, 179, 106, 0.15); color: var(--success); }
+
+.goal-warning {
+  background: rgba(229, 72, 77, 0.12);
+  color: var(--danger);
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  margin-top: 12px;
+}
+
+.session-detail {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  line-height: 1.45;
+}
 
 .week-block {
   margin-top: 14px;
@@ -392,6 +430,40 @@ dialog::backdrop {
   color: var(--text-muted);
   margin: -6px 0 0;
 }
+
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.zones-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.zone-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+}
+
+.zone-row strong { color: var(--accent-1); }
+
+.checkbox-label {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+  font-size: 14px !important;
+  color: var(--text) !important;
+}
+
+.checkbox-label input { width: auto; }
 
 .dlg-actions {
   display: flex;

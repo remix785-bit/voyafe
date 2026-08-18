@@ -4,11 +4,6 @@
   var STORAGE_KEY = "runplan:v1";
   var DAY_MS = 86400000;
 
-  var TYPES_BY_COUNT = {
-    1: ["Sortie longue"],
-    2: ["Endurance fondamentale", "Sortie longue"],
-    3: ["Fractionné", "Endurance fondamentale", "Sortie longue"]
-  };
   var WEEKDAY_OFFSETS = { 1: [5], 2: [1, 5], 3: [1, 3, 5] };
 
   // ---------- storage ----------
@@ -16,14 +11,23 @@
   function loadData() {
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return { goals: [], planSessions: [], runs: [] };
-      var data = JSON.parse(raw);
+      var data = raw ? JSON.parse(raw) : {};
       data.goals = data.goals || [];
       data.planSessions = data.planSessions || [];
       data.runs = data.runs || [];
+      data.profile = data.profile || {};
+      data.profile.refTimes = data.profile.refTimes || { t1k: null, t5k: null, t10k: null, tSemi: null };
+      data.profile.zonesMode = data.profile.zonesMode || "auto";
+      data.profile.manualZones = data.profile.manualZones || { E: null, M: null, T: null, I: null, R: null };
+      data.goals.forEach(function (g) {
+        if (!g.sport) g.sport = "route";
+        if (g.elevationGain === undefined) g.elevationGain = null;
+        if (g.elevationLoss === undefined) g.elevationLoss = null;
+        if (g.targetTimeSec === undefined) g.targetTimeSec = null;
+      });
       return data;
     } catch (e) {
-      return { goals: [], planSessions: [], runs: [] };
+      return { goals: [], planSessions: [], runs: [], profile: { refTimes: {}, zonesMode: "auto", manualZones: {} } };
     }
   }
 
@@ -95,23 +99,181 @@
     return min + ":" + String(sec).padStart(2, "0") + "/km";
   }
 
+  function formatPaceSec(secPerKm) {
+    if (secPerKm == null || !isFinite(secPerKm) || secPerKm <= 0) return null;
+    var m = Math.floor(secPerKm / 60);
+    var s = Math.round(secPerKm % 60);
+    if (s === 60) { m += 1; s = 0; }
+    return m + ":" + String(s).padStart(2, "0") + "/km";
+  }
+
   function fmtKm(n) {
     return (Math.round(n * 10) / 10).toString().replace(".", ",") + " km";
   }
 
-  // ---------- plan generation ----------
+  function parseTimeToSeconds(str) {
+    if (!str) return null;
+    str = str.trim();
+    if (!str) return null;
+    var parts = str.split(":").map(function (p) { return parseInt(p, 10); });
+    if (parts.some(function (p) { return isNaN(p); })) return null;
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+    if (parts.length === 2) return parts[0] * 60 + parts[1];
+    if (parts.length === 1) return parts[0];
+    return null;
+  }
 
-  function sessionDescription(type) {
+  function formatSecondsToTime(sec) {
+    if (sec == null || !isFinite(sec) || sec <= 0) return "";
+    sec = Math.round(sec);
+    var h = Math.floor(sec / 3600);
+    var m = Math.floor((sec % 3600) / 60);
+    var s = sec % 60;
+    if (h > 0) return h + ":" + String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+    return m + ":" + String(s).padStart(2, "0");
+  }
+
+  // ---------- coaching engine: pace zones ----------
+
+  function riegelPredict(t, d1, d2) {
+    return t * Math.pow(d2 / d1, 1.06);
+  }
+
+  function computeZonesFromRefTimes(refTimes) {
+    var known = [];
+    if (refTimes.t1k) known.push([1, refTimes.t1k]);
+    if (refTimes.t5k) known.push([5, refTimes.t5k]);
+    if (refTimes.t10k) known.push([10, refTimes.t10k]);
+    if (refTimes.tSemi) known.push([21.0975, refTimes.tSemi]);
+    if (!known.length) return null;
+
+    function paceAt(d) {
+      var estimates = known.map(function (e) {
+        var dk = e[0], tk = e[1];
+        var predicted = dk === d ? tk : riegelPredict(tk, dk, d);
+        return predicted / d;
+      });
+      return estimates.reduce(function (a, b) { return a + b; }, 0) / estimates.length;
+    }
+
+    var T = paceAt(16);
+    return {
+      E: T + 70,
+      M: paceAt(42.195),
+      T: T,
+      I: paceAt(5),
+      R: paceAt(1)
+    };
+  }
+
+  function getActiveZones(profile) {
+    if (!profile) return null;
+    if (profile.zonesMode === "manual") {
+      var mz = profile.manualZones;
+      if (mz && mz.E && mz.M && mz.T && mz.I && mz.R) return mz;
+      return null;
+    }
+    return computeZonesFromRefTimes(profile.refTimes || {});
+  }
+
+  function isAmbitiousGoal(goal, profile) {
+    if (!goal.targetTimeSec) return false;
+    var zones = getActiveZones(profile);
+    if (!zones) return false;
+    var goalPace = goal.targetTimeSec / goal.targetDistance;
+    return goalPace < zones.T * 0.98;
+  }
+
+  // ---------- coaching engine: plan generation ----------
+
+  function sessionTypesForWeek(goal, w, isTaper) {
+    var n = goal.sessionsPerWeek;
+    if (n === 1) return ["Sortie longue"];
+    if (n === 2) return ["Endurance fondamentale", "Sortie longue"];
+    var quality;
+    if (isTaper) quality = "Activation";
+    else if (goal.sport === "trail") quality = "Côtes";
+    else quality = (w % 2 === 0) ? "Fractionné" : "Seuil";
+    return [quality, "Endurance fondamentale", "Sortie longue"];
+  }
+
+  function zonePaceFor(type, zones) {
+    if (!zones) return null;
     switch (type) {
-      case "Fractionné": return "Allure rapide avec récupération active entre les répétitions.";
-      case "Endurance fondamentale": return "Allure confortable, effort modéré et régulier.";
-      case "Sortie longue": return "Allure lente, priorité à la durée/distance.";
-      case "Récupération": return "Footing très facile de récupération.";
-      default: return "";
+      case "Fractionné": return zones.I;
+      case "Côtes": return zones.I;
+      case "Seuil": return zones.T;
+      case "Endurance fondamentale": return zones.E;
+      case "Sortie longue": return Math.round((zones.E + zones.M) / 2);
+      case "Récupération": return zones.E + 40;
+      case "Activation": return zones.E;
+      default: return null;
     }
   }
 
-  function generatePlan(goal) {
+  function buildSessionPaceAndDetail(type, distanceKm, zones, opts) {
+    var pace = zonePaceFor(type, zones);
+    var paceStr = formatPaceSec(pace);
+    var detail;
+
+    switch (type) {
+      case "Fractionné": {
+        var repM = distanceKm <= 4 ? 400 : distanceKm <= 6 ? 600 : 1000;
+        var reps = Math.max(4, Math.round((distanceKm * 1000 * 0.6) / repM));
+        var recover = repM <= 400 ? "1min30" : repM <= 600 ? "2min" : "2min30";
+        detail = "Échauffement 15min facile. " + reps + " x " + repM + "m" +
+          (paceStr ? " à " + paceStr + " (allure intervalle)" : " en fractionné soutenu") +
+          ", récupération " + recover + " trot très facile entre les répétitions. Retour au calme 10min.";
+        break;
+      }
+      case "Côtes": {
+        var reps2 = Math.max(5, Math.round(distanceKm * 2));
+        detail = "Échauffement 15min. " + reps2 + " x 45sec en côte (pente 6-8%) à effort soutenu" +
+          (paceStr ? " (proche allure intervalle, " + paceStr + " à plat)" : "") +
+          ", redescente lente en récupération. " +
+          (opts.elevTarget ? "D+ cumulé de la séance ~" + opts.elevTarget + "m. " : "") +
+          "Retour au calme 10min.";
+        break;
+      }
+      case "Seuil": {
+        var mins = pace ? Math.round(((distanceKm * pace) / 60) * 0.7) : null;
+        detail = "Échauffement 15min facile. " +
+          (mins ? mins + "min continu" : distanceKm + "km") +
+          (paceStr ? " à allure seuil (" + paceStr + ")" : " à allure soutenue mais tenable") +
+          ", effort régulier sans à-coups. Retour au calme 10min.";
+        break;
+      }
+      case "Endurance fondamentale": {
+        detail = distanceKm + "km à allure fondamentale" + (paceStr ? " (" + paceStr + ")" : "") +
+          ", effort confortable, tu dois pouvoir parler.";
+        break;
+      }
+      case "Sortie longue": {
+        detail = distanceKm + "km à allure fondamentale" + (paceStr ? " (autour de " + paceStr + ")" : "") + ", régulier";
+        if (opts.sport === "trail" && opts.elevTarget) {
+          detail += ", D+ ~" + opts.elevTarget + "m, gère l'effort en montée, mouline en descente";
+        }
+        if (opts.isGoalPaceWeek && opts.goalPace) {
+          detail += ". Termine les 2-3 derniers km à l'allure objectif (" + formatPaceSec(opts.goalPace) + ")";
+        }
+        detail += ".";
+        break;
+      }
+      case "Activation": {
+        detail = distanceKm + "km très facile avec 4 à 6 accélérations progressives de 15-20sec (retour au calme entre chaque), pour rester réactif sans fatiguer.";
+        break;
+      }
+      case "Récupération": {
+        detail = "Footing très facile " + distanceKm + "km" + (paceStr ? " (" + paceStr + " ou plus lent)" : "") + ", focus relâchement et respiration.";
+        break;
+      }
+      default:
+        detail = "";
+    }
+    return { pace: pace, detail: detail };
+  }
+
+  function generatePlan(goal, profile) {
     var startMonday = nextMonday(todayDate());
     var targetDate = parseISO(goal.targetDate);
     var totalWeeks = Math.max(1, Math.ceil(diffDays(targetDate, startMonday) / 7));
@@ -119,18 +281,29 @@
     var progWeeks = Math.max(1, totalWeeks - taperWeeks);
     var startLong = Math.max(2, Math.round(goal.targetDistance * 0.35 * 10) / 10);
     var offsets = WEEKDAY_OFFSETS[goal.sessionsPerWeek];
-    var types = TYPES_BY_COUNT[goal.sessionsPerWeek];
+    var zones = getActiveZones(profile);
+    var goalPace = goal.targetTimeSec ? goal.targetTimeSec / goal.targetDistance : null;
+    var elevRatio = (goal.sport === "trail" && goal.elevationGain) ? goal.elevationGain / goal.targetDistance : 0;
+
+    goal.totalWeeks = totalWeeks;
+    goal.taperWeeks = taperWeeks;
+    goal.progWeeks = progWeeks;
+    goal.startMonday = toISO(startMonday);
+
     var sessions = [];
 
     for (var w = 0; w < totalWeeks; w++) {
       var weekStart = addDays(startMonday, w * 7);
+      var isTaper = w >= progWeeks;
       var longDist;
-      if (w < progWeeks) {
+      if (!isTaper) {
         longDist = startLong + (goal.targetDistance - startLong) * ((w + 1) / progWeeks);
       } else {
         longDist = goal.targetDistance * 0.6;
       }
       longDist = Math.round(longDist * 10) / 10;
+
+      var types = sessionTypesForWeek(goal, w, isTaper);
 
       offsets.forEach(function (offset, i) {
         var date = addDays(weekStart, offset);
@@ -139,7 +312,18 @@
         var dist;
         if (type === "Sortie longue") dist = longDist;
         else if (type === "Endurance fondamentale") dist = Math.round(longDist * 0.5 * 10) / 10;
+        else if (type === "Activation") dist = Math.max(3, Math.round(longDist * 0.25 * 10) / 10);
         else dist = Math.round(longDist * 0.4 * 10) / 10;
+
+        var elevTarget = (elevRatio && (type === "Sortie longue" || type === "Côtes")) ? Math.round(dist * elevRatio) : 0;
+        var isGoalPaceWeek = !isTaper && !!goalPace && (w >= progWeeks - 2);
+
+        var built = buildSessionPaceAndDetail(type, dist, zones, {
+          goalPace: goalPace,
+          isGoalPaceWeek: isGoalPaceWeek,
+          elevTarget: elevTarget,
+          sport: goal.sport
+        });
 
         sessions.push({
           id: uid(),
@@ -148,13 +332,36 @@
           date: toISO(date),
           type: type,
           targetDistance: dist,
-          description: sessionDescription(type),
+          elevTarget: elevTarget || null,
+          paceSecPerKm: built.pace,
+          description: built.detail,
           done: false,
           linkedRunId: null
         });
       });
     }
     return sessions;
+  }
+
+  function recalcSessionsForProfile() {
+    var zones = getActiveZones(state.profile);
+    state.planSessions.forEach(function (s) {
+      if (s.done) return;
+      var goal = state.goals.find(function (g) { return g.id === s.goalId; });
+      if (!goal || goal.progWeeks == null) return;
+      var w = s.week - 1;
+      var isTaper = w >= goal.progWeeks;
+      var goalPace = goal.targetTimeSec ? goal.targetTimeSec / goal.targetDistance : null;
+      var isGoalPaceWeek = !isTaper && !!goalPace && (w >= goal.progWeeks - 2);
+      var built = buildSessionPaceAndDetail(s.type, s.targetDistance, zones, {
+        goalPace: goalPace,
+        isGoalPaceWeek: isGoalPaceWeek,
+        elevTarget: s.elevTarget,
+        sport: goal.sport
+      });
+      s.paceSecPerKm = built.pace;
+      s.description = built.detail;
+    });
   }
 
   // ---------- derived data ----------
@@ -232,12 +439,13 @@
     if (upcomingSessions.length) {
       var s = upcomingSessions[0];
       var overdue = diffDays(parseISO(s.date), today) < 0;
+      var paceStr = formatPaceSec(s.paceSecPerKm);
       nextEl.innerHTML =
         '<div class="session-item" style="border:none;padding:0;">' +
         '<div class="session-check next-check' + (overdue ? ' overdue' : '') + '"></div>' +
         '<div class="session-body">' +
         '<div class="session-type">' + s.type + (overdue ? ' (en retard)' : '') + '</div>' +
-        '<div class="session-meta">' + formatDateFull(s.date) + ' · ' + fmtKm(s.targetDistance) + '</div>' +
+        '<div class="session-meta">' + formatDateFull(s.date) + ' · ' + fmtKm(s.targetDistance) + (paceStr ? ' · ' + paceStr : '') + '</div>' +
         '</div></div>';
     } else {
       nextEl.innerHTML = '<div class="empty-state">Aucune séance planifiée.</div>';
@@ -345,13 +553,24 @@
       return '<div class="week-block"><h4>Semaine ' + w + '</h4>' + items + '</div>';
     }).join("");
 
+    var metaParts = [goal.targetDistance + " km", formatDateFull(goal.targetDate)];
+    if (goal.sport === "trail" && goal.elevationGain) {
+      metaParts.push("D+ " + goal.elevationGain + "m" + (goal.elevationLoss ? " / D- " + goal.elevationLoss + "m" : ""));
+    }
+    if (goal.targetTimeSec) metaParts.push("objectif " + formatSecondsToTime(goal.targetTimeSec));
+    metaParts.push(days >= 0 ? "J-" + days : "terminé");
+
+    var badge = goal.sport === "trail" ?
+      '<span class="sport-badge trail">Trail</span>' : '<span class="sport-badge route">Route</span>';
+    var warning = isAmbitiousGoal(goal, state.profile) ?
+      '<div class="goal-warning">Objectif ambitieux par rapport à tes temps de référence actuels.</div>' : "";
+
     return '<div class="goal-card" data-goal-id="' + goal.id + '">' +
       '<div class="goal-card-head">' +
-      '<div><h3>' + escapeHtml(goal.name) + '</h3>' +
-      '<div class="g-sub">' + goal.targetDistance + ' km · ' + formatDateFull(goal.targetDate) +
-      (days >= 0 ? ' · J-' + days : ' · terminé') + '</div></div>' +
+      '<div><h3>' + escapeHtml(goal.name) + ' ' + badge + '</h3>' +
+      '<div class="g-sub">' + metaParts.join(" · ") + '</div></div>' +
       '<button class="btn btn-ghost btn-small btn-delete-goal" data-goal-id="' + goal.id + '">Supprimer</button>' +
-      '</div>' + weeksHtml + '</div>';
+      '</div>' + warning + weeksHtml + '</div>';
   }
 
   function renderSessionItem(s) {
@@ -365,12 +584,18 @@
         deltaHtml = '<div class="session-delta ' + cls + '">Réalisé : ' + fmtKm(run.distance) + ' (prévu ' + fmtKm(s.targetDistance) + ')</div>';
       }
     }
+    var paceStr = formatPaceSec(s.paceSecPerKm);
+    var metaBits = [formatDateShort(s.date), fmtKm(s.targetDistance)];
+    if (paceStr) metaBits.push(paceStr);
+    if (s.elevTarget) metaBits.push("D+ " + s.elevTarget + "m");
+
     return '<div class="session-item">' +
       '<button class="session-check' + (s.done ? " done" : "") + (overdue ? " overdue" : "") + '" data-session-id="' + s.id + '">' +
       (s.done ? "&#10003;" : "") + '</button>' +
       '<div class="session-body">' +
       '<div class="session-type">' + s.type + '</div>' +
-      '<div class="session-meta">' + formatDateShort(s.date) + ' · ' + fmtKm(s.targetDistance) + '</div>' +
+      '<div class="session-meta">' + metaBits.join(" · ") + '</div>' +
+      (s.description ? '<div class="session-detail">' + escapeHtml(s.description) + '</div>' : '') +
       deltaHtml +
       '</div></div>';
   }
@@ -431,19 +656,32 @@
 
   function setupGoalDialog() {
     var dlg = document.getElementById("dlg-goal");
+    var sportSelect = document.getElementById("goal-sport");
+    var trailFields = document.getElementById("goal-trail-fields");
+
     document.getElementById("btn-new-goal").addEventListener("click", function () {
       document.getElementById("form-goal").reset();
+      trailFields.hidden = true;
       dlg.showModal();
     });
     dlg.querySelectorAll("[data-close]").forEach(function (b) {
       b.addEventListener("click", function () { dlg.close(); });
     });
-    document.getElementById("form-goal").addEventListener("submit", function (e) {
+    sportSelect.addEventListener("change", function () {
+      trailFields.hidden = sportSelect.value !== "trail";
+    });
+
+    document.getElementById("form-goal").addEventListener("submit", function () {
       var name = document.getElementById("goal-name").value.trim();
       var distance = parseFloat(document.getElementById("goal-distance").value);
       var targetDate = document.getElementById("goal-date").value;
       var sessionsPerWeek = parseInt(document.getElementById("goal-sessions").value, 10);
+      var sport = sportSelect.value;
       if (!name || !distance || !targetDate) return;
+
+      var elevGain = sport === "trail" ? (parseFloat(document.getElementById("goal-elevation-gain").value) || null) : null;
+      var elevLoss = sport === "trail" ? (parseFloat(document.getElementById("goal-elevation-loss").value) || null) : null;
+      var targetTimeSec = parseTimeToSeconds(document.getElementById("goal-target-time").value);
 
       var goal = {
         id: uid(),
@@ -451,13 +689,100 @@
         targetDistance: distance,
         targetDate: targetDate,
         sessionsPerWeek: sessionsPerWeek,
+        sport: sport,
+        elevationGain: elevGain,
+        elevationLoss: elevLoss,
+        targetTimeSec: targetTimeSec,
         status: "active",
         createdAt: toISO(todayDate())
       };
       state.goals.push(goal);
-      state.planSessions = state.planSessions.concat(generatePlan(goal));
+      state.planSessions = state.planSessions.concat(generatePlan(goal, state.profile));
       saveData();
       switchView("plan");
+    });
+  }
+
+  function zoneRow(label, sec) {
+    return '<div class="zone-row"><span>' + label + '</span><strong>' + (formatPaceSec(sec) || "--") + '</strong></div>';
+  }
+
+  function renderZonesPreview() {
+    var refTimes = {
+      t1k: parseTimeToSeconds(document.getElementById("ref-1k").value),
+      t5k: parseTimeToSeconds(document.getElementById("ref-5k").value),
+      t10k: parseTimeToSeconds(document.getElementById("ref-10k").value),
+      tSemi: parseTimeToSeconds(document.getElementById("ref-semi").value)
+    };
+    var zones = computeZonesFromRefTimes(refTimes);
+    var el = document.getElementById("zones-computed");
+    if (!zones) {
+      el.innerHTML = '<p class="dlg-hint" style="margin:0;">Renseigne au moins un temps de référence pour calculer tes allures.</p>';
+      return;
+    }
+    el.innerHTML =
+      zoneRow("Fondamentale (E)", zones.E) +
+      zoneRow("Marathon (M)", zones.M) +
+      zoneRow("Seuil (T)", zones.T) +
+      zoneRow("Intervalle (I)", zones.I) +
+      zoneRow("Répétition (R)", zones.R);
+  }
+
+  function setupProfileDialog() {
+    var dlg = document.getElementById("dlg-profile");
+    var manualToggle = document.getElementById("zones-manual-toggle");
+    var manualFields = document.getElementById("zones-manual-fields");
+    var computedFields = document.getElementById("zones-computed");
+
+    document.getElementById("btn-profile").addEventListener("click", function () {
+      var p = state.profile;
+      document.getElementById("ref-1k").value = formatSecondsToTime(p.refTimes.t1k);
+      document.getElementById("ref-5k").value = formatSecondsToTime(p.refTimes.t5k);
+      document.getElementById("ref-10k").value = formatSecondsToTime(p.refTimes.t10k);
+      document.getElementById("ref-semi").value = formatSecondsToTime(p.refTimes.tSemi);
+      manualToggle.checked = p.zonesMode === "manual";
+      manualFields.hidden = p.zonesMode !== "manual";
+      computedFields.hidden = p.zonesMode === "manual";
+      document.getElementById("zone-E").value = formatPaceSec(p.manualZones.E) || "";
+      document.getElementById("zone-M").value = formatPaceSec(p.manualZones.M) || "";
+      document.getElementById("zone-T").value = formatPaceSec(p.manualZones.T) || "";
+      document.getElementById("zone-I").value = formatPaceSec(p.manualZones.I) || "";
+      document.getElementById("zone-R").value = formatPaceSec(p.manualZones.R) || "";
+      renderZonesPreview();
+      dlg.showModal();
+    });
+
+    dlg.querySelectorAll("[data-close]").forEach(function (b) {
+      b.addEventListener("click", function () { dlg.close(); });
+    });
+
+    ["ref-1k", "ref-5k", "ref-10k", "ref-semi"].forEach(function (id) {
+      document.getElementById(id).addEventListener("input", renderZonesPreview);
+    });
+
+    manualToggle.addEventListener("change", function () {
+      manualFields.hidden = !manualToggle.checked;
+      computedFields.hidden = manualToggle.checked;
+    });
+
+    document.getElementById("form-profile").addEventListener("submit", function () {
+      state.profile.refTimes = {
+        t1k: parseTimeToSeconds(document.getElementById("ref-1k").value),
+        t5k: parseTimeToSeconds(document.getElementById("ref-5k").value),
+        t10k: parseTimeToSeconds(document.getElementById("ref-10k").value),
+        tSemi: parseTimeToSeconds(document.getElementById("ref-semi").value)
+      };
+      state.profile.zonesMode = manualToggle.checked ? "manual" : "auto";
+      state.profile.manualZones = {
+        E: parseTimeToSeconds(document.getElementById("zone-E").value),
+        M: parseTimeToSeconds(document.getElementById("zone-M").value),
+        T: parseTimeToSeconds(document.getElementById("zone-T").value),
+        I: parseTimeToSeconds(document.getElementById("zone-I").value),
+        R: parseTimeToSeconds(document.getElementById("zone-R").value)
+      };
+      recalcSessionsForProfile();
+      saveData();
+      renderAll();
     });
   }
 
@@ -480,7 +805,7 @@
         type: session.type,
         distance: distance,
         duration: duration,
-        elevation: null,
+        elevation: session.elevTarget || null,
         notes: notes,
         linkedPlanId: session.id
       };
@@ -497,8 +822,11 @@
     if (!session) return;
     document.getElementById("form-session-done").reset();
     document.getElementById("done-session-id").value = sessionId;
-    document.getElementById("session-done-target").textContent =
-      session.type + " prévue le " + formatDateFull(session.date) + " · objectif " + fmtKm(session.targetDistance);
+    var paceStr = formatPaceSec(session.paceSecPerKm);
+    document.getElementById("session-done-target").innerHTML =
+      '<strong>' + session.type + '</strong> prévue le ' + formatDateFull(session.date) +
+      ' · objectif ' + fmtKm(session.targetDistance) + (paceStr ? ' · ' + paceStr : '') +
+      (session.description ? '<br>' + escapeHtml(session.description) : '');
     document.getElementById("dlg-session-done").showModal();
   }
 
@@ -596,6 +924,7 @@
     });
 
     setupGoalDialog();
+    setupProfileDialog();
     setupSessionDoneDialog();
     setupRunDialog();
 

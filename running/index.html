@@ -26,6 +26,9 @@
     RunPlan
   </span>
   <h1 id="view-title">Dashboard</h1>
+  <button class="icon-btn" id="btn-profile" aria-label="Mon profil coureur">
+    <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-4.4 0-8 2.2-8 5v2h16v-2c0-2.8-3.6-5-8-5z"/></svg>
+  </button>
 </header>
 
 <main id="app">
@@ -99,11 +102,28 @@
     <label>Nom de l'objectif
       <input type="text" id="goal-name" placeholder="Ex: 10km de la ville" required>
     </label>
+    <label>Type de course
+      <select id="goal-sport">
+        <option value="route">Route</option>
+        <option value="trail">Trail</option>
+      </select>
+    </label>
     <label>Distance de la course (km)
       <input type="number" id="goal-distance" min="1" step="0.1" required>
     </label>
+    <div class="field-group" id="goal-trail-fields" hidden>
+      <label>D+ dénivelé positif (m)
+        <input type="number" id="goal-elevation-gain" min="0" step="1">
+      </label>
+      <label>D- dénivelé négatif (m, optionnel)
+        <input type="number" id="goal-elevation-loss" min="0" step="1">
+      </label>
+    </div>
     <label>Date de la course
       <input type="date" id="goal-date" required>
+    </label>
+    <label>Temps objectif (optionnel)
+      <input type="text" id="goal-target-time" placeholder="hh:mm:ss ou mm:ss">
     </label>
     <label>Séances par semaine
       <select id="goal-sessions">
@@ -153,8 +173,10 @@
       <select id="run-type">
         <option>Endurance fondamentale</option>
         <option>Fractionné</option>
-        <option>Tempo</option>
+        <option>Seuil</option>
+        <option>Côtes</option>
         <option>Sortie longue</option>
+        <option>Activation</option>
         <option>Récupération</option>
         <option>Course</option>
       </select>
@@ -173,6 +195,56 @@
     </label>
     <div class="dlg-actions">
       <button type="button" class="btn btn-danger" id="btn-delete-run" hidden>Supprimer</button>
+      <button type="button" class="btn btn-ghost" data-close>Annuler</button>
+      <button type="submit" class="btn btn-primary">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- PROFILE DIALOG -->
+<dialog id="dlg-profile">
+  <form method="dialog" id="form-profile" class="dlg-form">
+    <h2>Mon profil coureur</h2>
+    <p class="dlg-hint">Tes temps de référence servent à calculer tes allures d'entraînement (méthode équivalence de performance).</p>
+    <label>1 km
+      <input type="text" id="ref-1k" placeholder="mm:ss">
+    </label>
+    <label>5 km
+      <input type="text" id="ref-5k" placeholder="mm:ss">
+    </label>
+    <label>10 km
+      <input type="text" id="ref-10k" placeholder="mm:ss">
+    </label>
+    <label>Semi-marathon
+      <input type="text" id="ref-semi" placeholder="hh:mm:ss">
+    </label>
+
+    <div id="zones-computed" class="zones-grid"></div>
+
+    <label class="checkbox-label">
+      <input type="checkbox" id="zones-manual-toggle">
+      Définir mes allures manuellement
+    </label>
+
+    <div class="field-group" id="zones-manual-fields" hidden>
+      <label>Allure fondamentale (E)
+        <input type="text" id="zone-E" placeholder="mm:ss/km">
+      </label>
+      <label>Allure marathon (M)
+        <input type="text" id="zone-M" placeholder="mm:ss/km">
+      </label>
+      <label>Allure seuil (T)
+        <input type="text" id="zone-T" placeholder="mm:ss/km">
+      </label>
+      <label>Allure intervalle (I)
+        <input type="text" id="zone-I" placeholder="mm:ss/km">
+      </label>
+      <label>Allure répétition (R)
+        <input type="text" id="zone-R" placeholder="mm:ss/km">
+      </label>
+    </div>
+
+    <div class="dlg-actions">
       <button type="button" class="btn btn-ghost" data-close>Annuler</button>
       <button type="submit" class="btn btn-primary">Enregistrer</button>
     </div>
