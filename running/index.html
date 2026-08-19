@@ -255,6 +255,17 @@
     <label>Plus longue sortie actuelle (km)
       <input type="number" id="profile-long-run" min="0" step="any" placeholder="Ex: 12">
     </label>
+    <label>Volume hebdomadaire actuel (km/semaine, optionnel)
+      <input type="number" id="profile-weekly-volume" min="0" step="any" placeholder="Ex: 30">
+    </label>
+    <p class="dlg-hint">Ton volume actuel calibre le volume des séances (VMA/Seuil/sortie longue) sur tout le plan. Ton niveau ajuste la vitesse de progression semaine après semaine.</p>
+    <label>Niveau
+      <select id="profile-level">
+        <option value="debutant">Débutant</option>
+        <option value="intermediaire">Intermédiaire</option>
+        <option value="confirme">Confirmé</option>
+      </select>
+    </label>
 
     <div id="vma-preview" class="zones-grid"></div>
 

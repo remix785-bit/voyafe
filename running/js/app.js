@@ -25,11 +25,12 @@
           : { distanceKm: null, timeSec: null, date: null };
       }
       if (data.profile.currentLongRunKm === undefined) data.profile.currentLongRunKm = null;
+      if (data.profile.weeklyVolumeKm === undefined) data.profile.weeklyVolumeKm = null;
+      if (!data.profile.level) data.profile.level = "intermediaire";
       data.profile.vmaHistory = data.profile.vmaHistory || [];
       delete data.profile.refTimes;
       delete data.profile.zonesMode;
       delete data.profile.manualZones;
-      delete data.profile.level;
       delete data.profile.zonesHistory;
 
       data.goals.forEach(function (g) {
@@ -48,7 +49,7 @@
     } catch (e) {
       return {
         goals: [], planSessions: [], runs: [],
-        profile: { vmaKmh: null, recentPerformance: { distanceKm: null, timeSec: null, date: null }, currentLongRunKm: null, vmaHistory: [] }
+        profile: { vmaKmh: null, recentPerformance: { distanceKm: null, timeSec: null, date: null }, currentLongRunKm: null, weeklyVolumeKm: null, level: "intermediaire", vmaHistory: [] }
       };
     }
   }
@@ -315,26 +316,31 @@
   var LONG_BASE_PCT_VMA = 0.725;
 
   // Weekly training volume (VMA reps, seuil duration, long-run ceiling) scales with
-  // the chosen race distance and, for trail, its elevation gain -- intensity (%VMA
-  // paces) stays the same, only the amount of work per session/week changes.
+  // the chosen race distance, its elevation gain (trail), and the runner's own
+  // profile (current weekly volume, experience level) -- intensity (%VMA paces)
+  // stays the same, only the amount of work per session/week and the pace of
+  // progression change.
+  function interpolateTable(table, x) {
+    if (x <= table[0][0]) return table[0][1];
+    var last = table[table.length - 1];
+    if (x >= last[0]) return last[1];
+    for (var i = 0; i < table.length - 1; i++) {
+      var a = table[i], b = table[i + 1];
+      if (x >= a[0] && x <= b[0]) {
+        var t = (x - a[0]) / (b[0] - a[0]);
+        return a[1] + (b[1] - a[1]) * t;
+      }
+    }
+    return 1.0;
+  }
+
   var DISTANCE_LOAD_TABLE = [
     [5, 0.55], [10, 0.75], [15, 0.85], [21.0975, 0.90],
     [42.195, 1.00], [50, 1.08], [80, 1.20], [120, 1.32]
   ];
 
   function distanceLoadFactor(distanceKm) {
-    var table = DISTANCE_LOAD_TABLE;
-    if (distanceKm <= table[0][0]) return table[0][1];
-    var last = table[table.length - 1];
-    if (distanceKm >= last[0]) return last[1];
-    for (var i = 0; i < table.length - 1; i++) {
-      var a = table[i], b = table[i + 1];
-      if (distanceKm >= a[0] && distanceKm <= b[0]) {
-        var t = (distanceKm - a[0]) / (b[0] - a[0]);
-        return a[1] + (b[1] - a[1]) * t;
-      }
-    }
-    return 1.0;
+    return interpolateTable(DISTANCE_LOAD_TABLE, distanceKm);
   }
 
   function elevationLoadFactor(goal) {
@@ -343,10 +349,32 @@
     return 1 + Math.min(0.35, mPerKm / 250);
   }
 
-  function buildWeeklyParams(goal) {
+  // Current weekly volume is the runner's own baseline fitness signal: someone
+  // already running 60km/week should get a visibly heavier plan than someone at
+  // 15km/week for the same target race. No data entered stays neutral (1.0).
+  var WEEKLY_VOLUME_LOAD_TABLE = [
+    [0, 0.65], [15, 0.80], [30, 0.95], [45, 1.05], [60, 1.15], [80, 1.25], [120, 1.35]
+  ];
+
+  function fitnessLoadFactor(profile) {
+    var km = profile && profile.weeklyVolumeKm;
+    if (!km) return 1.0;
+    return interpolateTable(WEEKLY_VOLUME_LOAD_TABLE, km);
+  }
+
+  // Experience level doesn't change how much a runner does this week, it changes
+  // how fast the plan is allowed to ramp week over week.
+  var LEVEL_STEP_MULTIPLIER = { debutant: 0.7, intermediaire: 1.0, confirme: 1.3 };
+
+  function levelStepMultiplier(profile) {
+    return LEVEL_STEP_MULTIPLIER[profile && profile.level] || 1.0;
+  }
+
+  function buildWeeklyParams(goal, profile) {
     var progWeeks = goal.progWeeks;
     var elevFactor = elevationLoadFactor(goal);
-    var loadFactor = distanceLoadFactor(goal.targetDistance) * elevFactor;
+    var loadFactor = distanceLoadFactor(goal.targetDistance) * elevFactor * fitnessLoadFactor(profile);
+    var levelMult = levelStepMultiplier(profile);
     var distancePic = Math.min(Math.min(0.65 * goal.targetDistance, 32) * elevFactor, 38);
     var longRunKm = goal.currentLongRunKm || 12;
     var seuilFloor = Math.max(4, Math.round(8 * loadFactor));
@@ -374,12 +402,12 @@
         lever = ["long_run", "seuil", "vma"][leverIdx];
         var inc = LEVER_INCREMENTS[phase];
         if (lever === "long_run" && longRunKm < distancePic) {
-          var step = Math.min(inc.long_run, 0.10 * longRunKm, 2);
+          var step = Math.min(inc.long_run * levelMult, 0.10 * longRunKm, 2 * levelMult);
           longRunKm = Math.min(distancePic, Math.round((longRunKm + step) * 10) / 10);
         } else if (lever === "seuil") {
-          seuilMin = seuilMin + Math.max(1, Math.round(inc.seuil * loadFactor));
+          seuilMin = seuilMin + Math.max(1, Math.round(inc.seuil * loadFactor * levelMult));
         } else if (lever === "vma") {
-          vmaReps = vmaReps + Math.max(1, Math.round(inc.vma * loadFactor));
+          vmaReps = vmaReps + Math.max(1, Math.round(inc.vma * loadFactor * levelMult));
         }
       }
 
@@ -550,7 +578,7 @@
     goal.targetTimeEstimated = !goal.targetTimeSec;
     goal.targetTimeSec = timing.targetTimeSec;
 
-    var weeklyParams = buildWeeklyParams(goal);
+    var weeklyParams = buildWeeklyParams(goal, profile);
     var peakLongRunKm = weeklyParams.length ? weeklyParams[weeklyParams.length - 1].longRunKm : (goal.currentLongRunKm || 12);
     var taperCheckpoints = taperCheckpointsFor(goal.taperDays);
 
@@ -1284,6 +1312,8 @@
       document.getElementById("perf-time").value = p.recentPerformance.timeSec ? formatSecondsToTime(p.recentPerformance.timeSec) : "";
       document.getElementById("perf-date").value = p.recentPerformance.date || toISO(todayDate());
       document.getElementById("profile-long-run").value = p.currentLongRunKm || "";
+      document.getElementById("profile-weekly-volume").value = p.weeklyVolumeKm || "";
+      document.getElementById("profile-level").value = p.level || "intermediaire";
       renderVmaPreview();
       dlg.showModal();
     });
@@ -1304,6 +1334,8 @@
         date: document.getElementById("perf-date").value || null
       };
       state.profile.currentLongRunKm = parseFloat(document.getElementById("profile-long-run").value) || null;
+      state.profile.weeklyVolumeKm = parseFloat(document.getElementById("profile-weekly-volume").value) || null;
+      state.profile.level = document.getElementById("profile-level").value || "intermediaire";
       recalcSessionsForProfile();
       snapshotVMA();
       saveData();
