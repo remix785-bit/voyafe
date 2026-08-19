@@ -17,17 +17,25 @@
       data.runs = data.runs || [];
       data.profile = data.profile || {};
       if (data.profile.vmaKmh === undefined) data.profile.vmaKmh = null;
-      if (!data.profile.recentPerformance) {
-        var legacy = data.profile.refTimes || {};
-        var fallback = legacy.t10k ? [10, legacy.t10k] : legacy.t5k ? [5, legacy.t5k] : legacy.tSemi ? [21.0975, legacy.tSemi] : legacy.t1k ? [1, legacy.t1k] : null;
-        data.profile.recentPerformance = fallback
-          ? { distanceKm: fallback[0], timeSec: fallback[1], date: toISO(todayDate()) }
-          : { distanceKm: null, timeSec: null, date: null };
+      if (!data.profile.performances) {
+        var migrated = [];
+        var legacyPerf = data.profile.recentPerformance;
+        var legacyRef = data.profile.refTimes || {};
+        if (legacyPerf && legacyPerf.distanceKm && legacyPerf.timeSec) {
+          migrated.push({ distanceKm: legacyPerf.distanceKm, timeSec: legacyPerf.timeSec, date: legacyPerf.date || toISO(todayDate()) });
+        } else {
+          if (legacyRef.t1k) migrated.push({ distanceKm: 1, timeSec: legacyRef.t1k, date: toISO(todayDate()) });
+          if (legacyRef.t5k) migrated.push({ distanceKm: 5, timeSec: legacyRef.t5k, date: toISO(todayDate()) });
+          if (legacyRef.t10k) migrated.push({ distanceKm: 10, timeSec: legacyRef.t10k, date: toISO(todayDate()) });
+          if (legacyRef.tSemi) migrated.push({ distanceKm: 21.0975, timeSec: legacyRef.tSemi, date: toISO(todayDate()) });
+        }
+        data.profile.performances = migrated;
       }
       if (data.profile.currentLongRunKm === undefined) data.profile.currentLongRunKm = null;
       if (data.profile.weeklyVolumeKm === undefined) data.profile.weeklyVolumeKm = null;
       if (!data.profile.level) data.profile.level = "intermediaire";
       data.profile.vmaHistory = data.profile.vmaHistory || [];
+      delete data.profile.recentPerformance;
       delete data.profile.refTimes;
       delete data.profile.zonesMode;
       delete data.profile.manualZones;
@@ -49,7 +57,7 @@
     } catch (e) {
       return {
         goals: [], planSessions: [], runs: [],
-        profile: { vmaKmh: null, recentPerformance: { distanceKm: null, timeSec: null, date: null }, currentLongRunKm: null, weeklyVolumeKm: null, level: "intermediaire", vmaHistory: [] }
+        profile: { vmaKmh: null, performances: [], currentLongRunKm: null, weeklyVolumeKm: null, level: "intermediaire", vmaHistory: [] }
       };
     }
   }
@@ -198,17 +206,69 @@
     return 0.75;
   }
 
-  function estimateVMA(perf) {
-    if (!perf || !perf.distanceKm || !perf.timeSec) return null;
-    var pct = pctVMAForDistance(perf.distanceKm);
-    var speedKmh = perf.distanceKm / (perf.timeSec / 3600);
+  // With two or more reference performances at genuinely different distances,
+  // fit a personalized Riegel exponent (ln(T) = intercept + k*ln(D)) instead of
+  // relying on the generic population-average %VMA table for a single point --
+  // this captures whether THIS runner leans more speed- or endurance-dominant.
+  function personalizedRiegelFit(performances) {
+    var pts = performances.filter(function (p) { return p && p.distanceKm > 0 && p.timeSec > 0; });
+    var distinctDistances = [];
+    pts.forEach(function (p) {
+      var isNew = !distinctDistances.some(function (d) { return Math.abs(d - p.distanceKm) / p.distanceKm < 0.03; });
+      if (isNew) distinctDistances.push(p.distanceKm);
+    });
+    if (distinctDistances.length < 2) return null;
+
+    var n = pts.length;
+    var sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+    pts.forEach(function (p) {
+      var x = Math.log(p.distanceKm), y = Math.log(p.timeSec);
+      sumX += x; sumY += y; sumXY += x * y; sumXX += x * x;
+    });
+    var denom = n * sumXX - sumX * sumX;
+    if (!denom) return null;
+    var k = (n * sumXY - sumX * sumY) / denom;
+    if (!isFinite(k) || k < 1.00 || k > 1.25) return null;
+    return { k: k, intercept: (sumY - k * sumX) / n };
+  }
+
+  function predictTimeSecAt(fit, distanceKm) {
+    return Math.exp(fit.intercept + fit.k * Math.log(distanceKm));
+  }
+
+  function estimateVMA(performances) {
+    var list = Array.isArray(performances) ? performances : (performances ? [performances] : []);
+    var valid = list.filter(function (p) { return p && p.distanceKm > 0 && p.timeSec > 0; });
+    if (!valid.length) return null;
+
+    var fit = personalizedRiegelFit(valid);
+    if (fit) {
+      var t15 = predictTimeSecAt(fit, 1.5);
+      return 1.5 / (t15 / 3600); // 1.5km ~ 100% VMA per PCT_VMA_TABLE
+    }
+
+    var best = valid.slice().sort(function (a, b) { return (b.date || "").localeCompare(a.date || ""); })[0];
+    var pct = pctVMAForDistance(best.distanceKm);
+    var speedKmh = best.distanceKm / (best.timeSec / 3600);
     return speedKmh / pct;
   }
 
   function getVMA(profile) {
     if (!profile) return null;
     if (profile.vmaKmh) return profile.vmaKmh;
-    return estimateVMA(profile.recentPerformance);
+    return estimateVMA(profile.performances);
+  }
+
+  // Adds a new reference performance, replacing any existing one at a near-identical
+  // distance (within 7%) so re-racing the same distance updates it instead of piling
+  // up stale entries.
+  function addReferencePerformance(perf) {
+    state.profile.performances = state.profile.performances || [];
+    var idx = state.profile.performances.findIndex(function (p) {
+      return Math.abs(p.distanceKm - perf.distanceKm) / perf.distanceKm <= 0.07;
+    });
+    if (idx !== -1) state.profile.performances[idx] = perf;
+    else state.profile.performances.push(perf);
   }
 
   function paceFromPctVMA(vmaKmh, pct) {
@@ -1284,18 +1344,32 @@
     });
   }
 
-  function renderVmaPreview() {
-    var distance = parseFloat(document.getElementById("perf-distance").value);
-    var timeSec = parseTimeToSeconds(document.getElementById("perf-time").value);
+  function formatPerfLine(p) {
+    var speedKmh = p.distanceKm / (p.timeSec / 3600);
+    return fmtNum(p.distanceKm) + ' km en ' + formatSecondsToTime(p.timeSec) + ' (' + formatPaceSec(3600 / speedKmh) + ')';
+  }
+
+  function renderPerfList(pending) {
+    var el = document.getElementById("perf-list");
+    el.innerHTML = pending.map(function (p, i) {
+      return '<div class="perf-item"><span class="perf-info">' + escapeHtml(formatPerfLine(p)) +
+        '<span class="perf-date">' + (p.date ? formatDateShort(p.date) : '') + '</span></span>' +
+        '<button type="button" class="btn-remove-perf" data-perf-index="' + i + '">&times;</button></div>';
+    }).join("");
+  }
+
+  function renderVmaPreview(pending) {
     var directVma = parseFloat(document.getElementById("profile-vma").value);
     var el = document.getElementById("vma-preview");
-    var vma = directVma || (distance && timeSec ? estimateVMA({ distanceKm: distance, timeSec: timeSec }) : null);
+    var vma = directVma || estimateVMA(pending);
     if (!vma) {
-      el.innerHTML = '<p class="dlg-hint" style="margin:0;">Renseigne ta VMA ou une performance récente pour calculer tes allures.</p>';
+      el.innerHTML = '<p class="dlg-hint" style="margin:0;">Renseigne ta VMA ou au moins une performance récente pour calculer tes allures.</p>';
       return;
     }
+    var fit = !directVma && personalizedRiegelFit(pending);
+    var estimateLabel = directVma ? '' : fit ? ' (estimée, courbe personnalisée sur ' + pending.length + ' performances)' : ' (estimée)';
     el.innerHTML =
-      '<div class="zone-row"><span>VMA' + (directVma ? '' : ' (estimée)') + '</span><strong>' + vma.toFixed(1) + ' km/h</strong></div>' +
+      '<div class="zone-row"><span>VMA' + estimateLabel + '</span><strong>' + fmtNum(vma) + ' km/h</strong></div>' +
       '<div class="zone-row"><span>Endurance fondamentale (72,5%)</span><strong>' + formatPaceSec(paceFromPctVMA(vma, LONG_BASE_PCT_VMA)) + '</strong></div>' +
       '<div class="zone-row"><span>Allure spécifique (80%)</span><strong>' + formatPaceSec(paceFromPctVMA(vma, LONG_TAIL_PCT_VMA)) + '</strong></div>' +
       '<div class="zone-row"><span>Seuil (85%)</span><strong>' + formatPaceSec(paceFromPctVMA(vma, 0.85)) + '</strong></div>' +
@@ -1304,17 +1378,24 @@
 
   function setupProfileDialog() {
     var dlg = document.getElementById("dlg-profile");
+    var pendingPerformances = [];
+
+    function refresh() {
+      renderPerfList(pendingPerformances);
+      renderVmaPreview(pendingPerformances);
+    }
 
     document.getElementById("btn-profile").addEventListener("click", function () {
       var p = state.profile;
       document.getElementById("profile-vma").value = p.vmaKmh || "";
-      document.getElementById("perf-distance").value = p.recentPerformance.distanceKm || "";
-      document.getElementById("perf-time").value = p.recentPerformance.timeSec ? formatSecondsToTime(p.recentPerformance.timeSec) : "";
-      document.getElementById("perf-date").value = p.recentPerformance.date || toISO(todayDate());
       document.getElementById("profile-long-run").value = p.currentLongRunKm || "";
       document.getElementById("profile-weekly-volume").value = p.weeklyVolumeKm || "";
       document.getElementById("profile-level").value = p.level || "intermediaire";
-      renderVmaPreview();
+      pendingPerformances = (p.performances || []).map(function (x) { return Object.assign({}, x); });
+      document.getElementById("perf-add-distance").value = "";
+      document.getElementById("perf-add-time").value = "";
+      document.getElementById("perf-add-date").value = toISO(todayDate());
+      refresh();
       dlg.showModal();
     });
 
@@ -1322,17 +1403,29 @@
       b.addEventListener("click", function () { dlg.close(); });
     });
 
-    ["profile-vma", "perf-distance", "perf-time"].forEach(function (id) {
-      document.getElementById(id).addEventListener("input", renderVmaPreview);
+    document.getElementById("profile-vma").addEventListener("input", function () { renderVmaPreview(pendingPerformances); });
+
+    document.getElementById("btn-add-perf").addEventListener("click", function () {
+      var distance = parseFloat(document.getElementById("perf-add-distance").value);
+      var timeSec = parseTimeToSeconds(document.getElementById("perf-add-time").value);
+      var date = document.getElementById("perf-add-date").value || toISO(todayDate());
+      if (!distance || !timeSec) return;
+      pendingPerformances.push({ distanceKm: distance, timeSec: timeSec, date: date });
+      document.getElementById("perf-add-distance").value = "";
+      document.getElementById("perf-add-time").value = "";
+      refresh();
+    });
+
+    document.getElementById("perf-list").addEventListener("click", function (e) {
+      var btn = e.target.closest(".btn-remove-perf");
+      if (!btn) return;
+      pendingPerformances.splice(parseInt(btn.dataset.perfIndex, 10), 1);
+      refresh();
     });
 
     document.getElementById("form-profile").addEventListener("submit", function () {
       state.profile.vmaKmh = parseFloat(document.getElementById("profile-vma").value) || null;
-      state.profile.recentPerformance = {
-        distanceKm: parseFloat(document.getElementById("perf-distance").value) || null,
-        timeSec: parseTimeToSeconds(document.getElementById("perf-time").value),
-        date: document.getElementById("perf-date").value || null
-      };
+      state.profile.performances = pendingPerformances.slice();
       state.profile.currentLongRunKm = parseFloat(document.getElementById("profile-long-run").value) || null;
       state.profile.weeklyVolumeKm = parseFloat(document.getElementById("profile-weekly-volume").value) || null;
       state.profile.level = document.getElementById("profile-level").value || "intermediaire";
@@ -1403,37 +1496,15 @@
     }
   }
 
-  var REF_DISTANCES = [
-    [1, "1 km"],
-    [5, "5 km"],
-    [10, "10 km"],
-    [21.0975, "semi-marathon"]
-  ];
-
-  function matchRefDistance(d) {
-    for (var i = 0; i < REF_DISTANCES.length; i++) {
-      var target = REF_DISTANCES[i][0];
-      if (Math.abs(d - target) / target <= 0.07) {
-        return { distanceKm: target, label: REF_DISTANCES[i][1] };
-      }
-    }
-    return null;
-  }
-
   function updateRunRefRow() {
     var type = document.getElementById("run-type").value;
     var distance = parseFloat(document.getElementById("run-distance").value) || 0;
     var row = document.getElementById("run-ref-row");
-    if (type !== "Course") {
+    if (type !== "Course" || distance <= 0) {
       row.hidden = true;
       return;
     }
-    var match = matchRefDistance(distance);
-    if (!match) {
-      row.hidden = true;
-      return;
-    }
-    document.getElementById("run-ref-label").textContent = "Utiliser comme nouvelle performance de référence (" + match.label + ")";
+    document.getElementById("run-ref-label").textContent = "Utiliser comme nouvelle performance de référence (" + fmtKm(distance) + ")";
     row.hidden = false;
   }
 
@@ -1481,12 +1552,9 @@
       }
 
       var refRow = document.getElementById("run-ref-row");
-      if (!refRow.hidden && document.getElementById("run-is-ref").checked) {
-        var match = matchRefDistance(distance);
-        if (match) {
-          state.profile.recentPerformance = { distanceKm: match.distanceKm, timeSec: Math.round(duration * 60), date: data.date };
-          recalcSessionsForProfile();
-        }
+      if (!refRow.hidden && document.getElementById("run-is-ref").checked && distance > 0) {
+        addReferencePerformance({ distanceKm: distance, timeSec: Math.round(duration * 60), date: data.date });
+        recalcSessionsForProfile();
       }
       snapshotVMA();
 

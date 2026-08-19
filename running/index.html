@@ -242,16 +242,20 @@
     <label>VMA connue (km/h, optionnel)
       <input type="number" id="profile-vma" min="0" step="0.1" placeholder="Ex: 16.5">
     </label>
-    <p class="dlg-hint">Performance récente (utilisée si la VMA n'est pas renseignée directement)</p>
-    <label>Distance (km)
-      <input type="number" id="perf-distance" min="0" step="any" placeholder="Ex: 10">
-    </label>
-    <label>Temps
-      <input type="text" id="perf-time" placeholder="hh:mm:ss ou mm:ss">
-    </label>
-    <label>Date de la performance
-      <input type="date" id="perf-date">
-    </label>
+    <p class="dlg-hint">Performances de référence (utilisées si la VMA n'est pas renseignée directement). Ajoutes-en plusieurs sur des distances différentes (1km, 5km, 10km...) pour un calcul plus précis, adapté à ton profil réel.</p>
+    <div id="perf-list"></div>
+    <div class="field-group perf-add-row">
+      <label>Distance (km)
+        <input type="number" id="perf-add-distance" min="0" step="any" placeholder="Ex: 10">
+      </label>
+      <label>Temps
+        <input type="text" id="perf-add-time" placeholder="hh:mm:ss ou mm:ss">
+      </label>
+      <label>Date
+        <input type="date" id="perf-add-date">
+      </label>
+      <button type="button" class="btn btn-ghost btn-small" id="btn-add-perf">+ Ajouter cette performance</button>
+    </div>
     <label>Plus longue sortie actuelle (km)
       <input type="number" id="profile-long-run" min="0" step="any" placeholder="Ex: 12">
     </label>

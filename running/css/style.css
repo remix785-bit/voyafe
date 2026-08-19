@@ -626,6 +626,45 @@ dialog::backdrop {
   gap: 12px;
 }
 
+.perf-add-row {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  gap: 10px;
+}
+
+#perf-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.perf-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.perf-item .perf-info { color: var(--text); }
+.perf-item .perf-date { color: var(--text-muted); font-size: 12px; margin-left: 6px; }
+
+.perf-item .btn-remove-perf {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 4px 6px;
+}
+
 .zones-grid {
   display: flex;
   flex-direction: column;
