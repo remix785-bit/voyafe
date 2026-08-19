@@ -1232,9 +1232,13 @@
   }
 
   function renderAll() {
-    renderDashboard();
-    renderPlan();
-    renderHistory();
+    try {
+      renderDashboard();
+      renderPlan();
+      renderHistory();
+    } catch (e) {
+      console.error("RunPlan render failed:", e);
+    }
   }
 
   // ---------- dialogs & forms ----------
@@ -1598,7 +1602,7 @@
 
   // ---------- init ----------
 
-  function init() {
+  function initApp() {
     document.querySelectorAll(".tab-btn").forEach(function (btn) {
       btn.addEventListener("click", function () { switchView(btn.dataset.view); });
     });
@@ -1634,6 +1638,30 @@
 
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("sw.js").catch(function () {});
+    }
+  }
+
+  // A stale mix of cached assets (e.g. new app.js fetched but index.html still
+  // serving an old cached copy, or vice versa) can throw here if an expected
+  // element is missing. Fail into a visible, actionable message instead of a
+  // silent blank screen, and force a full asset re-fetch to clear the skew.
+  function init() {
+    try {
+      initApp();
+    } catch (e) {
+      console.error("RunPlan init failed:", e);
+      var app = document.getElementById("app");
+      if (app) {
+        app.innerHTML = '<div class="empty-state">Un problème est survenu au chargement.<br>Ferme complètement l\'application et rouvre-la.<br>Si ça persiste, réinstalle-la depuis le lien.</div>';
+      }
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function (regs) {
+          regs.forEach(function (r) { r.unregister(); });
+        });
+        if (window.caches) {
+          caches.keys().then(function (keys) { keys.forEach(function (k) { caches.delete(k); }); });
+        }
+      }
     }
   }
 
