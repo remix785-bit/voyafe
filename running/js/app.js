@@ -16,7 +16,11 @@
       data.planSessions = data.planSessions || [];
       data.runs = data.runs || [];
       data.profile = data.profile || {};
-      if (data.profile.vmaKmh === undefined) data.profile.vmaKmh = null;
+      // vmaKmh (km/h) and vmaHistory don't translate to VDOT (a VO2 index, not a
+      // speed) -- drop them; performances (distance/time) carry over untouched
+      // and re-derive an accurate VDOT on next load.
+      delete data.profile.vmaKmh;
+      if (data.profile.vdot === undefined) data.profile.vdot = null;
       if (!data.profile.performances) {
         var migrated = [];
         var legacyPerf = data.profile.recentPerformance;
@@ -34,7 +38,9 @@
       if (data.profile.currentLongRunKm === undefined) data.profile.currentLongRunKm = null;
       if (data.profile.weeklyVolumeKm === undefined) data.profile.weeklyVolumeKm = null;
       if (!data.profile.level) data.profile.level = "intermediaire";
-      data.profile.vmaHistory = data.profile.vmaHistory || [];
+      if (data.profile.bodyWeightKg === undefined) data.profile.bodyWeightKg = null;
+      if (!Array.isArray(data.profile.vdotHistory)) data.profile.vdotHistory = [];
+      delete data.profile.vmaHistory;
       delete data.profile.recentPerformance;
       delete data.profile.refTimes;
       delete data.profile.zonesMode;
@@ -57,7 +63,7 @@
     } catch (e) {
       return {
         goals: [], planSessions: [], runs: [],
-        profile: { vmaKmh: null, performances: [], currentLongRunKm: null, weeklyVolumeKm: null, level: "intermediaire", vmaHistory: [] }
+        profile: { vdot: null, performances: [], currentLongRunKm: null, weeklyVolumeKm: null, level: "intermediaire", bodyWeightKg: null, vdotHistory: [] }
       };
     }
   }
@@ -169,94 +175,88 @@
   }
 
   // ============================================================
-  // Coaching engine — VMA-based methodology (spec followed literally)
+  // Coaching engine — Daniels' VDOT model (Daniels & Gilbert, 1979;
+  // Daniels' Running Formula, 4th ed. 2021) + Minetti trail grade cost
   // ============================================================
 
-  // ---------- §2: pace engine ----------
+  // ---------- §2: VDOT pace engine ----------
 
-  function riegelPredict(t, d1, d2) {
-    return t * Math.pow(d2 / d1, 1.06);
+  // Eq.1 — O2 cost (ml/kg/min) of running at velocity v (m/min).
+  function vo2Cost(v) {
+    return -4.60 + 0.182258 * v + 0.000104 * v * v;
   }
 
-  var PCT_VMA_TABLE = [
-    [1.5, 1.00],
-    [3, 0.95],
-    [5, 0.90],
-    [10, 0.85],
-    [21.0975, 0.80],
-    [42.195, 0.75]
-  ];
+  // Inverse of vo2Cost: velocity (m/min) that costs the given VO2.
+  function velocityAtVO2(vo2) {
+    var a = 0.000104, b = 0.182258, c = 4.60 + vo2;
+    return (-b + Math.sqrt(b * b + 4 * a * c)) / (2 * a);
+  }
 
-  function pctVMAForDistance(distanceKm) {
-    var table = PCT_VMA_TABLE;
-    if (distanceKm <= table[0][0]) return table[0][1];
-    var last = table[table.length - 1];
-    if (distanceKm >= last[0]) {
-      var prev = table[table.length - 2];
-      var slope = (last[1] - prev[1]) / (last[0] - prev[0]);
-      return Math.max(0.60, last[1] + slope * (distanceKm - last[0]));
+  // Eq.2 — fraction of VO2max sustainable for a given duration t (minutes).
+  function pctVO2maxForDuration(tMin) {
+    return 0.8 + 0.1894393 * Math.exp(-0.012778 * tMin) + 0.2989558 * Math.exp(-0.1932605 * tMin);
+  }
+
+  // VDOT from one performance: distance in km, time in seconds.
+  // Valid range per spec: 1.5–50km, maximal effort, ideally <6 weeks old.
+  function computeVDOT(distanceKm, timeSec) {
+    if (!distanceKm || !timeSec) return null;
+    var tMin = timeSec / 60;
+    var v = (distanceKm * 1000) / tMin; // m/min
+    var vo2 = vo2Cost(v);
+    var pct = pctVO2maxForDuration(tMin);
+    return vo2 / pct;
+  }
+
+  // Predicts race time (seconds) at a given distance for a known VDOT, by
+  // solving the implicit equation vo2Cost(v(T))/VDOT = pctVO2maxForDuration(T)
+  // for T (same iterative approach Daniels' own tables are built from).
+  function predictRaceTimeSec(vdot, distanceKm) {
+    if (!vdot || !distanceKm) return null;
+    var lo = 1, hi = 600; // minutes
+    for (var i = 0; i < 60; i++) {
+      var mid = (lo + hi) / 2;
+      var v = (distanceKm * 1000) / mid;
+      var pctNeeded = vo2Cost(v) / vdot;
+      var pctAvailable = pctVO2maxForDuration(mid);
+      if (pctNeeded > pctAvailable) lo = mid; else hi = mid;
     }
-    for (var i = 0; i < table.length - 1; i++) {
-      var a = table[i], b = table[i + 1];
-      if (distanceKm >= a[0] && distanceKm <= b[0]) {
-        var t = (distanceKm - a[0]) / (b[0] - a[0]);
-        return a[1] + (b[1] - a[1]) * t;
-      }
-    }
-    return 0.75;
+    return Math.round(((lo + hi) / 2) * 60);
   }
 
-  // With two or more reference performances at genuinely different distances,
-  // fit a personalized Riegel exponent (ln(T) = intercept + k*ln(D)) instead of
-  // relying on the generic population-average %VMA table for a single point --
-  // this captures whether THIS runner leans more speed- or endurance-dominant.
-  function personalizedRiegelFit(performances) {
-    var pts = performances.filter(function (p) { return p && p.distanceKm > 0 && p.timeSec > 0; });
-    var distinctDistances = [];
-    pts.forEach(function (p) {
-      var isNew = !distinctDistances.some(function (d) { return Math.abs(d - p.distanceKm) / p.distanceKm < 0.03; });
-      if (isNew) distinctDistances.push(p.distanceKm);
-    });
-    if (distinctDistances.length < 2) return null;
+  var PERF_MIN_DISTANCE_KM = 1.5;
+  var PERF_MAX_DISTANCE_KM = 50;
 
-    var n = pts.length;
-    var sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
-    pts.forEach(function (p) {
-      var x = Math.log(p.distanceKm), y = Math.log(p.timeSec);
-      sumX += x; sumY += y; sumXY += x * y; sumXX += x * x;
-    });
-    var denom = n * sumXX - sumX * sumX;
-    if (!denom) return null;
-    var k = (n * sumXY - sumX * sumY) / denom;
-    if (!isFinite(k) || k < 1.00 || k > 1.25) return null;
-    return { k: k, intercept: (sumY - k * sumX) / n };
+  function isValidPerformance(p) {
+    return !!(p && p.distanceKm >= PERF_MIN_DISTANCE_KM && p.distanceKm <= PERF_MAX_DISTANCE_KM && p.timeSec > 0);
   }
 
-  function predictTimeSecAt(fit, distanceKm) {
-    return Math.exp(fit.intercept + fit.k * Math.log(distanceKm));
-  }
-
-  function estimateVMA(performances) {
+  // With several reference performances, average their individual VDOT
+  // estimates, weighting more recent ones higher (90-day characteristic decay,
+  // matching the spec's "retest every 4-6 weeks to stay current" guidance) --
+  // more data converges toward a more reliable VDOT than any single race.
+  function estimateVDOT(performances) {
     var list = Array.isArray(performances) ? performances : (performances ? [performances] : []);
-    var valid = list.filter(function (p) { return p && p.distanceKm > 0 && p.timeSec > 0; });
+    var valid = list.filter(isValidPerformance);
     if (!valid.length) return null;
 
-    var fit = personalizedRiegelFit(valid);
-    if (fit) {
-      var t15 = predictTimeSecAt(fit, 1.5);
-      return 1.5 / (t15 / 3600); // 1.5km ~ 100% VMA per PCT_VMA_TABLE
-    }
-
-    var best = valid.slice().sort(function (a, b) { return (b.date || "").localeCompare(a.date || ""); })[0];
-    var pct = pctVMAForDistance(best.distanceKm);
-    var speedKmh = best.distanceKm / (best.timeSec / 3600);
-    return speedKmh / pct;
+    var today = todayDate();
+    var totalWeight = 0, weightedSum = 0;
+    valid.forEach(function (p) {
+      var vdot = computeVDOT(p.distanceKm, p.timeSec);
+      if (!vdot || !isFinite(vdot)) return;
+      var daysAgo = p.date ? Math.max(0, diffDays(today, parseISO(p.date))) : 30;
+      var weight = Math.exp(-daysAgo / 90);
+      totalWeight += weight;
+      weightedSum += vdot * weight;
+    });
+    return totalWeight > 0 ? weightedSum / totalWeight : null;
   }
 
-  function getVMA(profile) {
+  function getVDOT(profile) {
     if (!profile) return null;
-    if (profile.vmaKmh) return profile.vmaKmh;
-    return estimateVMA(profile.performances);
+    if (profile.vdot) return profile.vdot;
+    return estimateVDOT(profile.performances);
   }
 
   // Adds a new reference performance, replacing any existing one at a near-identical
@@ -271,9 +271,16 @@
     else state.profile.performances.push(perf);
   }
 
-  function paceFromPctVMA(vmaKmh, pct) {
-    if (!vmaKmh || !pct) return null;
-    var speedKmh = vmaKmh * pct;
+  // §3 zone intensities as %VO2max — representative points within each of
+  // Daniels' ranges (E 59-74%, M 75-84%, T 86-88%, I 95-100%, R ~105-120%).
+  var ZONE_PCT = { E: 0.70, M: 0.80, T: 0.87, I: 0.98, R: 1.10 };
+
+  function paceFromZone(vdot, zoneKey) {
+    if (!vdot) return null;
+    var pct = ZONE_PCT[zoneKey];
+    var v = velocityAtVO2(vdot * pct); // m/min
+    var speedKmh = v * 0.06;
+    if (!isFinite(speedKmh) || speedKmh <= 0) return null;
     return Math.round(3600 / speedKmh);
   }
 
@@ -282,39 +289,56 @@
     return (minutes * 60) / paceSecPerKm;
   }
 
-  function computeGoalTiming(goal, vmaKmh) {
-    var pct = pctVMAForDistance(goal.targetDistance);
-    var predictedTimeSec = vmaKmh ? (goal.targetDistance / (vmaKmh * pct)) * 3600 : null;
+  function computeGoalTiming(goal, vdot) {
+    var predictedTimeSec = vdot ? predictRaceTimeSec(vdot, goal.targetDistance) : null;
     if (goal.targetTimeSec && !goal.targetTimeEstimated) {
       var ambitious = predictedTimeSec ? goal.targetTimeSec < predictedTimeSec * 0.97 : false;
       return { targetTimeSec: goal.targetTimeSec, ambitious: ambitious };
     }
-    return { targetTimeSec: predictedTimeSec ? Math.round(predictedTimeSec) : goal.targetTimeSec, ambitious: false };
+    return { targetTimeSec: predictedTimeSec || goal.targetTimeSec, ambitious: false };
   }
 
   function isAmbitiousGoal(goal, profile) {
-    var vma = getVMA(profile);
-    if (!vma || !goal.targetTimeSec) return false;
-    return computeGoalTiming(goal, vma).ambitious;
+    var vdot = getVDOT(profile);
+    if (!vdot || !goal.targetTimeSec) return false;
+    return computeGoalTiming(goal, vdot).ambitious;
   }
 
-  function snapshotVMA() {
-    var vma = getVMA(state.profile);
-    if (!vma) return;
+  function snapshotVDOT() {
+    var vdot = getVDOT(state.profile);
+    if (!vdot) return;
     var today = toISO(todayDate());
-    var history = state.profile.vmaHistory;
+    var history = state.profile.vdotHistory;
     var last = history[history.length - 1];
     if (last && last.date === today) {
-      last.vmaKmh = vma;
+      last.vdot = vdot;
     } else {
-      history.push({ date: today, vmaKmh: vma });
+      history.push({ date: today, vdot: vdot });
     }
+  }
+
+  // ---------- §4: Minetti trail grade cost (energy cost of running on slopes) ----------
+
+  // Energy cost (J/kg/m) at grade i (decimal fraction, + uphill / - downhill).
+  function minettiCost(i) {
+    return 155.4 * Math.pow(i, 5) - 30.4 * Math.pow(i, 4) - 43.3 * Math.pow(i, 3) + 46.3 * i * i + 19.5 * i + 3.6;
+  }
+
+  var MINETTI_FLAT_COST = minettiCost(0);
+
+  // How much harder (>1) or easier (<1) running feels at this average grade,
+  // vs flat ground, purely metabolically. Below -15/-20% grade this stops being
+  // reliable -- eccentric braking load, not aerobic cost, becomes the limiter.
+  function gradeAdjustFactor(gradeFraction) {
+    return minettiCost(gradeFraction) / MINETTI_FLAT_COST;
   }
 
   // ---------- §3: plan duration, phases, taper ----------
 
   var MIN_WEEKS_TABLE = [[5, 4], [10, 6], [21.0975, 8], [42.195, 10]];
-  var TAPER_DAYS_TABLE = [[5, 5], [10, 7], [21.0975, 10], [42.195, 14]];
+  // §11: optimum 8-14 jours (moyenne ~2 semaines), jusqu'à ~4 semaines pour les
+  // charges d'entraînement très élevées (ultra).
+  var TAPER_DAYS_TABLE = [[10, 8], [21.0975, 10], [42.195, 14], [120, 18]];
 
   function lookupByDistance(table, distanceKm) {
     for (var i = 0; i < table.length; i++) {
@@ -360,10 +384,15 @@
 
   // ---------- §4 + §5: session templates & lever-rotation progression ----------
 
+  // Interval (I) sessions: rep count progresses (the lever), rep duration is a
+  // fixed format parameter per phase, capped at spec's "≤5min/rep" ceiling.
+  // Threshold (T): duration/blocks per spec §6.4 (tempo continu ≤20min, or
+  // cruise intervals at a 5:1 effort:recovery ratio when blocks>1).
+  // longTailPct: fraction of the long run finished at M-pace (§6.3).
   var PHASE_TEMPLATES = {
-    base: { vmaReps: 8, vmaMeters: 400, vmaPct: 1.00, vmaRecoverSec: 90, seuilMin: 15, seuilBlocks: 1, seuilPct: 0.85, seuilRecoverMin: 0, longTailPct: 0 },
-    dev: { vmaReps: 10, vmaMeters: 400, vmaPct: 1.025, vmaRecoverSec: 75, seuilMin: 10, seuilBlocks: 3, seuilPct: 0.87, seuilRecoverMin: 2, longTailPct: 0.25 },
-    peak: { vmaReps: 12, vmaMeters: 400, vmaPct: 1.075, vmaRecoverSec: 60, seuilMin: 20, seuilBlocks: 2, seuilPct: 0.88, seuilRecoverMin: 3, longTailPct: 0.375 }
+    base: { vmaReps: 6, vmaRepMin: 3, seuilMin: 15, seuilBlocks: 1, longTailPct: 0 },
+    dev: { vmaReps: 6, vmaRepMin: 4, seuilMin: 8, seuilBlocks: 3, longTailPct: 0.25 },
+    peak: { vmaReps: 5, vmaRepMin: 4, seuilMin: 15, seuilBlocks: 2, longTailPct: 0.375 }
   };
 
   var LEVER_INCREMENTS = {
@@ -371,9 +400,6 @@
     dev: { long_run: 2.0, seuil: 3, vma: 2 },
     peak: { long_run: 1.0, seuil: 2, vma: 1 }
   };
-
-  var LONG_TAIL_PCT_VMA = 0.80;
-  var LONG_BASE_PCT_VMA = 0.725;
 
   // Weekly training volume (VMA reps, seuil duration, long-run ceiling) scales with
   // the chosen race distance, its elevation gain (trail), and the runner's own
@@ -451,12 +477,13 @@
         currentPhase = phase;
       }
 
+      // §11: intra-cycle discharge every 3-4 weeks, net -30 to -40% (using -35%).
       var isDecharge = weekIndex % 4 === 0;
       var lever = null;
       if (isDecharge) {
-        longRunKm = Math.max(goal.currentLongRunKm || 8, Math.round(longRunKm * 0.72 * 10) / 10);
-        seuilMin = Math.max(seuilFloor, Math.round(seuilMin * 0.72));
-        vmaReps = Math.max(vmaFloor, Math.round(vmaReps * 0.72));
+        longRunKm = Math.max(goal.currentLongRunKm || 8, Math.round(longRunKm * 0.65 * 10) / 10);
+        seuilMin = Math.max(seuilFloor, Math.round(seuilMin * 0.65));
+        vmaReps = Math.max(vmaFloor, Math.round(vmaReps * 0.65));
       } else {
         var leverIdx = (weekIndex - 1) % 3;
         lever = ["long_run", "seuil", "vma"][leverIdx];
@@ -470,52 +497,65 @@
           vmaReps = vmaReps + Math.max(1, Math.round(inc.vma * loadFactor * levelMult));
         }
       }
+      seuilMin = Math.min(seuilMin, 20); // §6.4: tempo continu plafonné à 20min
 
       weeks.push({
         phase: phase, isDecharge: isDecharge, lever: lever,
         longRunKm: Math.round(longRunKm * 10) / 10,
-        seuilMin: seuilMin, vmaReps: vmaReps
+        seuilMin: seuilMin, vmaReps: vmaReps, vmaRepMin: PHASE_TEMPLATES[phase].vmaRepMin
       });
     }
     return weeks;
   }
 
-  function vmaSessionDetail(vmaKmh, reps, meters, pct, recoverSec, opts) {
-    var pace = paceFromPctVMA(vmaKmh, pct);
+  // §6.5 Interval (I, ~98% VO2max) -- reps ≤5min, recovery = effort time (1:1).
+  function vmaSessionDetail(vdot, reps, repMin, opts) {
+    var pace = paceFromZone(vdot, "I");
     var paceStr = formatPaceSec(pace);
-    var distanceKm = Math.round((reps * meters / 1000) * 10) / 10;
-    var detail = "Échauffement 15min facile + gammes/lignes droites. " + reps + " x " + meters + "m" +
-      (paceStr ? " à " + paceStr : "") + " (" + Math.round(pct * 100) + "% VMA), récupération " + recoverSec + "sec trot. Retour au calme 10min.";
+    var distanceKm = Math.round(distanceFromPace(pace, reps * repMin) * 10) / 10;
+    var detail = "Échauffement 15min facile + gammes/lignes droites. " + reps + " x " + repMin + "min" +
+      (paceStr ? " à " + paceStr : "") + " (~98% VO2max, zone I), récupération " + repMin + "min trot (ratio 1:1). Retour au calme 10min.";
     var spot = parisTrainingSpot("VMA", opts && opts.sport);
     if (spot) detail += " " + spot;
     return { pace: pace, distanceKm: Math.max(distanceKm, 1), detail: detail };
   }
 
-  function seuilSessionDetail(vmaKmh, durationMin, blocks, pct, recoverMin, opts) {
-    var pace = paceFromPctVMA(vmaKmh, pct);
+  // §6.4 Threshold (T, ~87% VO2max) -- tempo continu ≤20min, ou cruise intervals
+  // à ratio effort:récup 5:1.
+  function seuilSessionDetail(vdot, durationMin, blocks, opts) {
+    var pace = paceFromZone(vdot, "T");
     var paceStr = formatPaceSec(pace);
     var totalMin = durationMin * blocks;
     var distanceKm = Math.round(distanceFromPace(pace, totalMin) * 10) / 10;
+    var recoverMin = Math.max(1, Math.round((durationMin / 5) * 10) / 10);
     var blocText = blocks > 1
-      ? blocks + " x " + durationMin + "min" + (paceStr ? " à " + paceStr : "") + ", récupération " + recoverMin + "min trot"
+      ? blocks + " x " + durationMin + "min" + (paceStr ? " à " + paceStr : "") + ", récupération " + fmtNum(recoverMin) + "min trot (ratio 5:1)"
       : durationMin + "min continu" + (paceStr ? " à " + paceStr : "");
-    var detail = "Échauffement 15min facile. " + blocText + " (" + Math.round(pct * 100) + "% VMA), effort régulier sans à-coups. Retour au calme 10min.";
+    var detail = "Échauffement 15min facile. " + blocText + " (~87% VO2max, zone T/seuil), effort régulier sans à-coups. Retour au calme 10min.";
     var spot = parisTrainingSpot("Seuil", opts && opts.sport);
     if (spot) detail += " " + spot;
     return { pace: pace, distanceKm: Math.max(distanceKm, 1), detail: detail };
   }
 
-  function longueSessionDetail(vmaKmh, distanceKm, tailPct, opts) {
-    var basePace = paceFromPctVMA(vmaKmh, LONG_BASE_PCT_VMA);
+  // §6.3 Sortie longue (E, ~70% VO2max) + bloc M (~80%) en fin de séance.
+  // Trail : note de pilotage GAP (Minetti) sur le D+ moyen de la sortie.
+  function longueSessionDetail(vdot, distanceKm, tailPct, opts) {
+    var basePace = paceFromZone(vdot, "E");
     var basePaceStr = formatPaceSec(basePace);
     var detail = fmtNum(distanceKm) + "km à allure fondamentale" + (basePaceStr ? " (" + basePaceStr + ")" : "") + ", régulier";
     if (tailPct > 0) {
       var tailKm = Math.round(distanceKm * tailPct * 10) / 10;
-      var tailPace = paceFromPctVMA(vmaKmh, LONG_TAIL_PCT_VMA);
-      detail += ". Termine les " + fmtNum(tailKm) + " derniers km à allure spécifique" + (tailPace ? " (" + formatPaceSec(tailPace) + ")" : "");
+      var tailPace = paceFromZone(vdot, "M");
+      detail += ". Termine les " + fmtNum(tailKm) + " derniers km à allure marathon" + (tailPace ? " (" + formatPaceSec(tailPace) + ")" : "");
     }
-    if (opts && opts.sport === "trail" && opts.elevTarget) {
-      detail += ", D+ ~" + opts.elevTarget + "m, gère l'effort en montée, mouline en descente";
+    if (opts && opts.sport === "trail" && opts.elevTarget && distanceKm > 0) {
+      var avgGrade = opts.elevTarget / (distanceKm * 1000);
+      var gapFactor = gradeAdjustFactor(avgGrade);
+      var gapPace = basePace ? Math.round(basePace * gapFactor) : null;
+      detail += ", D+ ~" + opts.elevTarget + "m";
+      if (gapPace) detail += " (allure GAP en montée ~" + formatPaceSec(gapPace) + " à effort équivalent)";
+      detail += ". Mouline en descente";
+      if (avgGrade < -0.15) detail += " ; au-delà de -15/-20% pilote au RPE, pas au chrono (freinage musculaire, pas l'aérobie, devient le facteur limitant)";
     }
     detail += ".";
     var spot = parisTrainingSpot("Sortie longue", opts && opts.sport);
@@ -568,30 +608,32 @@
     return best;
   }
 
-  function buildTaperSession(checkpoint, peakLongRunKm, vmaKmh, opts) {
+  // §11: volume cut, intensity maintained -- taper sessions stay at full I/T
+  // pace, just shorter, and frequency drops by at most ~20%.
+  function buildTaperSession(checkpoint, peakLongRunKm, vdot, opts) {
     switch (checkpoint.kind) {
       case "longue": {
         var dist = Math.round(peakLongRunKm * checkpoint.pctOfPeak * 10) / 10;
-        var built = longueSessionDetail(vmaKmh, dist, checkpoint.tailPct, opts);
+        var built = longueSessionDetail(vdot, dist, checkpoint.tailPct, opts);
         return { type: "Sortie longue", targetDistance: Math.max(dist, 3), pace: built.pace, detail: built.detail };
       }
       case "vma-sharp": {
-        var built2 = vmaSessionDetail(vmaKmh, 4, 400, 1.00, 90, opts);
+        var built2 = vmaSessionDetail(vdot, 4, 2, opts);
         built2.detail = built2.detail.replace("Échauffement 15min facile + gammes/lignes droites.", "Affûtage : échauffement 15min. Séance courte et vive, pas de charge.");
         return { type: "VMA", targetDistance: built2.distanceKm, pace: built2.pace, detail: built2.detail };
       }
       case "vma-accel": {
-        var paceAccel = paceFromPctVMA(vmaKmh, 1.05);
+        var paceAccel = paceFromZone(vdot, "R");
         var detail = "Footing très facile 15-20min puis 4 à 6 x 20sec accélérations progressives" +
           (paceAccel ? " (proche " + formatPaceSec(paceAccel) + ")" : "") +
           ", retour au calme entre chaque. Objectif : réactivité neuromusculaire, sans créer de fatigue.";
         var spot = parisTrainingSpot("VMA", opts && opts.sport);
         if (spot) detail += " " + spot;
-        return { type: "VMA", targetDistance: 4, pace: paceFromPctVMA(vmaKmh, LONG_BASE_PCT_VMA), detail: detail };
+        return { type: "VMA", targetDistance: 4, pace: paceFromZone(vdot, "E"), detail: detail };
       }
       case "shakeout":
       default: {
-        var easyPace = paceFromPctVMA(vmaKmh, LONG_BASE_PCT_VMA);
+        var easyPace = paceFromZone(vdot, "E");
         return {
           type: "Sortie longue",
           targetDistance: 4,
@@ -616,7 +658,7 @@
     var split = splitPhases(totalWeeks, goal.targetDistance);
     var progWeeks = totalWeeks - split.taperWeeks;
     var offsets = goal.trainingDayOffsets && goal.trainingDayOffsets.length ? goal.trainingDayOffsets : WEEKDAY_OFFSETS[3];
-    var vmaKmh = getVMA(profile);
+    var vdot = getVDOT(profile);
     var elevRatio = (goal.sport === "trail" && goal.elevationGain) ? goal.elevationGain / goal.targetDistance : 0;
 
     goal.totalWeeks = totalWeeks;
@@ -634,7 +676,7 @@
       goal.currentLongRunKm = (profile && profile.currentLongRunKm) || 12;
     }
 
-    var timing = computeGoalTiming(goal, vmaKmh);
+    var timing = computeGoalTiming(goal, vdot);
     goal.targetTimeEstimated = !goal.targetTimeSec;
     goal.targetTimeSec = timing.targetTimeSec;
 
@@ -662,7 +704,7 @@
         if (isTaper) {
           var daysBefore = diffDays(targetDate, date);
           var checkpoint = nearestCheckpoint(taperCheckpoints, daysBefore);
-          var built = buildTaperSession(checkpoint, peakLongRunKm, vmaKmh, opts);
+          var built = buildTaperSession(checkpoint, peakLongRunKm, vdot, opts);
           type = built.type;
           targetDistance = built.targetDistance;
           pace = built.pace;
@@ -673,14 +715,14 @@
           var n = offsets.length;
           var roleIdx = n === 3 ? i : (n === 2 ? (i === 0 ? 1 : 2) : 2);
           if (roleIdx === 0) {
-            var vb = vmaSessionDetail(vmaKmh, wp.vmaReps, tmpl.vmaMeters, tmpl.vmaPct, tmpl.vmaRecoverSec, opts);
+            var vb = vmaSessionDetail(vdot, wp.vmaReps, wp.vmaRepMin, opts);
             type = "VMA"; targetDistance = vb.distanceKm; pace = vb.pace; detail = vb.detail;
           } else if (roleIdx === 1) {
-            var sb = seuilSessionDetail(vmaKmh, wp.seuilMin, tmpl.seuilBlocks, tmpl.seuilPct, tmpl.seuilRecoverMin, opts);
+            var sb = seuilSessionDetail(vdot, wp.seuilMin, tmpl.seuilBlocks, opts);
             type = "Seuil"; targetDistance = sb.distanceKm; pace = sb.pace; detail = sb.detail;
           } else {
             elevTarget = elevRatio ? Math.round(wp.longRunKm * elevRatio) : 0;
-            var lb = longueSessionDetail(vmaKmh, wp.longRunKm, tmpl.longTailPct, { sport: goal.sport, elevTarget: elevTarget });
+            var lb = longueSessionDetail(vdot, wp.longRunKm, tmpl.longTailPct, { sport: goal.sport, elevTarget: elevTarget });
             type = "Sortie longue"; targetDistance = wp.longRunKm; pace = lb.pace; detail = lb.detail;
           }
           lever = wp.lever;
@@ -709,8 +751,8 @@
   }
 
   function recalcSessionsForProfile() {
-    var vmaKmh = getVMA(state.profile);
-    if (!vmaKmh) return;
+    var vdot = getVDOT(state.profile);
+    if (!vdot) return;
     state.planSessions.forEach(function (s) {
       if (s.done) return;
       var goal = state.goals.find(function (g) { return g.id === s.goalId; });
@@ -718,21 +760,23 @@
       var opts = { sport: goal.sport, elevTarget: s.elevTarget };
       var w = s.week - 1;
       var phase = phaseForWeek(goal, w);
-      if (phase === "taper") return; // taper structures are checkpoint-based, not VMA-parametrized beyond pace already baked in; skip fine recalibration here
+      if (phase === "taper") return; // taper structures are checkpoint-based, not VDOT-parametrized beyond pace already baked in; skip fine recalibration here
       var tmpl = PHASE_TEMPLATES[phase];
       if (!tmpl) return;
       if (s.type === "VMA") {
-        var vb = vmaSessionDetail(vmaKmh, Math.round((s.targetDistance * 1000) / tmpl.vmaMeters), tmpl.vmaMeters, tmpl.vmaPct, tmpl.vmaRecoverSec, opts);
+        var priorTotalMin = s.paceSecPerKm ? (s.targetDistance * s.paceSecPerKm) / 60 : tmpl.vmaReps * tmpl.vmaRepMin;
+        var reps = Math.max(1, Math.round(priorTotalMin / tmpl.vmaRepMin));
+        var vb = vmaSessionDetail(vdot, reps, tmpl.vmaRepMin, opts);
         s.paceSecPerKm = vb.pace;
         s.description = vb.detail;
       } else if (s.type === "Seuil") {
         var priorTotalMin = s.paceSecPerKm ? (s.targetDistance * s.paceSecPerKm) / 60 : tmpl.seuilMin * tmpl.seuilBlocks;
         var durMin = Math.max(1, Math.round((priorTotalMin / tmpl.seuilBlocks) * 10) / 10);
-        var sb = seuilSessionDetail(vmaKmh, durMin, tmpl.seuilBlocks, tmpl.seuilPct, tmpl.seuilRecoverMin, opts);
+        var sb = seuilSessionDetail(vdot, durMin, tmpl.seuilBlocks, opts);
         s.paceSecPerKm = sb.pace;
         s.description = sb.detail;
       } else if (s.type === "Sortie longue") {
-        var lb = longueSessionDetail(vmaKmh, s.targetDistance, tmpl.longTailPct, opts);
+        var lb = longueSessionDetail(vdot, s.targetDistance, tmpl.longTailPct, opts);
         s.paceSecPerKm = lb.pace;
         s.description = lb.detail;
       }
@@ -850,7 +894,8 @@
       '<div class="acwr-value">' + valueStr + '</div>' +
       '<div class="acwr-status acwr-' + acwr.status + '">' + labels[0] + '</div>' +
       gauge +
-      '<div class="dlg-hint" style="margin:8px 0 0;">' + labels[1] + '</div>';
+      '<div class="dlg-hint" style="margin:8px 0 0;">' + labels[1] + '</div>' +
+      '<div class="dlg-hint" style="margin:6px 0 0; font-size:11px;">Indicateur de tendance, pas un prédicteur fiable pris isolément (couplage mathématique acuë/chronique documenté dans la littérature) — à croiser avec ton ressenti.</div>';
   }
 
   function goalProgress(goal) {
@@ -936,7 +981,7 @@
 
     var trendCanvas = document.getElementById("trend-chart");
     var trendEmpty = document.getElementById("trend-empty");
-    var history = state.profile.vmaHistory;
+    var history = state.profile.vdotHistory;
     if (history.length >= 2) {
       trendCanvas.hidden = false;
       trendEmpty.hidden = true;
@@ -945,9 +990,9 @@
       trendCanvas.hidden = true;
       trendEmpty.hidden = false;
       if (history.length === 1) {
-        trendEmpty.innerHTML = 'VMA actuelle : <strong>' + fmtNum(history[0].vmaKmh) + ' km/h</strong> (depuis le ' + formatDateShort(history[0].date) + '). Coche tes séances ou enregistre une course pour voir ta progression apparaître ici.';
+        trendEmpty.innerHTML = 'VDOT actuel : <strong>' + fmtNum(history[0].vdot) + '</strong> (depuis le ' + formatDateShort(history[0].date) + '). Coche tes séances ou enregistre une course pour voir ta progression apparaître ici.';
       } else {
-        trendEmpty.textContent = "Renseigne ta VMA dans ton profil pour commencer à suivre ta progression.";
+        trendEmpty.textContent = "Ajoute une performance de référence dans ton profil pour commencer à suivre ta progression.";
       }
     }
 
@@ -1046,7 +1091,7 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cssWidth, cssHeight);
 
-    var values = history.map(function (h) { return h.vmaKmh; });
+    var values = history.map(function (h) { return h.vdot; });
     var minV = Math.min.apply(null, values);
     var maxV = Math.max.apply(null, values);
     if (minV === maxV) { minV -= 0.5; maxV += 0.5; }
@@ -1060,7 +1105,7 @@
 
     function pointAt(i) {
       var x = padX + (history.length === 1 ? chartW / 2 : chartW * (i / (history.length - 1)));
-      var t = (history[i].vmaKmh - minV) / (maxV - minV);
+      var t = (history[i].vdot - minV) / (maxV - minV);
       var y = topPad + (1 - t) * chartH;
       return [x, y];
     }
@@ -1093,7 +1138,7 @@
     ctx.textAlign = "right";
     ctx.fillText(formatDateShort(history[history.length - 1].date), cssWidth - padX, cssHeight - 4);
     ctx.textAlign = "left";
-    ctx.fillText("VMA : " + fmtNum(maxV) + " km/h au mieux", padX, topPad - 5);
+    ctx.fillText("VDOT : " + fmtNum(maxV) + " au mieux", padX, topPad - 5);
   }
 
   // ---------- rendering: plan ----------
@@ -1141,14 +1186,14 @@
     }
     if (goal.targetTimeSec) {
       var goalPaceStr = formatPaceSec(goal.targetTimeSec / goal.targetDistance);
-      metaParts.push("objectif " + formatSecondsToTime(goal.targetTimeSec) + (goalPaceStr ? " (" + goalPaceStr + ")" : "") + (goal.targetTimeEstimated ? " · estimé depuis ta VMA" : ""));
+      metaParts.push("objectif " + formatSecondsToTime(goal.targetTimeSec) + (goalPaceStr ? " (" + goalPaceStr + ")" : "") + (goal.targetTimeEstimated ? " · estimé depuis ton VDOT" : ""));
     }
     metaParts.push(days >= 0 ? "J-" + days : "terminé");
 
     var badge = goal.sport === "trail" ?
       '<span class="sport-badge trail">Trail</span>' : '<span class="sport-badge route">Route</span>';
     var warning = isAmbitiousGoal(goal, state.profile) ?
-      '<div class="goal-warning">Objectif ambitieux par rapport à ta VMA actuelle — le plan vise quand même cette allure sur les séances spécifiques.</div>' : "";
+      '<div class="goal-warning">Objectif ambitieux par rapport à ton VDOT actuel — le plan vise quand même cette allure sur les séances spécifiques.</div>' : "";
 
     return '<div class="goal-card" data-goal-id="' + goal.id + '">' +
       '<div class="goal-card-head">' +
@@ -1356,28 +1401,46 @@
   function renderPerfList(pending) {
     var el = document.getElementById("perf-list");
     el.innerHTML = pending.map(function (p, i) {
+      var invalid = !isValidPerformance(p);
       return '<div class="perf-item"><span class="perf-info">' + escapeHtml(formatPerfLine(p)) +
-        '<span class="perf-date">' + (p.date ? formatDateShort(p.date) : '') + '</span></span>' +
+        '<span class="perf-date">' + (p.date ? formatDateShort(p.date) : '') + '</span>' +
+        (invalid ? '<span class="perf-date"> · hors plage valide (1,5-50km)</span>' : '') + '</span>' +
         '<button type="button" class="btn-remove-perf" data-perf-index="' + i + '">&times;</button></div>';
     }).join("");
   }
 
   function renderVmaPreview(pending) {
-    var directVma = parseFloat(document.getElementById("profile-vma").value);
+    var directVdot = parseFloat(document.getElementById("profile-vma").value);
     var el = document.getElementById("vma-preview");
-    var vma = directVma || estimateVMA(pending);
-    if (!vma) {
-      el.innerHTML = '<p class="dlg-hint" style="margin:0;">Renseigne ta VMA ou au moins une performance récente pour calculer tes allures.</p>';
+    var vdot = directVdot || estimateVDOT(pending);
+    if (!vdot) {
+      el.innerHTML = '<p class="dlg-hint" style="margin:0;">Renseigne ton VDOT ou au moins une performance récente (entre 1,5 et 50km) pour calculer tes allures.</p>';
       return;
     }
-    var fit = !directVma && personalizedRiegelFit(pending);
-    var estimateLabel = directVma ? '' : fit ? ' (estimée, courbe personnalisée sur ' + pending.length + ' performances)' : ' (estimée)';
+    var validCount = pending.filter(isValidPerformance).length;
+    var estimateLabel = directVdot ? '' : validCount > 1 ? ' (estimé, moyenne pondérée sur ' + validCount + ' performances)' : ' (estimé)';
     el.innerHTML =
-      '<div class="zone-row"><span>VMA' + estimateLabel + '</span><strong>' + fmtNum(vma) + ' km/h</strong></div>' +
-      '<div class="zone-row"><span>Endurance fondamentale (72,5%)</span><strong>' + formatPaceSec(paceFromPctVMA(vma, LONG_BASE_PCT_VMA)) + '</strong></div>' +
-      '<div class="zone-row"><span>Allure spécifique (80%)</span><strong>' + formatPaceSec(paceFromPctVMA(vma, LONG_TAIL_PCT_VMA)) + '</strong></div>' +
-      '<div class="zone-row"><span>Seuil (85%)</span><strong>' + formatPaceSec(paceFromPctVMA(vma, 0.85)) + '</strong></div>' +
-      '<div class="zone-row"><span>VMA (100%)</span><strong>' + formatPaceSec(paceFromPctVMA(vma, 1.00)) + '</strong></div>';
+      '<div class="zone-row"><span>VDOT' + estimateLabel + '</span><strong>' + fmtNum(vdot) + '</strong></div>' +
+      '<div class="zone-row"><span>Endurance (E, ~70% VO2max)</span><strong>' + formatPaceSec(paceFromZone(vdot, "E")) + '</strong></div>' +
+      '<div class="zone-row"><span>Marathon (M, ~80% VO2max)</span><strong>' + formatPaceSec(paceFromZone(vdot, "M")) + '</strong></div>' +
+      '<div class="zone-row"><span>Seuil (T, ~87% VO2max)</span><strong>' + formatPaceSec(paceFromZone(vdot, "T")) + '</strong></div>' +
+      '<div class="zone-row"><span>Interval (I, ~98% VO2max)</span><strong>' + formatPaceSec(paceFromZone(vdot, "I")) + '</strong></div>' +
+      '<div class="zone-row"><span>Repetition (R, ~110% VO2max)</span><strong>' + formatPaceSec(paceFromZone(vdot, "R")) + '</strong></div>' +
+      nutritionRows();
+  }
+
+  // §8 (ISSN Position Stands) -- static daily macronutrient guidance from
+  // body weight. Not a tracking system: informational reference only, to be
+  // individualized/tested at training per the spec's own "point ouvert".
+  function nutritionRows() {
+    var kg = parseFloat(document.getElementById("profile-bodyweight").value);
+    if (!kg) return "";
+    var carbsLow = Math.round(kg * 5), carbsHigh = Math.round(kg * 12);
+    var proteinLow = Math.round(kg * 1.6 * 10) / 10, proteinHigh = Math.round(kg * 2.5 * 10) / 10;
+    var fatLow = Math.round(kg * 1.0 * 10) / 10, fatHigh = Math.round(kg * 1.5 * 10) / 10;
+    return '<div class="zone-row" style="margin-top:6px;"><span>Glucides/jour (ISSN)</span><strong>' + carbsLow + '-' + carbsHigh + 'g</strong></div>' +
+      '<div class="zone-row"><span>Protéines/jour</span><strong>' + proteinLow + '-' + proteinHigh + 'g</strong></div>' +
+      '<div class="zone-row"><span>Lipides/jour</span><strong>' + fatLow + '-' + fatHigh + 'g</strong></div>';
   }
 
   function setupProfileDialog() {
@@ -1391,10 +1454,11 @@
 
     document.getElementById("btn-profile").addEventListener("click", function () {
       var p = state.profile;
-      document.getElementById("profile-vma").value = p.vmaKmh || "";
+      document.getElementById("profile-vma").value = p.vdot || "";
       document.getElementById("profile-long-run").value = p.currentLongRunKm || "";
       document.getElementById("profile-weekly-volume").value = p.weeklyVolumeKm || "";
       document.getElementById("profile-level").value = p.level || "intermediaire";
+      document.getElementById("profile-bodyweight").value = p.bodyWeightKg || "";
       pendingPerformances = (p.performances || []).map(function (x) { return Object.assign({}, x); });
       document.getElementById("perf-add-distance").value = "";
       document.getElementById("perf-add-time").value = "";
@@ -1408,6 +1472,7 @@
     });
 
     document.getElementById("profile-vma").addEventListener("input", function () { renderVmaPreview(pendingPerformances); });
+    document.getElementById("profile-bodyweight").addEventListener("input", function () { renderVmaPreview(pendingPerformances); });
 
     document.getElementById("btn-add-perf").addEventListener("click", function () {
       var distance = parseFloat(document.getElementById("perf-add-distance").value);
@@ -1428,13 +1493,14 @@
     });
 
     document.getElementById("form-profile").addEventListener("submit", function () {
-      state.profile.vmaKmh = parseFloat(document.getElementById("profile-vma").value) || null;
+      state.profile.vdot = parseFloat(document.getElementById("profile-vma").value) || null;
       state.profile.performances = pendingPerformances.slice();
       state.profile.currentLongRunKm = parseFloat(document.getElementById("profile-long-run").value) || null;
       state.profile.weeklyVolumeKm = parseFloat(document.getElementById("profile-weekly-volume").value) || null;
       state.profile.level = document.getElementById("profile-level").value || "intermediaire";
+      state.profile.bodyWeightKg = parseFloat(document.getElementById("profile-bodyweight").value) || null;
       recalcSessionsForProfile();
-      snapshotVMA();
+      snapshotVDOT();
       saveData();
       renderAll();
     });
@@ -1468,7 +1534,7 @@
       state.runs.push(run);
       session.done = true;
       session.linkedRunId = run.id;
-      snapshotVMA();
+      snapshotVDOT();
       saveData();
       renderAll();
     });
@@ -1560,7 +1626,7 @@
         addReferencePerformance({ distanceKm: distance, timeSec: Math.round(duration * 60), date: data.date });
         recalcSessionsForProfile();
       }
-      snapshotVMA();
+      snapshotVDOT();
 
       saveData();
       renderAll();

@@ -1,4 +1,4 @@
-const CACHE_NAME = "runplan-v3";
+const CACHE_NAME = "runplan-v4";
 const ASSETS = [
   "./",
   "./index.html",

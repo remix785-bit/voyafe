@@ -238,11 +238,11 @@
 <dialog id="dlg-profile">
   <form method="dialog" id="form-profile" class="dlg-form">
     <h2>Mon profil coureur</h2>
-    <p class="dlg-hint">Ta VMA (vitesse maximale aérobie) sert de base au calcul de toutes tes allures d'entraînement. Renseigne-la directement si tu la connais, sinon indique une performance récente pour l'estimer.</p>
-    <label>VMA connue (km/h, optionnel)
-      <input type="number" id="profile-vma" min="0" step="0.1" placeholder="Ex: 16.5">
+    <p class="dlg-hint">Ton VDOT (indice de capacité aérobie, modèle Daniels) sert de base au calcul de toutes tes allures d'entraînement (zones E/M/T/I/R). Il est estimé depuis tes performances de référence ci-dessous ; renseigne-le directement seulement si tu le connais déjà (calculateur externe).</p>
+    <label>VDOT connu (optionnel, avancé)
+      <input type="number" id="profile-vma" min="0" step="0.1" placeholder="Ex: 45">
     </label>
-    <p class="dlg-hint">Performances de référence (utilisées si la VMA n'est pas renseignée directement). Ajoutes-en plusieurs sur des distances différentes (1km, 5km, 10km...) pour un calcul plus précis, adapté à ton profil réel.</p>
+    <p class="dlg-hint">Performances de référence entre 1,5 et 50km, effort maximal (utilisées si le VDOT n'est pas renseigné directement). Ajoutes-en plusieurs sur des distances différentes (1km, 5km, 10km...) pour un calcul plus précis — idéalement de moins de 6 semaines, à retester à cette fréquence.</p>
     <div id="perf-list"></div>
     <div class="field-group perf-add-row">
       <label>Distance (km)
@@ -270,6 +270,10 @@
         <option value="confirme">Confirmé</option>
       </select>
     </label>
+    <label>Poids corporel (kg, optionnel)
+      <input type="number" id="profile-bodyweight" min="0" step="any" placeholder="Ex: 65">
+    </label>
+    <p class="dlg-hint">Utilisé uniquement pour les repères nutrition ci-dessous (ISSN) — glucides/protéines/lipides par jour.</p>
 
     <div id="vma-preview" class="zones-grid"></div>
 
