@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Voyafe Training — Course à pied &amp; Trail</title>
+  <meta name="description" content="Génération de plans d'entraînement course à pied et trail, fondée sur VDOT, GAP et charge d'entraînement." />
+  <meta name="theme-color" content="#16201b" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="./icons/icon-180.svg" />
+  <link rel="stylesheet" href="./css/tokens.css" />
+  <link rel="stylesheet" href="./css/app.css" />
+</head>
+<body>
+  <header class="app-topbar">
+    <a class="app-topbar__brand" href="#/dashboard">Voyafe Training</a>
+  </header>
+
+  <main id="app-view"></main>
+
+  <nav class="app-bottomnav" id="app-nav">
+    <a href="#/dashboard" data-route="dashboard"><span class="icon">◆</span>Accueil</a>
+    <a href="#/plan" data-route="plan"><span class="icon">▤</span>Plan</a>
+    <a href="#/journal" data-route="journal"><span class="icon">✎</span>Journal</a>
+    <a href="#/renfo" data-route="renfo"><span class="icon">▲</span>Renfo</a>
+    <a href="#/nutrition" data-route="nutrition"><span class="icon">●</span>Nutrition</a>
+    <a href="#/jour-course" data-route="jour-course"><span class="icon">⟿</span>Course</a>
+    <a href="#/historique" data-route="historique"><span class="icon">∿</span>Stats</a>
+    <a href="#/profil" data-route="profil"><span class="icon">○</span>Profil</a>
+    <a href="#/reglages" data-route="reglages"><span class="icon">⚙</span>Réglages</a>
+  </nav>
+
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
