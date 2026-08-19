@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RunPlan</title>
+<meta name="theme-color" content="#FF5A36">
+<meta name="description" content="Plan d'entraînement et historique de course à pied, privé et hors ligne.">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="RunPlan">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <span class="brand">
+    <svg class="brand-logo" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"></circle>
+      <path d="M12 12 L12 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+      <path d="M12 12 L16.5 9.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+    </svg>
+    RunPlan
+  </span>
+  <h1 id="view-title">Dashboard</h1>
+  <button class="icon-btn" id="btn-profile" aria-label="Mon profil coureur">
+    <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-4.4 0-8 2.2-8 5v2h16v-2c0-2.8-3.6-5-8-5z"/></svg>
+  </button>
+</header>
+
+<main id="app">
+
+  <!-- DASHBOARD -->
+  <section class="view" id="view-dashboard" data-view="dashboard">
+    <div id="today-banner-slot"></div>
+    <div class="card-grid" id="goals-countdown"></div>
+
+    <div class="card">
+      <h2>Cette semaine</h2>
+      <div class="stat-row" id="week-stats"></div>
+    </div>
+
+    <div class="card">
+      <h2>Charge d'entraînement</h2>
+      <div id="acwr-display"></div>
+    </div>
+
+    <div class="card">
+      <h2>Totaux</h2>
+      <div class="stat-row" id="totals-stats"></div>
+    </div>
+
+    <div class="card">
+      <h2>Volume hebdomadaire</h2>
+      <canvas id="week-chart" width="600" height="220" role="img" aria-label="Graphique du volume de course des 8 dernières semaines"></canvas>
+    </div>
+
+    <div class="card">
+      <h2>Évolution de la forme</h2>
+      <canvas id="trend-chart" width="600" height="160" role="img" aria-label="Évolution de l'allure seuil dans le temps"></canvas>
+      <div id="trend-empty" class="empty-state" hidden>Ajoute plusieurs temps de référence dans le temps (profil ou courses) pour voir ta progression ici.</div>
+    </div>
+
+    <div class="card">
+      <h2>Semaine à venir</h2>
+      <div id="upcoming-week">Aucune séance planifiée.</div>
+    </div>
+
+    <div class="card">
+      <h2>Records personnels</h2>
+      <div class="stat-row" id="personal-records"></div>
+    </div>
+  </section>
+
+  <!-- PLAN -->
+  <section class="view" id="view-plan" data-view="plan" hidden>
+    <div class="section-actions">
+      <button class="btn btn-primary" id="btn-new-goal">+ Nouvel objectif</button>
+    </div>
+    <div id="goals-list"></div>
+  </section>
+
+  <!-- HISTORIQUE -->
+  <section class="view" id="view-history" data-view="history" hidden>
+    <div class="card">
+      <h2>Statistiques globales</h2>
+      <div class="stat-row" id="global-stats"></div>
+    </div>
+    <div class="section-actions">
+      <button class="btn btn-primary" id="btn-new-run">+ Ajouter une course</button>
+    </div>
+    <div id="runs-list"></div>
+  </section>
+
+</main>
+
+<nav class="tabbar">
+  <button class="tab-btn active" data-view="dashboard" aria-label="Dashboard">
+    <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 3 2 12h3v8h6v-6h2v6h6v-8h3z"/></svg>
+    <span>Accueil</span>
+  </button>
+  <button class="tab-btn" data-view="plan" aria-label="Plan d'entraînement">
+    <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M7 2h10a2 2 0 0 1 2 2v16a1 1 0 0 1-1.45.9L12 18l-5.55 2.9A1 1 0 0 1 5 20V4a2 2 0 0 1 2-2z"/></svg>
+    <span>Plan</span>
+  </button>
+  <button class="tab-btn" data-view="history" aria-label="Historique">
+    <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 2a10 10 0 1 0 10 10h-2a8 8 0 1 1-8-8V2z"/><path fill="currentColor" d="M12 3v2a7 7 0 1 1-7 7H3a9 9 0 1 0 9-9z" opacity="0"/><path fill="currentColor" d="M13 7h-2v6l5 3 1-1.6-4-2.4z"/></svg>
+    <span>Historique</span>
+  </button>
+</nav>
+
+<!-- GOAL FORM DIALOG -->
+<dialog id="dlg-goal">
+  <form method="dialog" id="form-goal" class="dlg-form">
+    <h2>Nouvel objectif</h2>
+    <label>Nom de l'objectif
+      <input type="text" id="goal-name" placeholder="Ex: 10km de la ville" required>
+    </label>
+    <label>Type de course
+      <select id="goal-sport">
+        <option value="route">Route</option>
+        <option value="trail">Trail</option>
+      </select>
+    </label>
+    <label>Distance de la course (km)
+      <input type="number" id="goal-distance" min="1" step="any" required>
+    </label>
+    <div class="field-group" id="goal-trail-fields" hidden>
+      <label>D+ dénivelé positif (m)
+        <input type="number" id="goal-elevation-gain" min="0" step="1">
+      </label>
+      <label>D- dénivelé négatif (m, optionnel)
+        <input type="number" id="goal-elevation-loss" min="0" step="1">
+      </label>
+    </div>
+    <label>Date de la course
+      <input type="date" id="goal-date" required>
+    </label>
+    <label>Temps objectif (optionnel)
+      <input type="text" id="goal-target-time" placeholder="hh:mm:ss ou mm:ss">
+    </label>
+    <label>Date de début du plan
+      <input type="date" id="goal-start-date" required>
+    </label>
+    <label style="margin-bottom: -6px;">Jours d'entraînement (3 max)</label>
+    <div class="day-picker" id="day-picker">
+      <button type="button" class="day-btn" data-day="0">L</button>
+      <button type="button" class="day-btn" data-day="1">M</button>
+      <button type="button" class="day-btn" data-day="2">M</button>
+      <button type="button" class="day-btn" data-day="3">J</button>
+      <button type="button" class="day-btn" data-day="4">V</button>
+      <button type="button" class="day-btn" data-day="5">S</button>
+      <button type="button" class="day-btn" data-day="6">D</button>
+    </div>
+    <div class="dlg-actions">
+      <button type="button" class="btn btn-ghost" data-close>Annuler</button>
+      <button type="submit" class="btn btn-primary">Créer le plan</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- SESSION DONE FORM DIALOG -->
+<dialog id="dlg-session-done">
+  <form method="dialog" id="form-session-done" class="dlg-form">
+    <h2>Séance réalisée</h2>
+    <p class="dlg-hint" id="session-done-target"></p>
+    <input type="hidden" id="done-session-id">
+    <label>Distance réelle (km)
+      <input type="number" id="done-distance" min="0" step="any" required>
+    </label>
+    <label>Durée réelle (minutes)
+      <input type="number" id="done-duration" min="0" step="1" required>
+    </label>
+    <label>Ressenti d'effort RPE (1-10)
+      <input type="number" id="done-rpe" min="1" max="10" step="1" placeholder="1 = très facile, 10 = maximal">
+    </label>
+    <label>Notes (optionnel)
+      <textarea id="done-notes" rows="2"></textarea>
+    </label>
+    <div class="dlg-actions">
+      <button type="button" class="btn btn-ghost" data-close>Annuler</button>
+      <button type="submit" class="btn btn-primary">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- RUN FORM DIALOG -->
+<dialog id="dlg-run">
+  <form method="dialog" id="form-run" class="dlg-form">
+    <h2 id="run-dlg-title">Ajouter une course</h2>
+    <input type="hidden" id="run-id">
+    <label>Date
+      <input type="date" id="run-date" required>
+    </label>
+    <label>Type de séance
+      <select id="run-type">
+        <option>Endurance fondamentale</option>
+        <option>VMA</option>
+        <option>Seuil</option>
+        <option>Sortie longue</option>
+        <option>Côtes</option>
+        <option>Activation</option>
+        <option>Récupération</option>
+        <option>Course</option>
+      </select>
+    </label>
+    <label>Distance (km)
+      <input type="number" id="run-distance" min="0" step="any" required>
+    </label>
+    <label>Durée (minutes)
+      <input type="number" id="run-duration" min="0" step="1" required>
+    </label>
+    <label>Ressenti d'effort RPE (1-10)
+      <input type="number" id="run-rpe" min="1" max="10" step="1" placeholder="1 = très facile, 10 = maximal">
+    </label>
+    <label>Dénivelé (m, optionnel)
+      <input type="number" id="run-elevation" min="0" step="1">
+    </label>
+    <label class="checkbox-label" id="run-ref-row" hidden>
+      <input type="checkbox" id="run-is-ref" checked>
+      <span id="run-ref-label">Utiliser comme nouveau temps de référence</span>
+    </label>
+    <label>Notes (optionnel)
+      <textarea id="run-notes" rows="2"></textarea>
+    </label>
+    <div class="dlg-actions">
+      <button type="button" class="btn btn-danger" id="btn-delete-run" hidden>Supprimer</button>
+      <button type="button" class="btn btn-ghost" data-close>Annuler</button>
+      <button type="submit" class="btn btn-primary">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- PROFILE DIALOG -->
+<dialog id="dlg-profile">
+  <form method="dialog" id="form-profile" class="dlg-form">
+    <h2>Mon profil coureur</h2>
+    <p class="dlg-hint">Ton VDOT (indice de capacité aérobie, modèle Daniels) sert de base au calcul de toutes tes allures d'entraînement (zones E/M/T/I/R). Il est estimé depuis tes performances de référence ci-dessous ; renseigne-le directement seulement si tu le connais déjà (calculateur externe).</p>
+    <label>VDOT connu (optionnel, avancé)
+      <input type="number" id="profile-vma" min="0" step="0.1" placeholder="Ex: 45">
+    </label>
+    <p class="dlg-hint">Performances de référence entre 1,5 et 50km, effort maximal (utilisées si le VDOT n'est pas renseigné directement). Ajoutes-en plusieurs sur des distances différentes (1km, 5km, 10km...) pour un calcul plus précis — idéalement de moins de 6 semaines, à retester à cette fréquence.</p>
+    <div id="perf-list"></div>
+    <div class="field-group perf-add-row">
+      <label>Distance (km)
+        <input type="number" id="perf-add-distance" min="0" step="any" placeholder="Ex: 10">
+      </label>
+      <label>Temps
+        <input type="text" id="perf-add-time" placeholder="hh:mm:ss ou mm:ss">
+      </label>
+      <label>Date
+        <input type="date" id="perf-add-date">
+      </label>
+      <button type="button" class="btn btn-ghost btn-small" id="btn-add-perf">+ Ajouter cette performance</button>
+    </div>
+    <label>Plus longue sortie actuelle (km)
+      <input type="number" id="profile-long-run" min="0" step="any" placeholder="Ex: 12">
+    </label>
+    <label>Volume hebdomadaire actuel (km/semaine, optionnel)
+      <input type="number" id="profile-weekly-volume" min="0" step="any" placeholder="Ex: 30">
+    </label>
+    <p class="dlg-hint">Ton volume actuel calibre le volume des séances (VMA/Seuil/sortie longue) sur tout le plan. Ton niveau ajuste la vitesse de progression semaine après semaine.</p>
+    <label>Niveau
+      <select id="profile-level">
+        <option value="debutant">Débutant</option>
+        <option value="intermediaire">Intermédiaire</option>
+        <option value="confirme">Confirmé</option>
+      </select>
+    </label>
+    <label>Poids corporel (kg, optionnel)
+      <input type="number" id="profile-bodyweight" min="0" step="any" placeholder="Ex: 65">
+    </label>
+    <p class="dlg-hint">Utilisé uniquement pour les repères nutrition ci-dessous (ISSN) — glucides/protéines/lipides par jour.</p>
+
+    <div id="vma-preview" class="zones-grid"></div>
+
+    <div class="dlg-actions">
+      <button type="button" class="btn btn-ghost" data-close>Annuler</button>
+      <button type="submit" class="btn btn-primary">Enregistrer</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="js/app.js"></script>
+</body>
+</html>
