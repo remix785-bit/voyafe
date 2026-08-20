@@ -2,7 +2,7 @@
 // Fonctions de rendu (chaînes HTML) + petites classes pour les composants
 // interactifs (TrainingTimer, QuickLog). Pas de framework : re-rendu ciblé.
 
-import { formatPace } from "../../js/engines/vdot.js";
+import { formatPace, ZONES } from "../../js/engines/vdot.js";
 
 export function escapeHtml(str) {
   return String(str ?? "").replace(/[&<>"']/g, (c) => ({
@@ -14,10 +14,23 @@ export function escapeHtml(str) {
   })[c]);
 }
 
-/** ZoneBadge — étiquette couleur E/M/T/I/R (Section 2, palette). */
+/** ZoneBadge — étiquette couleur E/M/T/I/R (Section 2, palette). Le titre au
+ * survol rappelle le nom complet de la zone (rappel pour les lettres). */
 export function ZoneBadge(zone) {
   if (!zone) return "";
-  return `<span class="zone-badge zone-badge--${zone}">${zone}</span>`;
+  const label = ZONES[zone]?.label ?? zone;
+  return `<span class="zone-badge zone-badge--${zone}" title="${escapeHtml(label)}">${zone}</span>`;
+}
+
+/**
+ * ZoneLegend — rappel permanent (pas seulement au survol, utile sur mobile)
+ * de ce que signifie chaque lettre de zone E/M/T/I/R.
+ */
+export function ZoneLegend() {
+  const rows = Object.entries(ZONES)
+    .map(([zone, def]) => `<div class="row"><span class="zone-badge zone-badge--${zone}">${zone}</span><span class="muted">${escapeHtml(def.label)}</span></div>`)
+    .join("");
+  return `<div class="stack" style="gap:6px;">${rows}</div>`;
 }
 
 /**
@@ -83,11 +96,13 @@ export function SessionCard(seance, href) {
         : "";
   const statusLabel = { a_venir: "à venir", realisee: "réalisée", manquee: "manquée" }[seance.statut] ?? seance.statut;
   const allure = seance.allureCibleMinParKm ? formatPace(seance.allureCibleMinParKm) : "—";
+  const distance = seance.distanceKm ? `${seance.distanceKm.toFixed(1)} km` : null;
   const inner = `
     ${ZoneBadge(seance.zoneDaniels)}
     <div class="session-card__body">
       <div class="session-card__title">${escapeHtml(seance.nom)}</div>
       <div class="session-card__meta">
+        ${distance ? `<span class="data">${distance}</span>` : ""}
         <span>${Math.round(seance.volumeSeanceMin)} min</span>
         <span class="data">${allure}</span>
       </div>

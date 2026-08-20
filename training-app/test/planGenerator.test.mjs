@@ -8,6 +8,9 @@ import {
   appliquerPlafondsHebdo,
   calculerAllureObjectif,
   instancierSeance,
+  composerSemaine,
+  calculerFacteurProgression,
+  calculerDistanceSortieLongue,
 } from "../js/engines/planGenerator.js";
 
 test("Macrocycle — exemple chiffré du dossier: 16 semaines, charge modérée -> taper 2, base 7, dev 7", () => {
@@ -78,7 +81,7 @@ test("calculerAllureObjectif — null si distance ou temps manquant", () => {
   assert.equal(calculerAllureObjectif(10000, null), null);
 });
 
-test("genererPlanComplet — l'allure objectif remplace l'allure M déduite du VDOT (route)", () => {
+test("genererPlanComplet — l'allure objectif apparaît comme bloc dédié, l'allure globale reste cohérente avec distance/durée (route)", () => {
   const dateDebut = new Date();
   const dateEcheance = new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000);
   const sansObjectif = genererPlanComplet({
@@ -101,10 +104,21 @@ test("genererPlanComplet — l'allure objectif remplace l'allure M déduite du V
   const seanceM_sans = sansObjectif.semaines[0].seances.find((s) => s.zoneDaniels === "M");
   const seanceM_avec = avecObjectif.semaines[0].seances.find((s) => s.zoneDaniels === "M");
   assert.ok(seanceM_sans && seanceM_avec);
-  assert.notEqual(seanceM_sans.allureCibleMinParKm, seanceM_avec.allureCibleMinParKm);
-  assert.ok(Math.abs(seanceM_avec.allureCibleMinParKm - 4.977) < 0.01);
-  assert.equal(avecObjectif.objectifPaceMinParKm, seanceM_avec.allureCibleMinParKm);
+
+  // Sans objectif : pas de rampe de distance -> allure globale = allure M brute du VDOT.
+  assert.equal(seanceM_sans.allureCibleMinParKm, sansObjectif.profilCourant.allures.M.target);
+  assert.equal(seanceM_sans.allureBlocObjectifMinParKm, null);
+
+  // Avec objectif : allure globale = allure E (majorité du volume, cohérente avec
+  // distance/durée) ; l'allure objectif apparaît séparément, dans son propre champ.
+  assert.equal(seanceM_avec.allureCibleMinParKm, avecObjectif.profilCourant.allures.E.target);
+  assert.ok(Math.abs(seanceM_avec.allureBlocObjectifMinParKm - 4.977) < 0.01);
+  assert.equal(avecObjectif.objectifPaceMinParKm, seanceM_avec.allureBlocObjectifMinParKm);
   assert.equal(avecObjectif.distanceObjectifM, 42195);
+
+  // Cohérence interne : distance ≈ durée / allure globale affichée.
+  const distanceRecalculee = seanceM_avec.volumeSeanceMin / seanceM_avec.allureCibleMinParKm;
+  assert.ok(Math.abs(distanceRecalculee - seanceM_avec.distanceKm) < 0.01);
 });
 
 test("instancierSeance — sans objectif fourni, retombe sur l'allure M dérivée du VDOT", () => {
@@ -119,6 +133,85 @@ test("instancierSeance — sans objectif fourni, retombe sur l'allure M dérivé
   const tplM = { zoneDaniels: "M", discipline: "route", corpsDeSeance: {} };
   const s = instancierSeance(tplM, plan.profilCourant, plan.semaines[0], {}, null);
   assert.equal(s.allureCibleMinParKm, plan.profilCourant.allures.M.target);
+});
+
+test("composerSemaine — Base route : T seulement 1 semaine sur 2, jamais d'I/R", () => {
+  const semaine1 = composerSemaine("base", "route", 5, 1);
+  const semaine2 = composerSemaine("base", "route", 5, 2);
+  assert.ok(!semaine1.some((s) => s.catalogueId === "route_seuil"), "semaine impaire : pas de T");
+  assert.ok(semaine2.some((s) => s.catalogueId === "route_seuil"), "semaine paire : T présent");
+  assert.ok(!semaine1.some((s) => s.catalogueId === "route_interval" || s.catalogueId === "route_repetition"));
+  assert.ok(!semaine2.some((s) => s.catalogueId === "route_interval" || s.catalogueId === "route_repetition"));
+});
+
+test("composerSemaine — Développement route : T chaque semaine, I/R en alternance", () => {
+  const semaine1 = composerSemaine("developpement", "route", 5, 1);
+  const semaine2 = composerSemaine("developpement", "route", 5, 2);
+  assert.ok(semaine1.some((s) => s.catalogueId === "route_seuil"));
+  assert.ok(semaine2.some((s) => s.catalogueId === "route_seuil"));
+  assert.ok(semaine1.some((s) => s.catalogueId === "route_repetition"), "semaine impaire -> R");
+  assert.ok(!semaine1.some((s) => s.catalogueId === "route_interval"));
+  assert.ok(semaine2.some((s) => s.catalogueId === "route_interval"), "semaine paire -> I");
+  assert.ok(!semaine2.some((s) => s.catalogueId === "route_repetition"));
+});
+
+test("calculerFacteurProgression — croît de 0.75x à 1.15x au sein d'une phase", () => {
+  assert.equal(calculerFacteurProgression(0, 5), 0.75);
+  assert.equal(calculerFacteurProgression(4, 5), 1.15);
+  assert.ok(calculerFacteurProgression(2, 5) > 0.75 && calculerFacteurProgression(2, 5) < 1.15);
+});
+
+test("calculerDistanceSortieLongue — rampe vers le pic, plafonnée pour le marathon", () => {
+  const debut = calculerDistanceSortieLongue(0, 10, 42195);
+  const fin = calculerDistanceSortieLongue(9, 10, 42195);
+  assert.ok(debut < fin, "la distance doit croître au fil du plan");
+  assert.ok(fin <= 35, "jamais la distance complète du marathon à l'entraînement");
+  assert.ok(fin > 30, `pic attendu proche de 35km, obtenu ${fin}`);
+});
+
+test("calculerDistanceSortieLongue — course courte (10K) : pic peut atteindre la distance objectif", () => {
+  const fin = calculerDistanceSortieLongue(9, 10, 10000);
+  assert.ok(Math.abs(fin - 10) < 0.01);
+});
+
+test("genererPlanComplet — la sortie longue progresse en distance vers l'objectif au fil du plan", () => {
+  const dateDebut = new Date();
+  const dateEcheance = new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000);
+  const plan = genererPlanComplet({
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: dateEcheance.toISOString(),
+    nbSeancesHebdo: 5,
+    distanceObjectifM: 42195,
+    tempsObjectifS: 3.5 * 3600,
+  });
+  const sortieLongueParSemaine = plan.semaines
+    .filter((s) => s.phase !== "taper")
+    .map((s) => s.seances.find((se) => se.templateId === "route_sortie_longue").distanceKm);
+  assert.ok(sortieLongueParSemaine[0] < sortieLongueParSemaine[sortieLongueParSemaine.length - 1]);
+  for (const km of sortieLongueParSemaine) assert.ok(km > 0 && km <= 35);
+
+  // Semaine de taper : distance nettement réduite par rapport au pic
+  const semaineTaper = plan.semaines.find((s) => s.phase === "taper");
+  const distanceTaper = semaineTaper.seances.find((se) => se.templateId === "route_sortie_longue").distanceKm;
+  assert.ok(distanceTaper < sortieLongueParSemaine[sortieLongueParSemaine.length - 1]);
+});
+
+test("genererPlanComplet — chaque séance porte une distanceKm cohérente avec sa durée et son allure", () => {
+  const dateDebut = new Date();
+  const plan = genererPlanComplet({
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000).toISOString(),
+    nbSeancesHebdo: 5,
+  });
+  for (const semaine of plan.semaines) {
+    for (const s of semaine.seances) {
+      assert.ok(s.distanceKm > 0, `distanceKm manquante pour ${s.nom}`);
+    }
+  }
 });
 
 test("semainesDisponibles — calcule un nombre entier de semaines", () => {

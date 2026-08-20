@@ -1,5 +1,5 @@
 import * as store from "../../store.js";
-import { WeekStrip, SessionCard } from "../components.js";
+import { WeekStrip, SessionCard, ZoneLegend } from "../components.js";
 import { formatPace } from "../../engines/vdot.js";
 
 export async function render(container, params) {
@@ -39,6 +39,11 @@ export async function render(container, params) {
             .join("")}
         </div>
         ${semaine.renfoRecommande?.length ? renderRenfo(semaine.renfoRecommande) : ""}
+      </div>
+
+      <div class="card">
+        <h2>Zones d'entraînement</h2>
+        ${ZoneLegend()}
       </div>
     </div>`;
 
