@@ -34,6 +34,43 @@ export function ZoneLegend() {
 }
 
 /**
+ * Sparkline — mini courbe d'évolution (VDOT, ACWR/EWMA...), réutilisée sur
+ * le Dashboard et l'écran Historique & Stats.
+ * @param {number[]} values
+ */
+export function Sparkline(values, { height = 60 } = {}) {
+  if (!values.length) return `<p class="muted">—</p>`;
+  if (values.length < 2) return `<p class="data">${values[0].toFixed(1)}</p>`;
+  const w = 400;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const points = values
+    .map((v, i) => `${(i / (values.length - 1)) * w},${height - ((v - min) / range) * (height - 8) - 4}`)
+    .join(" ");
+  return `
+    <svg viewBox="0 0 ${w} ${height}" width="100%" height="${height}" preserveAspectRatio="none">
+      <polyline points="${points}" fill="none" stroke="var(--color-accent-strong)" stroke-width="2" />
+    </svg>
+    <p class="muted">Min ${min.toFixed(1)} — Max ${max.toFixed(1)}</p>`;
+}
+
+/**
+ * ZoneRepartition — répartition du volume hebdo par zone E/M/T/I/R, en %.
+ * @param {{seances: Array<{zoneDaniels:string, volumeSeanceMin:number}>}} semaine
+ */
+export function ZoneRepartition(semaine) {
+  const total = semaine.seances.reduce((a, s) => a + s.volumeSeanceMin, 0) || 1;
+  const parZone = {};
+  for (const s of semaine.seances) parZone[s.zoneDaniels] = (parZone[s.zoneDaniels] ?? 0) + s.volumeSeanceMin;
+  const ordre = ["E", "M", "T", "I", "R"];
+  const zones = Object.keys(parZone).sort((a, b) => ordre.indexOf(a) - ordre.indexOf(b));
+  return `<div class="stack" style="gap:6px;">${zones
+    .map((z) => `<div class="row"><span class="zone-badge zone-badge--${z}">${z}</span><span class="data">${Math.round((parZone[z] / total) * 100)}%</span></div>`)
+    .join("")}</div>`;
+}
+
+/**
  * ElevationBar — barre de progression signature, tracée en profil de relief
  * plutôt qu'en rectangle plein.
  * @param {number} pct 0-100
