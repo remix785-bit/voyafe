@@ -20,8 +20,8 @@ export async function render(container) {
 
       <div class="card">
         <h2>Backend GitHub (Partie III §4)</h2>
-        <p class="muted">Optionnel — tes données sont déjà sauvegardées sur cet appareil (IndexedDB). Ceci ne fait pour l'instant que <strong>tester la connexion</strong> ; la sauvegarde/restauration automatique via GitHub n'est pas encore branchée. Utilise « Exporter en JSON » ci-dessous pour une sauvegarde manuelle en attendant.</p>
-        <p class="muted">Si tu veux quand même le configurer : crée un dépôt <strong>privé</strong> sur GitHub dédié aux données (différent du dépôt de code, ex. <code>voyafe-training-data</code>), puis un <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener">Personal Access Token</a> (fine-grained) limité à ce seul dépôt avec la permission <strong>Contents: Read and write</strong>.</p>
+        <p class="muted">Optionnel — tes données sont déjà sauvegardées sur cet appareil (IndexedDB). Une fois configuré ci-dessous, chaque modification (plan, séance, journal...) est <strong>automatiquement poussée</strong> vers ton dépôt de données (regroupée par lots de quelques secondes pour éviter un commit par clic), et un appareil sans données locales <strong>récupère automatiquement</strong> la dernière sauvegarde au démarrage — pratique pour utiliser l'appli sur plusieurs appareils. « Exporter en JSON » reste une sauvegarde de secours indépendante.</p>
+        <p class="muted">Pour le configurer : crée un dépôt <strong>privé</strong> sur GitHub dédié aux données (différent du dépôt de code, ex. <code>voyafe-training-data</code>), puis un <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener">Personal Access Token</a> (fine-grained) limité à ce seul dépôt avec la permission <strong>Contents: Read and write</strong>.</p>
         <div class="field-row">
           <div class="field"><label for="gh-owner">Propriétaire (ton nom d'utilisateur GitHub)</label><input id="gh-owner" value="${escapeAttr(reglages.githubOwner)}" /></div>
           <div class="field"><label for="gh-repo">Dépôt de données (nom du dépôt privé créé ci-dessus)</label><input id="gh-repo" value="${escapeAttr(reglages.githubRepo)}" /></div>
@@ -33,8 +33,9 @@ export async function render(container) {
         <div class="row">
           <button class="btn btn--primary" id="gh-save">Enregistrer</button>
           <button class="btn" id="gh-test">Tester la connexion</button>
+          <button class="btn" id="gh-sync">Synchroniser maintenant</button>
         </div>
-        <p id="gh-status" class="muted"></p>
+        <p id="gh-status" class="muted">${reglages.githubDerniereSyncLe ? `Dernière synchro : ${new Date(reglages.githubDerniereSyncLe).toLocaleString("fr-FR")}` : "Jamais synchronisé."}${reglages.githubDerniereErreur ? ` — dernière erreur : ${escapeAttr(reglages.githubDerniereErreur)}` : ""}</p>
       </div>
 
       <div class="card">
@@ -99,6 +100,17 @@ export async function render(container) {
       statusEl.textContent = res.ok ? "Connexion OK." : `Échec : ${res.raison}`;
     } catch (err) {
       statusEl.textContent = `Erreur réseau : ${err.message}`;
+    }
+  });
+
+  container.querySelector("#gh-sync").addEventListener("click", async () => {
+    const statusEl = container.querySelector("#gh-status");
+    statusEl.textContent = "Synchronisation en cours...";
+    try {
+      await store.synchroniserGithubMaintenant();
+      statusEl.textContent = `Synchronisé — ${new Date().toLocaleString("fr-FR")}.`;
+    } catch (err) {
+      statusEl.textContent = `Erreur : ${err.message}`;
     }
   });
 

@@ -1,6 +1,7 @@
 import * as store from "../../store.js";
 import { WeekStrip, SessionCard, ZoneLegend } from "../components.js";
 import { formatPace } from "../../engines/vdot.js";
+import { genererIcs, telechargerIcs } from "../../data/icsExport.js";
 
 export async function render(container, params) {
   const plan = store.planActif();
@@ -18,7 +19,10 @@ export async function render(container, params) {
       <div class="card">
         <div class="card__header">
           <h1>Plan — ${escapeAttr(plan.discipline)}</h1>
-          <a class="btn btn--sm" href="#/profil">Modifier</a>
+          <div class="row">
+            <button class="btn btn--sm" id="export-ics">Exporter en .ics</button>
+            <a class="btn btn--sm" href="#/profil">Modifier</a>
+          </div>
         </div>
         <p class="muted">${escapeAttr(plan.objectif ?? "")} — échéance ${new Date(plan.dateEcheance).toLocaleDateString("fr-FR")}</p>
         ${plan.distanceObjectifM && plan.tempsObjectifS ? `<p class="row"><span class="data">${(plan.distanceObjectifM / 1000).toFixed(1)} km</span><span class="muted">en</span><span class="data">${secondesVersLabel(plan.tempsObjectifS)}</span><span class="muted">— allure objectif</span><span class="data">${formatPace(plan.objectifPaceMinParKm)}</span></p>` : ""}
@@ -46,6 +50,17 @@ export async function render(container, params) {
         ${ZoneLegend()}
       </div>
     </div>`;
+
+  container.querySelector("#export-ics").addEventListener("click", () => {
+    const { ics, nbEvenements } = genererIcs(plan);
+    if (!nbEvenements) {
+      alert(
+        "Aucune séance datée dans ce plan — choisis tes jours d'entraînement (Profil) pour que chaque séance ait une date précise avant d'exporter."
+      );
+      return;
+    }
+    telechargerIcs(ics, `voyafe-training-${plan.discipline}-${plan.id}.ics`);
+  });
 
   container.querySelector("#week-prev")?.addEventListener("click", () => {
     location.hash = `#/plan?semaine=${plan.semaines[idx - 1].numero}`;

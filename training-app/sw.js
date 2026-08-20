@@ -22,6 +22,7 @@ const APP_SHELL = [
   "./js/data/db.js",
   "./js/data/exportImport.js",
   "./js/data/githubSync.js",
+  "./js/data/icsExport.js",
   "./js/data/stravaSync.js",
   "./js/engines/adaptiveLoop.js",
   "./js/engines/gap.js",

@@ -15,6 +15,9 @@ import {
   rafraichirToken,
   verifierAcces as verifierAccesStrava,
 } from "./data/stravaSync.js";
+import { lireFichier, synchroniserFichier } from "./data/githubSync.js";
+
+const GITHUB_DATA_PATH = "voyafe-training-data.json";
 
 const listeners = new Set();
 
@@ -36,6 +39,8 @@ const state = {
     stravaRefreshToken: "",
     stravaExpiresAt: 0,
     stravaAthleteNom: "",
+    githubDerniereSyncLe: null,
+    githubDerniereErreur: null,
   },
 };
 
@@ -46,13 +51,19 @@ export function subscribe(fn) {
 
 function notify() {
   for (const fn of listeners) fn(state);
+  // Toute mutation de données après le chargement initial déclenche une
+  // sauvegarde GitHub différée (si configuré) — le "push après chaque
+  // écriture" documenté comme reste à faire (Partie III §4). Le pull initial
+  // (init(), avant que state.ready ne passe à true) ne doit pas se
+  // re-déclencher un push immédiat de ce qu'on vient de recevoir.
+  if (state.ready) planifierSyncGithub();
 }
 
 export function getState() {
   return state;
 }
 
-export async function init() {
+async function chargerEtatDepuisDb() {
   const [profils, plans, logs, realisees, ajustements] = await Promise.all([
     db.getAll("profil"),
     db.getAll("plans"),
@@ -65,6 +76,10 @@ export async function init() {
   state.logsQuotidiens = logs.sort((a, b) => a.date.localeCompare(b.date));
   state.seancesRealisees = realisees;
   state.historiqueAjustements = ajustements;
+}
+
+export async function init() {
+  await chargerEtatDepuisDb();
 
   const savedTheme = localStorage.getItem("voyafe-theme");
   if (savedTheme) state.reglages.theme = savedTheme;
@@ -77,8 +92,85 @@ export async function init() {
     }
   }
   applyTheme();
+
+  // Pull au démarrage (Partie III §4) — uniquement pour amorcer un appareil
+  // sans données locales : ne jamais écraser silencieusement un IndexedDB
+  // déjà peuplé avec ce qui est sur GitHub (le push après chaque écriture
+  // maintient GitHub à jour dans l'autre sens en continu).
+  if (!state.profil && githubConfigure()) {
+    try {
+      await tirerDepuisGithub();
+    } catch (err) {
+      console.warn("Pull GitHub au démarrage échoué :", err.message);
+    }
+  }
+
   state.ready = true;
   notify();
+}
+
+function githubConfigure() {
+  const { githubOwner, githubRepo, githubToken } = state.reglages;
+  return Boolean(githubOwner && githubRepo && githubToken);
+}
+
+/** Récupère le dump distant et remplace l'état local par son contenu. */
+async function tirerDepuisGithub() {
+  const { githubOwner, githubRepo, githubToken } = state.reglages;
+  const resultat = await lireFichier({
+    owner: githubOwner,
+    repo: githubRepo,
+    token: githubToken,
+    path: GITHUB_DATA_PATH,
+  });
+  if (!resultat?.content?.donnees) return false;
+  await db.restoreAll(resultat.content.donnees);
+  await chargerEtatDepuisDb();
+  return true;
+}
+
+let githubSyncTimer = null;
+
+/** Programme un push GitHub différé (regroupe les écritures rapprochées en un seul commit). */
+function planifierSyncGithub() {
+  if (!githubConfigure()) return;
+  clearTimeout(githubSyncTimer);
+  githubSyncTimer = setTimeout(() => {
+    pousserVersGithub().catch((err) => console.warn("Sync GitHub échouée :", err.message));
+  }, 3000);
+}
+
+/** Pousse un dump complet des données locales vers le dépôt GitHub configuré. */
+async function pousserVersGithub() {
+  if (!githubConfigure()) return;
+  const { githubOwner, githubRepo, githubToken } = state.reglages;
+  try {
+    const donnees = await db.dumpAll();
+    await synchroniserFichier({
+      owner: githubOwner,
+      repo: githubRepo,
+      token: githubToken,
+      path: GITHUB_DATA_PATH,
+      data: { exporteLe: new Date().toISOString(), version: 1, donnees },
+    });
+    state.reglages.githubDerniereSyncLe = new Date().toISOString();
+    state.reglages.githubDerniereErreur = null;
+  } catch (err) {
+    state.reglages.githubDerniereErreur = err.message;
+    throw err;
+  } finally {
+    persistReglages();
+    for (const fn of listeners) fn(state); // notify() sans re-déclencher une synchro
+  }
+}
+
+/** Déclenche une synchronisation GitHub immédiate (bouton "Synchroniser maintenant"). */
+export async function synchroniserGithubMaintenant() {
+  if (!githubConfigure()) {
+    throw new Error("Configure d'abord Propriétaire / Dépôt / Token GitHub.");
+  }
+  clearTimeout(githubSyncTimer);
+  await pousserVersGithub();
 }
 
 export function planActif() {

@@ -103,13 +103,15 @@ aucune règle de réécriture serveur n'est requise pour les sous-routes.
 ## Backend GitHub (Partie III §4)
 
 `js/data/githubSync.js` implémente la lecture/écriture de fichiers JSON via
-l'API Contents GitHub, avec un PAT saisi dans Réglages (jamais commité). Ce
-mécanisme est codé et fonctionnel mais **non branché automatiquement au
-store** dans cette v1 — le store persiste en local (IndexedDB) et l'export/
-import JSON manuel (`js/data/exportImport.js`) sert de sauvegarde. Brancher
-une synchronisation automatique (push après chaque écriture, pull au
-démarrage) est le prochain incrément naturel une fois le mécanisme validé
-avec un vrai dépôt de données privé.
+l'API Contents GitHub, avec un PAT saisi dans Réglages (jamais commité).
+Branché automatiquement au store (`store.js`) : chaque mutation de données
+programme un push différé (3s de debounce, pour regrouper les écritures
+rapprochées en un seul commit) du dump complet
+(`voyafe-training-data.json`), et `init()` tire automatiquement la dernière
+sauvegarde distante au démarrage si l'appareil n'a aucune donnée locale
+(bootstrap d'un nouvel appareil — ne remplace jamais un IndexedDB déjà
+peuplé). L'export/import JSON manuel (`js/data/exportImport.js`) reste une
+sauvegarde de secours indépendante.
 
 ## Strava (Partie III §5, Option A)
 
@@ -152,8 +154,6 @@ documentées ici pour traçabilité — toutes réversibles :
 
 ## Roadmap restante (au-delà de cette itération)
 
-- Brancher `githubSync.js`/`stravaSync.js` au store (sync automatique).
-- Génération d'export ICS (Partie III §9).
 - D+ cumulé mensuel réel (nécessite de rattacher un `ProfilParcours` par
   séance planifiée, pas seulement à la fiche de pacing course).
 - Icônes PNG générées (les icônes actuelles sont en SVG uniquement — pas de
