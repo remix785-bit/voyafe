@@ -379,6 +379,32 @@ function zoneCibleLabel(zone) {
 }
 
 /**
+ * Plafonne le volume TOTAL de la semaine au "volume horaire max" déclaré par
+ * l'utilisateur (Partie I §1, champ "Disponibilité hebdo : Nombre de séances
+ * / volume horaire max") — distinct des plafonds par zone T/I/R au-dessus.
+ * Réduit toutes les séances proportionnellement plutôt que d'en supprimer,
+ * pour garder la variété de la semaine (fractionné, seuil, sortie longue)
+ * même quand le budget hebdo est serré.
+ * @param {Array<{volumeSeanceMin:number, allureCibleMinParKm:number|null, distanceKm:number|null}>} seances
+ * @param {number|null} volumeHebdoMaxMin
+ */
+export function plafonnerVolumeHebdoTotal(seances, volumeHebdoMaxMin) {
+  if (!volumeHebdoMaxMin) return seances;
+  const total = seances.reduce((sum, s) => sum + s.volumeSeanceMin, 0);
+  if (total <= volumeHebdoMaxMin) return seances;
+  const ratio = volumeHebdoMaxMin / total;
+  return seances.map((s) => {
+    const volumeSeanceMin = s.volumeSeanceMin * ratio;
+    return {
+      ...s,
+      volumeSeanceMin,
+      distanceKm: s.allureCibleMinParKm ? volumeSeanceMin / s.allureCibleMinParKm : s.distanceKm != null ? s.distanceKm * ratio : null,
+      avertissementVolumeHebdo: `Volume réduit pour respecter ton volume hebdo maximum disponible (${(volumeHebdoMaxMin / 60).toFixed(1)} h).`,
+    };
+  });
+}
+
+/**
  * Calcule l'allure de course objectif (min/km) à partir d'une distance et d'un
  * temps cible saisis par l'utilisateur (Partie I §1 : "Objectif" = temps cible
  * chronométré, "Distance/profil" = distance seule en route).
@@ -439,7 +465,11 @@ export function genererPlanComplet(inputs) {
       .map((slot) => trouverTemplate(slot.catalogueId))
       .filter(Boolean)
       .map((tpl) => instancierSeance(tpl, profilCourant, semaineContexte, {}, objectifPaceMinParKm, progressionContext));
-    const seancesWithCaps = appliquerPlafondsHebdo(seances);
+    // Volume horaire max hebdo (Partie I §1) d'abord — recadre au budget de
+    // temps réel de l'utilisateur — puis plafonds par zone T/I/R (Partie I §3),
+    // calculés sur ce total déjà réaliste.
+    const seancesDansBudget = plafonnerVolumeHebdoTotal(seances, inputs.volumeHebdoMaxMin);
+    const seancesWithCaps = appliquerPlafondsHebdo(seancesDansBudget);
     return { ...semaineContexte, seances: seancesWithCaps, renfoRecommande: renfo };
   });
 
@@ -451,6 +481,7 @@ export function genererPlanComplet(inputs) {
     tempsObjectifS: inputs.tempsObjectifS ?? null,
     objectifPaceMinParKm,
     nbSeancesHebdo: inputs.nbSeancesHebdo ?? 4,
+    volumeHebdoMaxMin: inputs.volumeHebdoMaxMin ?? null,
     chargeHebdoMoyenneActuelle: inputs.chargeHebdoMoyenneActuelle ?? "moderee",
     statut: "en_attente",
   };

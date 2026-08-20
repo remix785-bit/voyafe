@@ -11,6 +11,7 @@ import {
   composerSemaine,
   calculerFacteurProgression,
   calculerDistanceSortieLongue,
+  plafonnerVolumeHebdoTotal,
 } from "../js/engines/planGenerator.js";
 
 test("Macrocycle — exemple chiffré du dossier: 16 semaines, charge modérée -> taper 2, base 7, dev 7", () => {
@@ -288,4 +289,47 @@ test("semainesDisponibles — calcule un nombre entier de semaines", () => {
   const fin = new Date("2026-01-01T00:00:00Z");
   fin.setDate(fin.getDate() + 16 * 7);
   assert.equal(semainesDisponibles(fin.toISOString(), debut.toISOString()), 16);
+});
+
+test("plafonnerVolumeHebdoTotal — réduit proportionnellement sans rien supprimer", () => {
+  const seances = [
+    { volumeSeanceMin: 90, allureCibleMinParKm: 5, distanceKm: 18 },
+    { volumeSeanceMin: 30, allureCibleMinParKm: 4, distanceKm: 7.5 },
+    { volumeSeanceMin: 30, allureCibleMinParKm: 3.5, distanceKm: 8.57 },
+  ];
+  const total = 150;
+  const budget = 90; // 1h30, bien en dessous du total généré
+  const out = plafonnerVolumeHebdoTotal(seances, budget);
+  assert.equal(out.length, 3, "aucune séance supprimée, seulement réduites");
+  const nouveauTotal = out.reduce((s, x) => s + x.volumeSeanceMin, 0);
+  assert.ok(Math.abs(nouveauTotal - budget) < 0.01);
+  for (const s of out) {
+    assert.ok(s.avertissementVolumeHebdo);
+    // distance recalculée cohérente avec la nouvelle durée
+    assert.ok(Math.abs(s.distanceKm - s.volumeSeanceMin / s.allureCibleMinParKm) < 0.01);
+  }
+});
+
+test("plafonnerVolumeHebdoTotal — ne touche à rien si le budget n'est pas dépassé ou non renseigné", () => {
+  const seances = [{ volumeSeanceMin: 30, allureCibleMinParKm: 5, distanceKm: 6 }];
+  assert.deepEqual(plafonnerVolumeHebdoTotal(seances, null), seances);
+  assert.deepEqual(plafonnerVolumeHebdoTotal(seances, 60), seances);
+});
+
+test("genererPlanComplet — respecte le volume hebdo max sans faire disparaître le fractionné", () => {
+  const dateDebut = new Date();
+  const plan = genererPlanComplet({
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000).toISOString(),
+    nbSeancesHebdo: 3,
+    volumeHebdoMaxMin: 120, // 2h/semaine, budget serré pour 3 séances
+  });
+  const semaineDev = plan.semaines.find((s) => s.phase === "developpement");
+  const total = semaineDev.seances.reduce((sum, s) => sum + s.volumeSeanceMin, 0);
+  assert.ok(total <= 120 + 0.5, `volume hebdo dépasse le budget: ${total}`);
+  const zones = semaineDev.seances.map((s) => s.zoneDaniels);
+  assert.ok(zones.includes("T"), `T attendu, obtenu ${zones}`);
+  assert.ok(zones.includes("I") || zones.includes("R"), `fractionné attendu, obtenu ${zones}`);
 });

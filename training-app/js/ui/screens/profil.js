@@ -72,14 +72,21 @@ export async function render(container) {
             <label for="echeance">Date de la course</label>
             <input type="date" id="echeance" value="${planExistant?.dateEcheance ? planExistant.dateEcheance.slice(0, 10) : ""}" />
           </div>
-          <div class="field">
-            <label for="charge">Charge hebdo actuelle</label>
-            <select id="charge">
-              <option value="faible" ${planExistant?.chargeHebdoMoyenneActuelle === "faible" ? "selected" : ""}>Faible</option>
-              <option value="moderee" ${!planExistant || planExistant.chargeHebdoMoyenneActuelle === "moderee" ? "selected" : ""}>Modérée</option>
-              <option value="elevee" ${planExistant?.chargeHebdoMoyenneActuelle === "elevee" ? "selected" : ""}>Élevée</option>
-            </select>
+          <div class="field-row">
+            <div class="field">
+              <label for="charge">Charge hebdo actuelle</label>
+              <select id="charge">
+                <option value="faible" ${planExistant?.chargeHebdoMoyenneActuelle === "faible" ? "selected" : ""}>Faible</option>
+                <option value="moderee" ${!planExistant || planExistant.chargeHebdoMoyenneActuelle === "moderee" ? "selected" : ""}>Modérée</option>
+                <option value="elevee" ${planExistant?.chargeHebdoMoyenneActuelle === "elevee" ? "selected" : ""}>Élevée</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="volume-hebdo-max">Volume hebdo max (h, optionnel)</label>
+              <input type="number" id="volume-hebdo-max" step="0.5" min="1" value="${planExistant?.volumeHebdoMaxMin ? (planExistant.volumeHebdoMaxMin / 60).toFixed(1) : ""}" placeholder="ex: 6" />
+            </div>
           </div>
+          <p class="muted" style="margin-top:-8px;">Temps total dispo par semaine, toutes séances confondues — le plan réduit proportionnellement les séances pour rester dans ce budget plutôt que d'en supprimer.</p>
           <div class="row">
             <button class="btn btn--primary" type="submit">${planExistant ? "Mettre à jour le plan" : "Générer le plan"}</button>
             ${planExistant ? `<button class="btn btn--sm" type="button" id="btn-nouveau-plan">Créer un nouveau plan à la place</button>` : ""}
@@ -139,6 +146,7 @@ export async function render(container) {
     const tempsLabel = container.querySelector("#temps-objectif").value.trim();
     const echeance = container.querySelector("#echeance").value;
     const charge = container.querySelector("#charge").value;
+    const volumeHebdoMaxH = Number(container.querySelector("#volume-hebdo-max").value) || null;
     if (!echeance) {
       alert("Choisis une date de course.");
       return;
@@ -153,6 +161,7 @@ export async function render(container) {
       chargeHebdoMoyenneActuelle: charge,
       distanceObjectifM: distanceKm ? distanceKm * 1000 : null,
       tempsObjectifS: tempsLabel ? labelVersSecondes(tempsLabel) : null,
+      volumeHebdoMaxMin: volumeHebdoMaxH ? volumeHebdoMaxH * 60 : null,
     };
 
     if (planExistant && !modeCreationForcee) {
