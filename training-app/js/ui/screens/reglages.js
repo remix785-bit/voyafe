@@ -40,7 +40,7 @@ export async function render(container) {
 
       <div class="card">
         <h2>Strava (Option A — token personnel)</h2>
-        <p class="muted">Généré depuis la page des paramètres API Strava. Renouvellement manuel.</p>
+        <p class="muted">Sur <a href="https://www.strava.com/settings/api" target="_blank" rel="noopener">strava.com/settings/api</a>, copie le champ « Your Access Token » (pas le Client ID ni le Client Secret). ⚠️ Ce token <strong>expire au bout d'environ 6 heures</strong> — s'il est refusé (« invalide ou expiré »), retourne sur cette page, régénère-le, recolle-le puis re-teste tout de suite.</p>
         <div class="field">
           <label for="strava-token">Token d'accès</label>
           <input id="strava-token" type="password" value="${escapeAttr(reglages.stravaToken)}" />
