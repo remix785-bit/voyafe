@@ -124,13 +124,26 @@ const PLAFONDS_VOLUME_HEBDO = { T: 0.1, I: 0.08, R: 0.05 };
  * Composition type de la semaine selon phase/discipline (Partie II §4.1),
  * simplifiée en une liste ordonnée de slots (id catalogue + jour proposé).
  *
+ * S'appuie sur l'intégralité du catalogue (Partie I §6/§7), pas seulement
+ * les templates "qualité" — deux entrées étaient jusqu'ici absentes de toute
+ * génération malgré leur fiche `frequenceRecommandee` explicite :
+ * - route_footing_recup ("lendemain de séance qualité", §6.1) : remplace
+ *   l'endurance fondamentale générique le jour suivant chaque séance T/I/R.
+ * - trail_sortie_longue_specifique ("1 répétition générale 3-4 semaines
+ *   avant l'échéance", §7.5) : remplace la sortie D+ progressif de la
+ *   dernière semaine hors affûtage.
+ * trail_descente_technique restait aussi cantonnée à la phase Base alors que
+ * sa propre fiche prévoit "jusqu'à 1×/semaine en Développement" (§7.4).
+ *
  * `semaineNumero` (numéro global, 1-indexé) pilote la variété semaine par
  * semaine — sans lui, les versions précédentes reproduisaient exactement
  * la même composition chaque semaine (T incluse même en Base, jamais de R) :
  * - Base route : T seulement 1 semaine sur 2 ("tous les 15 jours", pas d'I/R)
  * - Développement route : T chaque semaine + I/R en alternance semaine par semaine
+ *
+ * `estRepetitionGenerale` marque la dernière semaine hors affûtage (trail).
  */
-export function composerSemaine(phase, discipline, nbSeancesDispo, semaineNumero = 1) {
+export function composerSemaine(phase, discipline, nbSeancesDispo, semaineNumero = 1, estRepetitionGenerale = false) {
   const slots = [];
   const isTaper = phase === "taper";
   const isBase = phase === "base";
@@ -138,32 +151,48 @@ export function composerSemaine(phase, discipline, nbSeancesDispo, semaineNumero
 
   if (discipline === "route") {
     slots.push({ catalogueId: "route_sortie_longue", jour: "dimanche" });
+
+    const seancesQualite = [];
     if (isTaper) {
-      slots.push({ catalogueId: "route_interval", jour: "mardi", volumeReduit: true });
+      // "1 séance courte à intensité maintenue, pas de nouveau stimulus" (Partie II §4.1)
+      seancesQualite.push({ catalogueId: "route_interval", jour: "mardi", volumeReduit: true });
     } else if (isBase) {
       // "1 séance T tous les 15 jours, pas d'I/R" (Partie II §4.1)
-      if (semainePaire) {
-        slots.push({ catalogueId: "route_seuil", jour: "mardi" });
-      }
+      if (semainePaire) seancesQualite.push({ catalogueId: "route_seuil", jour: "mardi" });
     } else {
       // Développement : "1 T/semaine + 1 I ou R en alternance" (Partie II §4.1)
-      slots.push({ catalogueId: "route_seuil", jour: "mardi" });
+      seancesQualite.push({ catalogueId: "route_seuil", jour: "mardi" });
       if (nbSeancesDispo >= 4) {
-        slots.push({ catalogueId: semainePaire ? "route_interval" : "route_repetition", jour: "jeudi" });
+        seancesQualite.push({ catalogueId: semainePaire ? "route_interval" : "route_repetition", jour: "jeudi" });
       }
     }
+
+    // Footing récupération le lendemain de chaque séance qualité (§6.1),
+    // plutôt que de la générique endurance fondamentale.
+    for (const q of seancesQualite) {
+      slots.push(q);
+      if (slots.length < nbSeancesDispo) {
+        slots.push({ catalogueId: "route_footing_recup", jour: "lendemain" });
+      }
+    }
+
     while (slots.length < nbSeancesDispo) {
       slots.push({ catalogueId: "route_endurance_fondamentale", jour: "libre" });
     }
   } else {
-    slots.push({ catalogueId: "trail_sortie_dplus_progressif", jour: "dimanche" });
+    slots.push({
+      catalogueId: estRepetitionGenerale ? "trail_sortie_longue_specifique" : "trail_sortie_dplus_progressif",
+      jour: "dimanche",
+    });
     if (!isTaper && !isBase) {
+      // "Côtes longues 1×/sem, côtes courtes 1×/sem (alterné)" (Partie II §4.1)
       slots.push({ catalogueId: "trail_cotes_longues", jour: "mardi" });
       if (nbSeancesDispo >= 4) {
         slots.push({ catalogueId: "trail_cotes_courtes", jour: "jeudi" });
       }
     }
-    if (isBase && semainePaire) {
+    // "1×/2 semaines en phase Base, jusqu'à 1×/semaine en Développement" (§7.4)
+    if ((isBase && semainePaire) || (!isBase && !isTaper)) {
       slots.push({ catalogueId: "trail_descente_technique", jour: "mercredi" });
     }
     while (slots.length < nbSeancesDispo) {
@@ -213,7 +242,7 @@ export function calculerFacteurProgression(indexDansPhase, totalDansPhase) {
   return 0.75 + t * 0.4;
 }
 
-const SORTIE_LONGUE_IDS = ["route_sortie_longue", "trail_sortie_dplus_progressif"];
+const SORTIE_LONGUE_IDS = ["route_sortie_longue", "trail_sortie_dplus_progressif", "trail_sortie_longue_specifique"];
 
 /**
  * Calcule la distance cible (km) de la sortie longue de la semaine, en
@@ -393,10 +422,19 @@ export function genererPlanComplet(inputs) {
     const distanceSortieLongueKm = inputs.distanceObjectifM
       ? calculerDistanceSortieLongue(indexNonTaper, semainesNonTaper.length, inputs.distanceObjectifM)
       : null;
+    // "1 répétition générale 3-4 semaines avant l'échéance" (trail, Partie I §7.5) :
+    // la dernière semaine hors affûtage, juste avant que le volume ne redescende.
+    const estRepetitionGenerale = indexNonTaper === semainesNonTaper.length - 1 && semainesNonTaper.length > 0;
 
     const progressionContext = { facteurPhase, distanceSortieLongueKm };
 
-    const slots = composerSemaine(semaineContexte.phase, inputs.discipline, inputs.nbSeancesHebdo ?? 4, semaineContexte.numero);
+    const slots = composerSemaine(
+      semaineContexte.phase,
+      inputs.discipline,
+      inputs.nbSeancesHebdo ?? 4,
+      semaineContexte.numero,
+      estRepetitionGenerale
+    );
     const renfo = renfoPourPhase(semaineContexte.phase);
     const seances = slots
       .map((slot) => trouverTemplate(slot.catalogueId))

@@ -121,6 +121,57 @@ test("genererPlanComplet — l'allure objectif apparaît comme bloc dédié, l'a
   assert.ok(Math.abs(distanceRecalculee - seanceM_avec.distanceKm) < 0.01);
 });
 
+test("composerSemaine — route_footing_recup remplace l'endurance générique le lendemain d'une séance qualité", () => {
+  const semaineDev = composerSemaine("developpement", "route", 5, 2); // paire -> T + I
+  assert.ok(semaineDev.some((s) => s.catalogueId === "route_footing_recup"), "footing récup attendu après T et après I");
+  const idsSuiteT = semaineDev.map((s) => s.catalogueId);
+  const idxT = idsSuiteT.indexOf("route_seuil");
+  assert.equal(idsSuiteT[idxT + 1], "route_footing_recup");
+});
+
+test("composerSemaine — route_footing_recup absent quand il n'y a pas de séance qualité (Base, semaine impaire)", () => {
+  const semaine = composerSemaine("base", "route", 5, 1);
+  assert.ok(!semaine.some((s) => s.catalogueId === "route_footing_recup"));
+});
+
+test("composerSemaine — trail_descente_technique passe à 1×/semaine en Développement (§7.4)", () => {
+  const dev1 = composerSemaine("developpement", "trail", 5, 1);
+  const dev2 = composerSemaine("developpement", "trail", 5, 2);
+  assert.ok(dev1.some((s) => s.catalogueId === "trail_descente_technique"));
+  assert.ok(dev2.some((s) => s.catalogueId === "trail_descente_technique"));
+});
+
+test("composerSemaine — trail_descente_technique reste 1×/2 semaines en Base", () => {
+  const base1 = composerSemaine("base", "trail", 5, 1);
+  const base2 = composerSemaine("base", "trail", 5, 2);
+  assert.ok(!base1.some((s) => s.catalogueId === "trail_descente_technique"));
+  assert.ok(base2.some((s) => s.catalogueId === "trail_descente_technique"));
+});
+
+test("composerSemaine — répétition générale trail remplace la sortie D+ progressif", () => {
+  const normale = composerSemaine("developpement", "trail", 5, 3, false);
+  const repGenerale = composerSemaine("developpement", "trail", 5, 3, true);
+  assert.equal(normale[0].catalogueId, "trail_sortie_dplus_progressif");
+  assert.equal(repGenerale[0].catalogueId, "trail_sortie_longue_specifique");
+});
+
+test("genererPlanComplet — la répétition générale trail tombe sur la dernière semaine hors affûtage", () => {
+  const dateDebut = new Date();
+  const plan = genererPlanComplet({
+    discipline: "trail",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000).toISOString(),
+    nbSeancesHebdo: 5,
+  });
+  const semainesNonTaper = plan.semaines.filter((s) => s.phase !== "taper");
+  const derniere = semainesNonTaper[semainesNonTaper.length - 1];
+  assert.ok(derniere.seances.some((s) => s.templateId === "trail_sortie_longue_specifique"));
+  // aucune autre semaine ne doit porter cette séance
+  const autres = plan.semaines.filter((s) => s !== derniere);
+  assert.ok(autres.every((s) => !s.seances.some((se) => se.templateId === "trail_sortie_longue_specifique")));
+});
+
 test("instancierSeance — sans objectif fourni, retombe sur l'allure M dérivée du VDOT", () => {
   const dateDebut = new Date();
   const plan = genererPlanComplet({
