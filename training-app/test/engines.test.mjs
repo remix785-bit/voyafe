@@ -19,6 +19,7 @@ import {
   decouperSegments,
   calculerPacingEffortConstant,
   agregerPacingParKm,
+  detecterPointsSignificatifs,
 } from "../js/engines/pacing.js";
 import { evaluerBoucleAdaptative, detecterRetestImplicite } from "../js/engines/adaptiveLoop.js";
 
@@ -188,6 +189,29 @@ test("Pacing — agrégation par km: distance non multiple de 1000m ajoute un de
   assert.ok(Math.abs(parKm[0].distance - 1000) < 0.01);
   assert.ok(Math.abs(parKm[1].distance - 1000) < 0.01);
   assert.ok(Math.abs(parKm[2].distance - 195) < 0.01);
+});
+
+test("Pacing — détection des points significatifs: une vraie bosse (50m sur 1km) est détectée comme sommet", () => {
+  const points = [];
+  for (let d = 0; d <= 1000; d += 100) points.push({ distanceCumulee: d, altitude: (d / 1000) * 50 });
+  for (let d = 1100; d <= 2000; d += 100) points.push({ distanceCumulee: d, altitude: 50 });
+  for (let d = 2100; d <= 3000; d += 100) points.push({ distanceCumulee: d, altitude: 50 - ((d - 2000) / 1000) * 50 });
+
+  const reperes = detecterPointsSignificatifs(points);
+  assert.equal(reperes.length, 1, `attendu 1 repère (sommet), obtenu ${reperes.length}`);
+  assert.equal(reperes[0].type, "sommet");
+  assert.ok(Math.abs(reperes[0].altitude - 50) < 1);
+  assert.ok(reperes[0].distanceM >= 1000 && reperes[0].distanceM <= 2000);
+});
+
+test("Pacing — détection des points significatifs: le bruit GPS résiduel (<20m) est ignoré", () => {
+  const points = [];
+  for (let d = 0; d <= 2000; d += 50) {
+    // micro-oscillations de +/- 5m autour de 100m d'altitude -> pas un vrai relief
+    points.push({ distanceCumulee: d, altitude: 100 + Math.sin(d / 100) * 5 });
+  }
+  const reperes = detecterPointsSignificatifs(points);
+  assert.equal(reperes.length, 0, `bruit résiduel ne doit produire aucun repère, obtenu ${reperes.length}`);
 });
 
 test("Boucle adaptative — propose une conversion si 2 marqueurs sur 3 dégradés", () => {

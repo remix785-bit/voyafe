@@ -3,12 +3,14 @@ import {
   parseGpx,
   smoothElevation,
   decouperSegments,
+  detecterPointsSignificatifs,
+  construireTempsCumuleADistance,
   profilParcoursParDefaut,
   calculerPacingEffortConstant,
   agregerPacingParKm,
   fusionnerNutritionPacing,
 } from "../../engines/pacing.js";
-import { PacingTimeline } from "../components.js";
+import { PacingTimeline, ProfilCourseChart } from "../components.js";
 
 let profilParcoursCourant = null;
 
@@ -70,6 +72,7 @@ export async function render(container) {
           <h2>Fiche de pacing</h2>
           <button class="btn btn--sm" id="print-pacing">Imprimer / exporter</button>
         </div>
+        <div id="profil-course-chart"></div>
         <div id="pacing-table"></div>
       </div>
     </div>`;
@@ -82,7 +85,7 @@ export async function render(container) {
       const text = await file.text();
       const points = parseGpx(text);
       const smoothed = smoothElevation(points);
-      profilParcoursCourant = { segments: decouperSegments(smoothed), source: "gpx_upload" };
+      profilParcoursCourant = { segments: decouperSegments(smoothed), points: smoothed, source: "gpx_upload" };
       const distanceKm = smoothed[smoothed.length - 1].distanceCumulee / 1000;
       const dPlus = profilParcoursCourant.segments.filter((s) => s.denivele > 0).reduce((a, s) => a + s.denivele, 0);
       container.querySelector("#distance-course").value = distanceKm.toFixed(2);
@@ -101,7 +104,8 @@ export async function render(container) {
     const glucidesGParH = Number(container.querySelector("#ravito-glucides").value);
     const frequenceMin = Number(container.querySelector("#ravito-freq").value);
 
-    const profilParcours = profilParcoursCourant ?? profilParcoursParDefaut(distanceKm * 1000);
+    const distanceTotaleM = distanceKm * 1000;
+    const profilParcours = profilParcoursCourant ?? profilParcoursParDefaut(distanceTotaleM);
     const { segments } = calculerPacingEffortConstant(
       profilParcours.segments,
       tempsCibleS,
@@ -109,10 +113,41 @@ export async function render(container) {
     );
     // Le pacing est calculé par segment à pente homogène (précision GAP), mais
     // affiché par km — ré-agrégation nécessaire pour une fiche lisible.
-    const segmentsParKm = agregerPacingParKm(segments, distanceKm * 1000);
+    const segmentsParKm = agregerPacingParKm(segments, distanceTotaleM);
     const timeline = fusionnerNutritionPacing(segmentsParKm, { glucidesGParH, frequenceMin });
 
+    // Modélisation propre à la trace : profil altimétrique réel du GPX importé
+    // (ou une ligne plate en mode dégradé), avec temps de passage à chaque km
+    // et aux points significatifs du relief (sommets/creux) de CE parcours.
+    const pointsProfil = profilParcoursCourant?.points ?? [
+      { distanceCumulee: 0, altitude: 0 },
+      { distanceCumulee: distanceTotaleM, altitude: 0 },
+    ];
+    const tempsADistance = construireTempsCumuleADistance(segments);
+    let distCumKm = 0;
+    const reperesKm = segmentsParKm.map((s, i) => {
+      distCumKm += s.distance;
+      const estPartiel = i === segmentsParKm.length - 1 && distCumKm < distanceTotaleM - 1;
+      return {
+        distanceM: distCumKm,
+        tempsCumuleMin: s.tempsCumuleMin,
+        label: estPartiel ? `${(distCumKm / 1000).toFixed(1)}` : `${Math.round(distCumKm / 1000)}`,
+      };
+    });
+    const reperesSignificatifs = profilParcoursCourant?.points
+      ? detecterPointsSignificatifs(profilParcoursCourant.points).map((r) => ({
+          ...r,
+          tempsCumuleMin: tempsADistance(r.distanceM),
+        }))
+      : [];
+
     container.querySelector("#pacing-result").style.display = "block";
+    container.querySelector("#profil-course-chart").innerHTML = ProfilCourseChart(
+      pointsProfil,
+      reperesKm,
+      reperesSignificatifs,
+      timeline
+    );
     container.querySelector("#pacing-table").innerHTML = PacingTimeline(timeline);
   });
 

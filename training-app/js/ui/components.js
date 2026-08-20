@@ -214,16 +214,21 @@ export function QuickLogScale(name, value, min = 1, max = 10) {
   return `<div class="quick-log__scale" data-scale-group="${name}">${buttons.join("")}</div>`;
 }
 
+/** Formate un temps en minutes (décimal) en "h:mm". */
+export function formatDureeHM(minutes) {
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
 /** PacingTimeline — timeline unique allure cible + marqueurs nutrition. */
 export function PacingTimeline(timeline) {
   const rows = timeline
     .map((row) => {
-      const h = Math.floor(row.tempsCumule / 60);
-      const m = Math.round(row.tempsCumule % 60);
       return `
       <tr class="${row.actionNutrition ? "ravito" : ""}">
         <td class="data">${row.km.toFixed(1)} km</td>
-        <td class="data">${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}</td>
+        <td class="data">${formatDureeHM(row.tempsCumule)}</td>
         <td class="data">${formatPace(row.allureCible)}</td>
         <td>${row.actionNutrition ? escapeHtml(row.actionNutrition) : ""}</td>
       </tr>`;
@@ -234,4 +239,110 @@ export function PacingTimeline(timeline) {
       <thead><tr><th>Km</th><th>Temps</th><th>Allure</th><th>Nutrition</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
+}
+
+/**
+ * Interpole l'altitude d'un tracé (points {distanceCumulee, altitude}
+ * triés par distance) à une distance donnée — utilisé pour placer les
+ * repères sur le profil (ils ne tombent pas forcément pile sur un point du GPX).
+ */
+function altitudeADistance(points, distanceM) {
+  if (distanceM <= points[0].distanceCumulee) return points[0].altitude;
+  for (let i = 1; i < points.length; i++) {
+    if (distanceM <= points[i].distanceCumulee) {
+      const a = points[i - 1];
+      const b = points[i];
+      const ratio = b.distanceCumulee > a.distanceCumulee ? (distanceM - a.distanceCumulee) / (b.distanceCumulee - a.distanceCumulee) : 0;
+      return a.altitude + ratio * (b.altitude - a.altitude);
+    }
+  }
+  return points[points.length - 1].altitude;
+}
+
+/** Réduit le nombre de points d'un tracé pour un rendu SVG léger, en gardant premier/dernier. */
+function decimerPoints(points, maxPoints) {
+  if (points.length <= maxPoints) return points;
+  const pas = (points.length - 1) / (maxPoints - 1);
+  const out = [];
+  for (let i = 0; i < maxPoints; i++) out.push(points[Math.round(i * pas)]);
+  return out;
+}
+
+/**
+ * ProfilCourseChart — modélisation du parcours propre à la trace importée :
+ * courbe altimétrique réelle (issue du GPX, pas une grille générique) avec
+ * les temps de passage à chaque km et aux points significatifs du relief
+ * (sommets/creux détectés sur CE tracé) et les marqueurs de ravitaillement.
+ * @param {{distanceCumulee:number, altitude:number}[]} profilPoints tracé lissé (ou 2 points plats en mode dégradé)
+ * @param {{distanceM:number, tempsCumuleMin:number, label:string}[]} reperesKm
+ * @param {{distanceM:number, altitude:number, type:"sommet"|"creux", tempsCumuleMin:number}[]} reperesSignificatifs
+ * @param {{km:number, actionNutrition:string|null}[]} ravitosTimeline
+ */
+export function ProfilCourseChart(profilPoints, reperesKm, reperesSignificatifs = [], ravitosTimeline = []) {
+  if (!profilPoints || profilPoints.length < 2) return `<p class="muted">—</p>`;
+
+  const w = 800;
+  const h = 240;
+  const padLeft = 6;
+  const padRight = 6;
+  const padTop = 34;
+  const padBottom = 40;
+  const plotW = w - padLeft - padRight;
+  const plotH = h - padTop - padBottom;
+
+  const distMax = profilPoints[profilPoints.length - 1].distanceCumulee || 1;
+  const altitudes = profilPoints.map((p) => p.altitude);
+  const altMin = Math.min(...altitudes);
+  const altMax = Math.max(...altitudes);
+  const altRange = altMax - altMin || 10;
+  const altPad = altRange * 0.15;
+
+  const xAt = (d) => padLeft + (d / distMax) * plotW;
+  const yAt = (alt) => padTop + plotH - ((alt - (altMin - altPad)) / (altRange + altPad * 2)) * plotH;
+
+  const decimes = decimerPoints(profilPoints, 300);
+  const ligne = decimes.map((p) => `${xAt(p.distanceCumulee).toFixed(1)},${yAt(p.altitude).toFixed(1)}`).join(" ");
+  const aire = `${xAt(0).toFixed(1)},${(padTop + plotH).toFixed(1)} ${ligne} ${xAt(distMax).toFixed(1)},${(padTop + plotH).toFixed(1)}`;
+
+  const reperesKmSvg = reperesKm
+    .map((r) => {
+      const x = xAt(r.distanceM);
+      const yPoint = yAt(altitudeADistance(profilPoints, r.distanceM));
+      return `
+      <line x1="${x.toFixed(1)}" y1="${yPoint.toFixed(1)}" x2="${x.toFixed(1)}" y2="${(padTop + plotH).toFixed(1)}" stroke="var(--color-border)" stroke-dasharray="2,2" />
+      <circle cx="${x.toFixed(1)}" cy="${yPoint.toFixed(1)}" r="2.5" fill="var(--color-accent-strong)" />
+      <text x="${x.toFixed(1)}" y="${h - 24}" font-size="9" text-anchor="middle" fill="var(--color-text-muted)">${escapeHtml(r.label)}</text>
+      <text x="${x.toFixed(1)}" y="${h - 12}" font-size="9" text-anchor="middle" fill="var(--color-text-muted)">${formatDureeHM(r.tempsCumuleMin)}</text>`;
+    })
+    .join("");
+
+  const reperesSigSvg = reperesSignificatifs
+    .map((r) => {
+      const x = xAt(r.distanceM);
+      const y = yAt(r.altitude);
+      const estSommet = r.type === "sommet";
+      const yLabel = estSommet ? y - 8 : y + 16;
+      return `
+      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="${estSommet ? "var(--color-danger, #d9534f)" : "var(--color-accent, #4a90d9)"}" />
+      <text x="${x.toFixed(1)}" y="${yLabel.toFixed(1)}" font-size="9" text-anchor="middle" fill="var(--color-text)">${estSommet ? "▲" : "▼"} ${Math.round(r.altitude)}m · ${formatDureeHM(r.tempsCumuleMin)}</text>`;
+    })
+    .join("");
+
+  const ravitosSvg = ravitosTimeline
+    .filter((t) => t.actionNutrition)
+    .map((t) => {
+      const x = xAt(t.km * 1000);
+      return `<circle cx="${x.toFixed(1)}" cy="${(padTop - 10).toFixed(1)}" r="3" fill="var(--color-warning, #e0a800)" />`;
+    })
+    .join("");
+
+  return `
+    <svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="none" role="img" aria-label="Profil altimétrique du parcours">
+      <polygon points="${aire}" fill="var(--color-accent-strong)" opacity="0.12" />
+      <polyline points="${ligne}" fill="none" stroke="var(--color-accent-strong)" stroke-width="2" />
+      ${reperesKmSvg}
+      ${reperesSigSvg}
+      ${ravitosSvg}
+    </svg>
+    <p class="muted" style="margin-top:4px;">▲ sommet · ▼ creux · point orange = ravitaillement · D+ ${Math.round(altitudes.reduce((acc, _, i) => (i > 0 && altitudes[i] > altitudes[i - 1] ? acc + (altitudes[i] - altitudes[i - 1]) : acc), 0))} m</p>`;
 }

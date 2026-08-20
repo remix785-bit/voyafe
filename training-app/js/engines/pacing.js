@@ -75,6 +75,48 @@ export function smoothElevation(points, windowM = 75) {
   });
 }
 
+/**
+ * Détecte les points significatifs du profil altimétrique (sommets/creux) sur
+ * le tracé lissé — les vrais repères d'un parcours vallonné (haut d'une
+ * montée, bas d'une descente), en plus du simple kilométrage, pour que la
+ * modélisation affichée soit propre à CE tracé plutôt qu'une simple grille
+ * régulière. Algorithme "zigzag" standard : suit l'extremum courant dans le
+ * sens du mouvement, ne confirme un retournement (et donc un repère) que
+ * lorsque l'altitude s'en écarte d'au moins `deniveleMinM` — filtre le bruit
+ * GPS résiduel (plusieurs mètres) sans dépendre d'un seuil de pente arbitraire.
+ * @param {{distanceCumulee:number, altitude:number}[]} pointsLisses
+ * @param {{deniveleMinM?:number}} options
+ * @returns {{distanceM:number, altitude:number, type:"sommet"|"creux"}[]}
+ */
+export function detecterPointsSignificatifs(pointsLisses, options = {}) {
+  const deniveleMinM = options.deniveleMinM ?? 20;
+  if (pointsLisses.length < 3) return [];
+
+  const reperes = [];
+  let extremum = pointsLisses[0];
+  let sens = null; // "hausse" | "baisse"
+
+  for (let i = 1; i < pointsLisses.length; i++) {
+    const p = pointsLisses[i];
+    if (sens !== "baisse" && p.altitude >= extremum.altitude) {
+      extremum = p;
+      sens = "hausse";
+    } else if (sens !== "hausse" && p.altitude <= extremum.altitude) {
+      extremum = p;
+      sens = "baisse";
+    } else if (sens === "hausse" && extremum.altitude - p.altitude >= deniveleMinM) {
+      reperes.push({ distanceM: extremum.distanceCumulee, altitude: extremum.altitude, type: "sommet" });
+      extremum = p;
+      sens = "baisse";
+    } else if (sens === "baisse" && p.altitude - extremum.altitude >= deniveleMinM) {
+      reperes.push({ distanceM: extremum.distanceCumulee, altitude: extremum.altitude, type: "creux" });
+      extremum = p;
+      sens = "hausse";
+    }
+  }
+  return reperes;
+}
+
 function pente(pA, pB) {
   const dDist = pB.distanceCumulee - pA.distanceCumulee;
   if (dDist === 0) return 0;
@@ -192,20 +234,17 @@ export function calculerPacingEffortConstant(segments, tempsCibleSecondes, altit
 }
 
 /**
- * Ré-agrège la sortie segment-par-segment de calculerPacingEffortConstant
- * (segments à pente homogène, 150m-1.2km — corrects pour le calcul GAP mais
- * illisibles affichés tels quels : jusqu'à un segment tous les ~150-200m sur
- * un parcours vallonné) en une ligne par kilomètre complet, plus un dernier
- * segment partiel si la distance totale n'est pas un multiple de 1km — c'est
- * la granularité attendue d'une fiche de pacing (repère km par km en course).
+ * Construit une fonction "temps cumulé écoulé à telle distance" (minutes) à
+ * partir de la timeline segment par segment de calculerPacingEffortConstant.
  * L'allure au sein d'un segment est traitée comme constante (comme le fait
  * déjà calculerPacingEffortConstant) : le temps à une distance donnée est
  * donc interpolé linéairement entre les points de rupture des segments.
+ * Partagé par l'agrégation par km et par le placement des repères du profil
+ * de course (mêmes points de rupture, même interpolation).
  * @param {ReturnType<typeof calculerPacingEffortConstant>["segments"]} segmentsPacing
- * @param {number} distanceTotaleM
- * @returns {{distance:number, allureMinParKm:number, tempsSegmentMin:number, tempsCumuleMin:number}[]}
+ * @returns {(distanceM:number) => number}
  */
-export function agregerPacingParKm(segmentsPacing, distanceTotaleM) {
+export function construireTempsCumuleADistance(segmentsPacing) {
   const points = [{ distance: 0, temps: 0 }];
   let distCum = 0;
   let tempsCum = 0;
@@ -215,7 +254,7 @@ export function agregerPacingParKm(segmentsPacing, distanceTotaleM) {
     points.push({ distance: distCum, temps: tempsCum });
   }
 
-  const tempsADistance = (d) => {
+  return (d) => {
     if (d <= 0) return 0;
     for (let i = 1; i < points.length; i++) {
       if (d <= points[i].distance) {
@@ -227,7 +266,22 @@ export function agregerPacingParKm(segmentsPacing, distanceTotaleM) {
     }
     return tempsCum; // au-delà du dernier point connu (arrondi flottant) -> temps total
   };
+}
 
+/**
+ * Ré-agrège la sortie segment-par-segment de calculerPacingEffortConstant
+ * (segments à pente homogène, 150m-1.2km — corrects pour le calcul GAP mais
+ * illisibles affichés tels quels : jusqu'à un segment tous les ~150-200m sur
+ * un parcours vallonné) en une ligne par kilomètre complet, plus un dernier
+ * segment partiel si la distance totale n'est pas un multiple de 1km — c'est
+ * la granularité attendue d'une fiche de pacing (repère km par km en course).
+ * @param {ReturnType<typeof calculerPacingEffortConstant>["segments"]} segmentsPacing
+ * @param {number} distanceTotaleM
+ * @returns {{distance:number, allureMinParKm:number, tempsSegmentMin:number, tempsCumuleMin:number}[]}
+ */
+export function agregerPacingParKm(segmentsPacing, distanceTotaleM) {
+  const tempsADistance = construireTempsCumuleADistance(segmentsPacing);
+  const tempsCum = tempsADistance(distanceTotaleM);
   const buckets = [];
   const nbKmPleins = Math.floor(distanceTotaleM / 1000);
   let distancePrecedente = 0;
@@ -249,13 +303,12 @@ export function agregerPacingParKm(segmentsPacing, distanceTotaleM) {
 
   const reste = distanceTotaleM - nbKmPleins * 1000;
   if (reste > 1) {
-    const t = tempsADistance(distanceTotaleM);
-    const tempsSegmentMin = t - tempsPrecedent;
+    const tempsSegmentMin = tempsCum - tempsPrecedent;
     buckets.push({
       distance: reste,
       allureMinParKm: tempsSegmentMin / (reste / 1000),
       tempsSegmentMin,
-      tempsCumuleMin: t,
+      tempsCumuleMin: tempsCum,
     });
   }
 
