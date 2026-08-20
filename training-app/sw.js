@@ -2,7 +2,7 @@
 // sur le terrain (Partie III §6). Pas de dépendance Workbox (pas d'accès au
 // registre npm dans l'environnement de build) — implémentation manuelle minimale.
 
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v2";
 const CACHE_NAME = `voyafe-training-${CACHE_VERSION}`;
 
 const APP_SHELL = [
@@ -62,22 +62,24 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
 
-  // App shell : cache d'abord (disponibilité offline garantie sur le terrain).
+  // App shell : réseau d'abord, cache en secours hors-ligne. Un "cache d'abord"
+  // servirait indéfiniment une version figée dès la première visite (l'appli
+  // est une SPA en hash-routing, qui ne redéclenche jamais de vérification de
+  // mise à jour du service worker via une navigation classique) — inacceptable
+  // pendant le développement actif du plan. Le hors-ligne "sur le terrain"
+  // (Partie III §6) reste couvert : le cache sert dès que le réseau échoue.
   const url = new URL(request.url);
   if (url.origin === self.location.origin) {
     event.respondWith(
-      caches.match(request).then((cached) => {
-        const network = fetch(request)
-          .then((response) => {
-            if (response.ok) {
-              const clone = response.clone();
-              caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-            }
-            return response;
-          })
-          .catch(() => cached);
-        return cached || network;
-      })
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request))
     );
     return;
   }

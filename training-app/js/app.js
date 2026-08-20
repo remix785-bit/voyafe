@@ -31,7 +31,30 @@ async function boot() {
   initRouter(appMain, nav);
 
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js").catch((err) => console.warn("SW registration failed", err));
+    // Recharge automatiquement dès qu'un nouveau service worker prend le
+    // contrôle : sans ça, un onglet resté ouvert continue d'exécuter le JS
+    // déjà chargé en mémoire même après un déploiement (le SPA en
+    // hash-routing ne redéclenche jamais de navigation complète qui
+    // provoquerait ce rechargement naturellement).
+    let dejaRecharge = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (dejaRecharge) return;
+      dejaRecharge = true;
+      location.reload();
+    });
+
+    navigator.serviceWorker
+      .register("./sw.js")
+      .then((registration) => {
+        // Vérifie activement une mise à jour à chaque retour sur l'onglet,
+        // plutôt que de dépendre uniquement des vérifications automatiques
+        // du navigateur (peu fréquentes sur une SPA jamais rechargée).
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") registration.update();
+        });
+        registration.update();
+      })
+      .catch((err) => console.warn("SW registration failed", err));
   }
 }
 
