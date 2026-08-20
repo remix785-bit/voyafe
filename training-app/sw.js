@@ -28,6 +28,7 @@ const APP_SHELL = [
   "./js/engines/load.js",
   "./js/engines/nutrition.js",
   "./js/engines/pacing.js",
+  "./js/engines/performance.js",
   "./js/engines/planGenerator.js",
   "./js/engines/vdot.js",
   "./js/ui/components.js",

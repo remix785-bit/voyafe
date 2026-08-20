@@ -2,6 +2,7 @@ import * as store from "../../store.js";
 import { ElevationBar, LoadGauge, SessionCard, WeekStrip, ZoneLegend, Sparkline, ZoneRepartition } from "../components.js";
 import { formatPace } from "../../engines/vdot.js";
 import { dailyMacros } from "../../engines/nutrition.js";
+import { statsPerformance, distanceHebdoRecente, variationPct } from "../../engines/performance.js";
 
 function joursRestants(dateEcheance) {
   const ms = new Date(dateEcheance) - new Date();
@@ -54,7 +55,7 @@ function semainesDepuisDernierTest(historiqueVdot) {
 }
 
 export async function render(container) {
-  const { profil, plans, logsQuotidiens } = store.getState();
+  const { profil, plans, logsQuotidiens, seancesRealisees } = store.getState();
   const plan = store.planActif();
   const chargeSummary = store.resumeCharge();
   const adaptation = store.evaluerAdaptation();
@@ -82,6 +83,8 @@ export async function render(container) {
   const logDuJour = logsQuotidiens.find((l) => l.date === aujourdhui);
   const dernierLog = logsQuotidiens[logsQuotidiens.length - 1];
 
+  const perf = statsPerformance(seancesRealisees);
+  const tendanceHebdo = distanceHebdoRecente(seancesRealisees);
   const semainesRetest = semainesDepuisDernierTest(profil?.historiqueVdot);
   const macros = profil?.weightKg ? dailyMacros(profil.weightKg, plan.chargeHebdoMoyenneActuelle ?? "moderee") : null;
 
@@ -118,6 +121,11 @@ export async function render(container) {
         <div class="stack" style="gap:8px; margin-top:8px;">
           ${semaineActuelle.seances.map((s, i) => SessionCard(s, `#/seance?semaine=${semaineActuelle.numero}&idx=${i}&plan=${plan.id}`)).join("")}
         </div>
+      </div>
+
+      <div class="card">
+        <div class="card__header"><h2>Performance réelle</h2><a class="btn btn--sm" href="#/historique">Historique complet</a></div>
+        ${renderPerformanceReelle(perf, tendanceHebdo)}
       </div>
 
       <div class="card">
@@ -218,6 +226,37 @@ export async function render(container) {
       render(container);
     });
   });
+}
+
+function renderPerformanceReelle(perf, tendanceHebdo) {
+  if (!perf.semaine.nbSeances && !perf.mois.nbSeances) {
+    return `<p class="muted">Aucune activité réelle enregistrée — connecte Strava (<a href="#/reglages">Réglages</a>) pour voir tes stats réelles ici, ou synchronise si c'est déjà fait.</p>`;
+  }
+  return `
+    <div class="card-grid card-grid--2" style="margin-bottom:12px;">
+      <div>
+        <span class="muted">Cette semaine</span><br />
+        <span class="data" style="font-size:1.3rem;">${perf.semaine.distanceKm.toFixed(1)} km</span>${deltaLabel(perf.semaine.distanceKm, perf.semainePrecedente.distanceKm)}
+      </div>
+      <div>
+        <span class="muted">Ce mois</span><br />
+        <span class="data" style="font-size:1.3rem;">${perf.mois.distanceKm.toFixed(1)} km</span>${deltaLabel(perf.mois.distanceKm, perf.moisPrecedent.distanceKm)}
+      </div>
+    </div>
+    <p class="muted">Semaine : ${Math.round(perf.semaine.dureeMin)} min · D+ ${Math.round(perf.semaine.deniveleM)} m · ${perf.semaine.nbSeances} séance${perf.semaine.nbSeances > 1 ? "s" : ""}${perf.semaine.allureMoyenneMinParKm ? ` · allure moy. ${formatPace(perf.semaine.allureMoyenneMinParKm)}` : ""}</p>
+    <p class="muted">Mois : ${Math.round(perf.mois.dureeMin)} min · D+ ${Math.round(perf.mois.deniveleM)} m · ${perf.mois.nbSeances} séance${perf.mois.nbSeances > 1 ? "s" : ""}${perf.mois.allureMoyenneMinParKm ? ` · allure moy. ${formatPace(perf.mois.allureMoyenneMinParKm)}` : ""}</p>
+    ${
+      tendanceHebdo.some((v) => v > 0)
+        ? `<div style="margin-top:12px;"><span class="muted">Volume hebdomadaire réel — 8 dernières semaines</span>${Sparkline(tendanceHebdo)}</div>`
+        : ""
+    }`;
+}
+
+function deltaLabel(actuel, precedent) {
+  const pct = variationPct(actuel, precedent);
+  if (pct == null) return "";
+  const signe = pct >= 0 ? "+" : "";
+  return ` <span class="muted">(${signe}${pct.toFixed(0)}% vs période préc.)</span>`;
 }
 
 function renderPropositions(adaptation) {
