@@ -34,7 +34,8 @@ async function renderCurrent() {
 function updateNav(activePath) {
   if (!navContainer) return;
   navContainer.querySelectorAll("a").forEach((a) => {
-    a.classList.toggle("active", a.dataset.route === activePath);
+    const sousRoutes = a.dataset.subroutes?.split(",") ?? [];
+    a.classList.toggle("active", a.dataset.route === activePath || sousRoutes.includes(activePath));
   });
 }
 

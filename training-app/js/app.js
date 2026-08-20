@@ -11,6 +11,7 @@ import * as jourCourse from "./ui/screens/jourCourse.js";
 import * as historique from "./ui/screens/historique.js";
 import * as journal from "./ui/screens/journal.js";
 import * as reglages from "./ui/screens/reglages.js";
+import * as menu from "./ui/screens/menu.js";
 
 async function boot() {
   await store.init();
@@ -39,6 +40,7 @@ async function boot() {
   registerRoute("historique", historique.render);
   registerRoute("journal", journal.render);
   registerRoute("reglages", reglages.render);
+  registerRoute("menu", menu.render);
 
   const appMain = document.getElementById("app-view");
   const nav = document.getElementById("app-nav");

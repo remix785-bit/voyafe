@@ -35,6 +35,7 @@ const APP_SHELL = [
   "./js/ui/screens/historique.js",
   "./js/ui/screens/jourCourse.js",
   "./js/ui/screens/journal.js",
+  "./js/ui/screens/menu.js",
   "./js/ui/screens/nutrition.js",
   "./js/ui/screens/plan.js",
   "./js/ui/screens/profil.js",
