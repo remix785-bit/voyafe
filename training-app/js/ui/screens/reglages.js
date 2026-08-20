@@ -21,10 +21,11 @@ export async function render(container) {
 
       <div class="card">
         <h2>Backend GitHub (Partie III §4)</h2>
-        <p class="muted">Dépôt PRIVÉ séparé du dépôt de code, PAT à portée restreinte, jamais commité.</p>
+        <p class="muted">Optionnel — tes données sont déjà sauvegardées sur cet appareil (IndexedDB). Ceci ne fait pour l'instant que <strong>tester la connexion</strong> ; la sauvegarde/restauration automatique via GitHub n'est pas encore branchée. Utilise « Exporter en JSON » ci-dessous pour une sauvegarde manuelle en attendant.</p>
+        <p class="muted">Si tu veux quand même le configurer : crée un dépôt <strong>privé</strong> sur GitHub dédié aux données (différent du dépôt de code, ex. <code>voyafe-training-data</code>), puis un <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener">Personal Access Token</a> (fine-grained) limité à ce seul dépôt avec la permission <strong>Contents: Read and write</strong>.</p>
         <div class="field-row">
-          <div class="field"><label for="gh-owner">Propriétaire</label><input id="gh-owner" value="${escapeAttr(reglages.githubOwner)}" /></div>
-          <div class="field"><label for="gh-repo">Dépôt de données</label><input id="gh-repo" value="${escapeAttr(reglages.githubRepo)}" /></div>
+          <div class="field"><label for="gh-owner">Propriétaire (ton nom d'utilisateur GitHub)</label><input id="gh-owner" value="${escapeAttr(reglages.githubOwner)}" /></div>
+          <div class="field"><label for="gh-repo">Dépôt de données (nom du dépôt privé créé ci-dessus)</label><input id="gh-repo" value="${escapeAttr(reglages.githubRepo)}" /></div>
         </div>
         <div class="field">
           <label for="gh-token">Personal Access Token</label>

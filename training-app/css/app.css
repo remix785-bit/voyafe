@@ -102,6 +102,10 @@ textarea {
   max-width: 720px;
   margin: 0 auto;
   padding: var(--space-4);
+  /* .app-bottomnav est position:fixed et se superpose au contenu — sans
+     cette marge, le bas de la dernière carte (ex. les boutons Strava) se
+     retrouve caché derrière la barre de navigation. */
+  padding-bottom: calc(64px + env(safe-area-inset-bottom) + var(--space-5));
 }
 
 .app-bottomnav {
