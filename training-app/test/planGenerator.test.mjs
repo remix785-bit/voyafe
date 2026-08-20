@@ -12,6 +12,7 @@ import {
   calculerFacteurProgression,
   calculerDistanceSortieLongue,
   plafonnerVolumeHebdoTotal,
+  assignerDatesSeances,
 } from "../js/engines/planGenerator.js";
 
 test("Macrocycle — exemple chiffré du dossier: 16 semaines, charge modérée -> taper 2, base 7, dev 7", () => {
@@ -346,4 +347,57 @@ test("genererPlanComplet — respecte le volume hebdo max sans faire disparaîtr
   const zones = semaineDev.seances.map((s) => s.zoneDaniels);
   assert.ok(zones.includes("T"), `T attendu, obtenu ${zones}`);
   assert.ok(zones.includes("I") || zones.includes("R"), `fractionné attendu, obtenu ${zones}`);
+});
+
+test("assignerDatesSeances — place chaque séance sur le bon jour ISO choisi, dans l'ordre chronologique", () => {
+  // Lundi 2026-01-05 (à vérifier : getDay()=1 -> lundi)
+  const lundi = new Date("2026-01-05T00:00:00Z");
+  assert.equal(lundi.getUTCDay(), 1, "pré-requis test: 2026-01-05 doit être un lundi");
+
+  const joursEntrainement = [2, 4, 7]; // mardi, jeudi, dimanche
+  const dates = assignerDatesSeances(lundi.toISOString(), 3, joursEntrainement);
+  const jours = dates.map((d) => new Date(d).getUTCDay());
+  assert.deepEqual(jours, [2, 4, 0], "mardi(2), jeudi(4), dimanche(0 en JS)");
+  // La dernière séance (sortie longue, toujours en dernier dans composerSemaine)
+  // tombe donc sur le dernier jour choisi chronologiquement -> dimanche.
+  assert.ok(new Date(dates[2]) > new Date(dates[1]));
+});
+
+test("assignerDatesSeances — sans jours choisis, retourne null partout (comportement antérieur préservé)", () => {
+  const dates = assignerDatesSeances(new Date().toISOString(), 4, null);
+  assert.deepEqual(dates, [null, null, null, null]);
+});
+
+test("genererPlanComplet — le nombre de jours d'entraînement choisis détermine le nombre de séances/semaine", () => {
+  const dateDebut = new Date();
+  const plan = genererPlanComplet({
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000).toISOString(),
+    joursEntrainement: [1, 3, 5, 7], // 4 jours choisis
+    nbSeancesHebdo: 99, // doit être ignoré au profit de joursEntrainement.length
+  });
+  assert.equal(plan.nbSeancesHebdo, 4);
+  for (const semaine of plan.semaines) {
+    assert.equal(semaine.seances.length, 4);
+    for (const s of semaine.seances) assert.ok(s.date, "chaque séance doit avoir une date précise");
+  }
+});
+
+test("genererPlanComplet — la sortie longue tombe sur le dernier jour d'entraînement choisi de la semaine", () => {
+  const dateDebut = new Date();
+  const plan = genererPlanComplet({
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000).toISOString(),
+    joursEntrainement: [1, 3, 5, 7], // lundi, mercredi, vendredi, dimanche
+  });
+  const semaine = plan.semaines.find((s) => s.phase === "developpement");
+  const sortieLongue = semaine.seances.find((s) => s.templateId === "route_sortie_longue");
+  const autres = semaine.seances.filter((s) => s !== sortieLongue);
+  for (const autre of autres) {
+    assert.ok(new Date(sortieLongue.date) >= new Date(autre.date), "sortie longue doit être la plus tardive de la semaine");
+  }
 });

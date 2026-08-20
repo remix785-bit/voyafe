@@ -68,9 +68,20 @@ export async function render(container) {
             </div>
           </div>
           <p class="muted data" id="allure-objectif-preview"></p>
+          <div class="field-row">
+            <div class="field">
+              <label for="debut-plan">Date de début du plan</label>
+              <input type="date" id="debut-plan" value="${(planExistant?.dateDebutPlan ?? new Date().toISOString()).slice(0, 10)}" />
+            </div>
+            <div class="field">
+              <label for="echeance">Date de la course</label>
+              <input type="date" id="echeance" value="${planExistant?.dateEcheance ? planExistant.dateEcheance.slice(0, 10) : ""}" />
+            </div>
+          </div>
           <div class="field">
-            <label for="echeance">Date de la course</label>
-            <input type="date" id="echeance" value="${planExistant?.dateEcheance ? planExistant.dateEcheance.slice(0, 10) : ""}" />
+            <label>Jours d'entraînement</label>
+            ${renderJoursCheckboxes(planExistant?.joursEntrainement ?? joursParDefaut(profil?.disponibiliteHebdo ?? 5))}
+            <p class="muted" id="jours-count" style="margin-top:4px;"></p>
           </div>
           <div class="field-row">
             <div class="field">
@@ -127,6 +138,14 @@ export async function render(container) {
   container.querySelector("#temps-objectif").addEventListener("input", updateAllurePreview);
   updateAllurePreview();
 
+  const updateJoursCount = () => {
+    const n = container.querySelectorAll('[data-jour]:checked').length;
+    container.querySelector("#jours-count").textContent =
+      n === 0 ? "Choisis au moins un jour." : `${n} séance${n > 1 ? "s" : ""}/semaine.`;
+  };
+  container.querySelectorAll("[data-jour]").forEach((cb) => cb.addEventListener("change", updateJoursCount));
+  updateJoursCount();
+
   container.querySelector("#btn-nouveau-plan")?.addEventListener("click", () => {
     modeCreationForcee = true;
     container.querySelector("#form-plan button[type=submit]").textContent = "Générer le plan";
@@ -144,20 +163,26 @@ export async function render(container) {
     const objectif = container.querySelector("#objectif").value;
     const distanceKm = Number(container.querySelector("#distance-objectif").value) || null;
     const tempsLabel = container.querySelector("#temps-objectif").value.trim();
+    const debutPlan = container.querySelector("#debut-plan").value;
     const echeance = container.querySelector("#echeance").value;
     const charge = container.querySelector("#charge").value;
     const volumeHebdoMaxH = Number(container.querySelector("#volume-hebdo-max").value) || null;
+    const joursEntrainement = Array.from(container.querySelectorAll("[data-jour]:checked")).map((cb) => Number(cb.value));
     if (!echeance) {
       alert("Choisis une date de course.");
+      return;
+    }
+    if (!joursEntrainement.length) {
+      alert("Choisis au moins un jour d'entraînement.");
       return;
     }
     const inputs = {
       discipline,
       objectif,
       dateEcheance: new Date(echeance).toISOString(),
-      dateDebut: planExistant && !modeCreationForcee ? planExistant.creeLe ?? new Date().toISOString() : new Date().toISOString(),
+      dateDebut: debutPlan ? new Date(debutPlan).toISOString() : new Date().toISOString(),
       performanceRef: p.performanceRef,
-      nbSeancesHebdo: p.disponibiliteHebdo,
+      joursEntrainement,
       chargeHebdoMoyenneActuelle: charge,
       distanceObjectifM: distanceKm ? distanceKm * 1000 : null,
       tempsObjectifS: tempsLabel ? labelVersSecondes(tempsLabel) : null,
@@ -221,6 +246,44 @@ function labelVersSecondes(label) {
   if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
   if (parts.length === 2) return parts[0] * 60 + parts[1];
   return Number(label) || 0;
+}
+
+const JOURS_LABELS = [
+  { iso: 1, label: "Lun" },
+  { iso: 2, label: "Mar" },
+  { iso: 3, label: "Mer" },
+  { iso: 4, label: "Jeu" },
+  { iso: 5, label: "Ven" },
+  { iso: 6, label: "Sam" },
+  { iso: 7, label: "Dim" },
+];
+
+/** Spread par défaut pour pré-cocher les jours d'entraînement selon le
+ * nombre de séances habituel — l'utilisateur reste libre de tout changer. */
+function joursParDefaut(n) {
+  const spreads = {
+    1: [7],
+    2: [3, 7],
+    3: [2, 4, 7],
+    4: [2, 4, 6, 7],
+    5: [1, 3, 4, 6, 7],
+    6: [1, 2, 3, 4, 6, 7],
+    7: [1, 2, 3, 4, 5, 6, 7],
+  };
+  return spreads[Math.min(Math.max(n, 1), 7)] ?? spreads[5];
+}
+
+function renderJoursCheckboxes(joursCoches) {
+  return `
+    <div class="row" style="flex-wrap:wrap;">
+      ${JOURS_LABELS.map(
+        ({ iso, label }) => `
+        <label class="btn btn--sm" style="cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
+          <input type="checkbox" data-jour value="${iso}" ${joursCoches.includes(iso) ? "checked" : ""} style="margin:0;" />
+          ${label}
+        </label>`
+      ).join("")}
+    </div>`;
 }
 
 function escapeAttr(str) {

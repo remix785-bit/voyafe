@@ -6,11 +6,26 @@ function joursRestants(dateEcheance) {
   return Math.max(0, Math.ceil(ms / (24 * 60 * 60 * 1000)));
 }
 
+function memeJour(a, b) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
 function trouverSeanceDuJour(plan) {
   if (!plan) return null;
-  const semaineIdx = trouverSemaineActuelle(plan);
-  if (!semaineIdx) return null;
-  return { semaine: semaineIdx, seance: semaineIdx.seances.find((s) => s.statut === "a_venir") ?? semaineIdx.seances[0] };
+
+  // Priorité 1 : une séance précisément datée sur aujourd'hui (jours
+  // d'entraînement choisis, cf. Profil) — "la séance du jour" au sens propre.
+  const maintenant = new Date();
+  for (const semaine of plan.semaines) {
+    const idx = semaine.seances.findIndex((s) => s.date && memeJour(new Date(s.date), maintenant));
+    if (idx !== -1) return { semaine, seance: semaine.seances[idx] };
+  }
+
+  // Priorité 2 : plans générés sans jours d'entraînement précis (comportement
+  // antérieur) — semaine courante, première séance "à venir".
+  const semaine = trouverSemaineActuelle(plan);
+  if (!semaine) return null;
+  return { semaine, seance: semaine.seances.find((s) => s.statut === "a_venir") ?? semaine.seances[0] };
 }
 
 function trouverSemaineActuelle(plan) {
@@ -40,7 +55,7 @@ export async function render(container) {
   }
 
   const semaineActuelle = trouverSemaineActuelle(plan);
-  const { seance } = trouverSeanceDuJour(plan) ?? {};
+  const { semaine: semaineSeanceDuJour, seance } = trouverSeanceDuJour(plan) ?? {};
   const jours = joursRestants(plan.dateEcheance);
   const semainesTotal = plan.semaines.length;
   const pctProgression = ((plan.semaines.indexOf(semaineActuelle) + 1) / semainesTotal) * 100;
@@ -52,7 +67,7 @@ export async function render(container) {
           <h1>Séance du jour</h1>
           <span class="badge-warning" style="border-color: var(--color-accent); color: var(--color-accent);">${escapeAttr(plan.objectif ?? "")}</span>
         </div>
-        ${seance ? SessionCard(seance, `#/seance?semaine=${semaineActuelle.numero}&idx=${semaineActuelle.seances.indexOf(seance)}&plan=${plan.id}`) : `<p class="muted">Aucune séance programmée aujourd'hui.</p>`}
+        ${seance ? SessionCard(seance, `#/seance?semaine=${semaineSeanceDuJour.numero}&idx=${semaineSeanceDuJour.seances.indexOf(seance)}&plan=${plan.id}`) : `<p class="muted">Aucune séance programmée aujourd'hui.</p>`}
       </div>
 
       <div class="card">

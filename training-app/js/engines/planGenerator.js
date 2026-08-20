@@ -36,6 +36,50 @@ export function semainesDisponibles(dateEcheanceISO, dateDuJourISO = new Date().
   return Math.floor((dateEcheance - dateDuJour) / (7 * JOUR_MS));
 }
 
+/**
+ * Convertit un jour JS (Date#getDay : 0=dimanche..6=samedi) en jour ISO
+ * (1=lundi..7=dimanche).
+ */
+function jourIso(date) {
+  return ((date.getDay() + 6) % 7) + 1;
+}
+
+/**
+ * Attribue une date calendaire précise à chaque séance de la semaine, selon
+ * les jours d'entraînement choisis par l'utilisateur — répond à la demande
+ * "pouvoir choisir les jours sur lesquels je veux faire mes séances".
+ * L'app ne modélise aucune autre notion de date par séance : c'est cette
+ * fonction qui fait le lien entre la semaine (une seule date) et le planning
+ * réel. Les séances sont déjà ordonnées "facile en premier, sortie longue en
+ * dernier" (composerSemaine) ; les dater dans l'ordre chronologique des
+ * jours choisis fait naturellement tomber la sortie longue sur le dernier
+ * jour choisi de la semaine.
+ * @param {string} dateDebutSemaineISO
+ * @param {number} nbSeances
+ * @param {number[]} joursEntrainement jours ISO (1=lundi..7=dimanche), sans doublon
+ * @returns {string[]|null[]} dates ISO, une par séance, dans l'ordre — ou
+ *   null partout si aucun jour d'entraînement n'est fourni (comportement
+ *   antérieur préservé : pas de date précise, seul l'ordre compte)
+ */
+export function assignerDatesSeances(dateDebutSemaineISO, nbSeances, joursEntrainement) {
+  if (!joursEntrainement?.length) return Array(nbSeances).fill(null);
+
+  const debut = new Date(dateDebutSemaineISO);
+  const candidats = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(debut.getTime() + i * JOUR_MS);
+    if (joursEntrainement.includes(jourIso(d))) candidats.push(d);
+  }
+  candidats.sort((a, b) => a - b);
+
+  const dates = [];
+  for (let i = 0; i < nbSeances; i++) {
+    const d = candidats.length ? candidats[i % candidats.length] : new Date(debut.getTime() + i * JOUR_MS);
+    dates.push(d.toISOString());
+  }
+  return dates;
+}
+
 // ---------------------------------------------------------------------------
 // ② Génération du macrocycle
 // ---------------------------------------------------------------------------
@@ -458,6 +502,11 @@ export function genererPlanComplet(inputs) {
   for (const s of semaines) semainesParPhase[s.phase].push(s);
   const semainesNonTaper = semaines.filter((s) => s.phase !== "taper");
 
+  // Si des jours d'entraînement précis sont choisis, leur nombre gouverne le
+  // nombre de séances/semaine (pas de risque d'incohérence entre les deux) ;
+  // sinon on retombe sur nbSeancesHebdo comme avant (comportement préservé).
+  const nbSeancesEffectif = inputs.joursEntrainement?.length || inputs.nbSeancesHebdo || 4;
+
   const semainesAvecSeances = semaines.map((semaineContexte) => {
     const indexDansPhase = semainesParPhase[semaineContexte.phase].indexOf(semaineContexte);
     const totalDansPhase = semainesParPhase[semaineContexte.phase].length;
@@ -476,7 +525,7 @@ export function genererPlanComplet(inputs) {
     const slots = composerSemaine(
       semaineContexte.phase,
       inputs.discipline,
-      inputs.nbSeancesHebdo ?? 4,
+      nbSeancesEffectif,
       semaineContexte.numero,
       estRepetitionGenerale
     );
@@ -490,7 +539,14 @@ export function genererPlanComplet(inputs) {
     // calculés sur ce total déjà réaliste.
     const seancesDansBudget = plafonnerVolumeHebdoTotal(seances, inputs.volumeHebdoMaxMin);
     const seancesWithCaps = appliquerPlafondsHebdo(seancesDansBudget);
-    return { ...semaineContexte, seances: seancesWithCaps, renfoRecommande: renfo };
+
+    // Date calendaire précise par séance, selon les jours d'entraînement
+    // choisis — demande explicite "pouvoir choisir les jours sur lesquels
+    // je veux faire mes séances".
+    const dates = assignerDatesSeances(semaineContexte.dateDebut, seancesWithCaps.length, inputs.joursEntrainement);
+    const seancesDatees = seancesWithCaps.map((s, i) => ({ ...s, date: dates[i] }));
+
+    return { ...semaineContexte, seances: seancesDatees, renfoRecommande: renfo };
   });
 
   return {
@@ -500,7 +556,9 @@ export function genererPlanComplet(inputs) {
     distanceObjectifM: inputs.distanceObjectifM ?? null,
     tempsObjectifS: inputs.tempsObjectifS ?? null,
     objectifPaceMinParKm,
-    nbSeancesHebdo: inputs.nbSeancesHebdo ?? 4,
+    nbSeancesHebdo: nbSeancesEffectif,
+    dateDebutPlan: inputs.dateDebut ?? null,
+    joursEntrainement: inputs.joursEntrainement ?? null,
     volumeHebdoMaxMin: inputs.volumeHebdoMaxMin ?? null,
     chargeHebdoMoyenneActuelle: inputs.chargeHebdoMoyenneActuelle ?? "moderee",
     statut: "en_attente",

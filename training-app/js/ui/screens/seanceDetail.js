@@ -22,7 +22,7 @@ export async function render(container, params) {
           ${ZoneBadge(seance.zoneDaniels)}
           <h1 style="margin:0;">${escapeAttr(seance.nom)}</h1>
         </div>
-        <p class="muted">${escapeAttr(seance.discipline)} · ${seance.distanceKm ? `<span class="data">${seance.distanceKm.toFixed(1)} km</span> · ` : ""}${Math.round(seance.volumeSeanceMin)} min · allure cible <span class="data">${seance.allureCibleMinParKm ? formatPace(seance.allureCibleMinParKm) : "—"}</span></p>
+        <p class="muted">${seance.date ? `${escapeAttr(new Date(seance.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" }))} · ` : ""}${escapeAttr(seance.discipline)} · ${seance.distanceKm ? `<span class="data">${seance.distanceKm.toFixed(1)} km</span> · ` : ""}${Math.round(seance.volumeSeanceMin)} min · allure cible <span class="data">${seance.allureCibleMinParKm ? formatPace(seance.allureCibleMinParKm) : "—"}</span></p>
         ${seance.allureBlocObjectifMinParKm ? `<p>Dont un bloc à l'<strong>allure objectif</strong> (course visée) : <span class="data">${formatPace(seance.allureBlocObjectifMinParKm)}</span> — le reste de la sortie se court à l'allure cible ci-dessus.</p>` : ""}
         ${seance.avertissementVolumeHebdo ? `<p class="badge-warning">${escapeAttr(seance.avertissementVolumeHebdo)}</p>` : ""}
         ${seance.avertissementPlafond ? `<p class="badge-warning">${escapeAttr(seance.avertissementPlafond)}</p>` : ""}
@@ -33,11 +33,7 @@ export async function render(container, params) {
 
       <div class="card">
         <h2>Corps de séance</h2>
-        <p><strong>Format :</strong> ${escapeAttr(seance.structureDetaillee?.format ?? "—")}</p>
-        ${renderAlluresCorps(seance)}
-        ${seance.structureDetaillee?.contrainteVolume ? `<p class="muted">${escapeAttr(seance.structureDetaillee.contrainteVolume)}</p>` : ""}
-        ${seance.structureDetaillee?.ratioEffortRecup ? `<p class="muted">Ratio effort:récup — ${escapeAttr(seance.structureDetaillee.ratioEffortRecup)}</p>` : ""}
-        ${seance.structureDetaillee?.progression ? `<p class="muted">Progression — ${escapeAttr(seance.structureDetaillee.progression)}</p>` : ""}
+        ${renderProgrammeDuJour(seance)}
       </div>
 
       ${renderRetourCalme(plan.profilCourant.allures)}
@@ -110,16 +106,22 @@ function wireTimer(container, seance) {
   });
 }
 
-/** Restitue les allures précises du corps de séance — cœur de la demande
- * "corps de séance précis avec les allures pour chaque séance" : l'allure
- * cible est déjà dans l'en-tête, on la réaffiche ici explicitement dans le
- * corps, avec le bloc allure objectif s'il y en a un. */
-function renderAlluresCorps(seance) {
-  const lignes = [`Allure de la séance : <span class="data">${seance.allureCibleMinParKm ? formatPace(seance.allureCibleMinParKm) : "—"}</span>`];
-  if (seance.allureBlocObjectifMinParKm) {
-    lignes.push(`Bloc allure objectif (course visée) : <span class="data">${formatPace(seance.allureBlocObjectifMinParKm)}</span>`);
-  }
-  return `<p>${lignes.join(" · ")}</p>`;
+/** Juste le programme du jour : le format concret de la séance avec son
+ * allure intégrée en une phrase, plutôt que dispersé en plusieurs lignes de
+ * méta-info (contrainte de volume, règle de progression...) qui n'aident pas
+ * à savoir quoi courir aujourd'hui — elles restent visibles ailleurs
+ * (avertissement de plafond hebdo au-dessus, catalogue pour le detail méthodo). */
+function renderProgrammeDuJour(seance) {
+  const format = escapeAttr(seance.structureDetaillee?.format ?? "—");
+  const allure = seance.allureCibleMinParKm ? ` — à <span class="data">${formatPace(seance.allureCibleMinParKm)}</span>` : "";
+  const recup =
+    seance.structureDetaillee?.ratioEffortRecup && seance.structureDetaillee.ratioEffortRecup !== "n/a"
+      ? ` (récup ${escapeAttr(seance.structureDetaillee.ratioEffortRecup)})`
+      : "";
+  const blocObjectif = seance.allureBlocObjectifMinParKm
+    ? `<p>Bloc allure objectif (course visée) : <span class="data">${formatPace(seance.allureBlocObjectifMinParKm)}</span></p>`
+    : "";
+  return `<p>${format}${allure}${recup}</p>${blocObjectif}`;
 }
 
 function renderEchauffement(allures) {

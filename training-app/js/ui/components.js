@@ -97,11 +97,15 @@ export function SessionCard(seance, href) {
   const statusLabel = { a_venir: "à venir", realisee: "réalisée", manquee: "manquée" }[seance.statut] ?? seance.statut;
   const allure = seance.allureCibleMinParKm ? formatPace(seance.allureCibleMinParKm) : "—";
   const distance = seance.distanceKm ? `${seance.distanceKm.toFixed(1)} km` : null;
+  const jourLabel = seance.date
+    ? new Date(seance.date).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })
+    : null;
   const inner = `
     ${ZoneBadge(seance.zoneDaniels)}
     <div class="session-card__body">
       <div class="session-card__title">${escapeHtml(seance.nom)}</div>
       <div class="session-card__meta">
+        ${jourLabel ? `<span class="muted">${jourLabel}</span>` : ""}
         ${distance ? `<span class="data">${distance}</span>` : ""}
         <span>${Math.round(seance.volumeSeanceMin)} min</span>
         <span class="data">${allure}</span>
