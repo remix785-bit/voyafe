@@ -29,17 +29,18 @@ export async function render(container, params) {
         ${seance.precautions?.length ? seance.precautions.map((p) => `<p class="badge-warning">${escapeAttr(p)}</p>`).join("") : ""}
       </div>
 
-      ${seance.protocoleEchauffement ? renderEchauffement() : ""}
+      ${seance.protocoleEchauffement ? renderEchauffement(plan.profilCourant.allures) : ""}
 
       <div class="card">
         <h2>Corps de séance</h2>
         <p><strong>Format :</strong> ${escapeAttr(seance.structureDetaillee?.format ?? "—")}</p>
+        ${renderAlluresCorps(seance)}
         ${seance.structureDetaillee?.contrainteVolume ? `<p class="muted">${escapeAttr(seance.structureDetaillee.contrainteVolume)}</p>` : ""}
         ${seance.structureDetaillee?.ratioEffortRecup ? `<p class="muted">Ratio effort:récup — ${escapeAttr(seance.structureDetaillee.ratioEffortRecup)}</p>` : ""}
         ${seance.structureDetaillee?.progression ? `<p class="muted">Progression — ${escapeAttr(seance.structureDetaillee.progression)}</p>` : ""}
       </div>
 
-      ${renderRetourCalme()}
+      ${renderRetourCalme(plan.profilCourant.allures)}
 
       <div class="card" id="timer-card">
         <h2>Mode entraînement</h2>
@@ -109,27 +110,54 @@ function wireTimer(container, seance) {
   });
 }
 
-function renderEchauffement() {
+/** Restitue les allures précises du corps de séance — cœur de la demande
+ * "corps de séance précis avec les allures pour chaque séance" : l'allure
+ * cible est déjà dans l'en-tête, on la réaffiche ici explicitement dans le
+ * corps, avec le bloc allure objectif s'il y en a un. */
+function renderAlluresCorps(seance) {
+  const lignes = [`Allure de la séance : <span class="data">${seance.allureCibleMinParKm ? formatPace(seance.allureCibleMinParKm) : "—"}</span>`];
+  if (seance.allureBlocObjectifMinParKm) {
+    lignes.push(`Bloc allure objectif (course visée) : <span class="data">${formatPace(seance.allureBlocObjectifMinParKm)}</span>`);
+  }
+  return `<p>${lignes.join(" · ")}</p>`;
+}
+
+function renderEchauffement(allures) {
+  // "Footing en zone E basse (60-65% VO2max)" (Partie I §5.1) : le bas de la
+  // fourchette E déjà calculé par le moteur VDOT (borne à 59% VO2max), pas
+  // une valeur inventée pour l'occasion. "Accélération progressive jusqu'à
+  // ~90-95% de l'allure R" : allure R cible (haut de fourchette, la plus rapide).
+  const paceEBasse = allures?.E?.slow;
+  const paceR = allures?.R?.target;
   return `
     <div class="card">
       <h2>Échauffement (${ECHAUFFEMENT_INTENSITE.dureeTotaleMin.join("-")} min)</h2>
       <div class="stack">
         ${ECHAUFFEMENT_INTENSITE.phases
-          .map(
-            (p) => `<div><strong>${escapeAttr(p.nom)}</strong>${p.dureeMin ? ` (${p.dureeMin.join("-")} min)` : p.format ? ` (${escapeAttr(p.format)})` : ""}<p class="muted">${escapeAttr(p.contenu)}</p></div>`
-          )
+          .map((p, i) => {
+            let alluresNote = "";
+            if (i === 0 && paceEBasse) alluresNote = ` — allure E basse <span class="data">${formatPace(paceEBasse)}</span>`;
+            if (i === 2 && paceR) alluresNote = ` — jusqu'à ~90-95% de l'allure R (<span class="data">${formatPace(paceR)}</span>)`;
+            return `<div><strong>${escapeAttr(p.nom)}</strong>${p.dureeMin ? ` (${p.dureeMin.join("-")} min)` : p.format ? ` (${escapeAttr(p.format)})` : ""}${alluresNote}<p class="muted">${escapeAttr(p.contenu)}</p></div>`;
+          })
           .join("")}
       </div>
     </div>`;
 }
 
-function renderRetourCalme() {
+function renderRetourCalme(allures) {
+  // "Zone E basse / récupération" (Partie I §5.2) : même borne basse de la
+  // zone E que pour l'échauffement.
+  const paceEBasse = allures?.E?.slow;
   return `
     <div class="card">
       <h2>Retour au calme</h2>
       <div class="stack">
         ${RETOUR_AU_CALME.phases
-          .map((p) => `<div><strong>${escapeAttr(p.nom)}</strong> (${p.dureeMin.join("-")} min)<p class="muted">${escapeAttr(p.contenu)}</p></div>`)
+          .map((p, i) => {
+            const alluresNote = i === 0 && paceEBasse ? ` — allure E basse <span class="data">${formatPace(paceEBasse)}</span>` : "";
+            return `<div><strong>${escapeAttr(p.nom)}</strong> (${p.dureeMin.join("-")} min)${alluresNote}<p class="muted">${escapeAttr(p.contenu)}</p></div>`;
+          })
           .join("")}
       </div>
       <p class="load-gauge__disclaimer">${escapeAttr(RETOUR_AU_CALME.precaution)}</p>

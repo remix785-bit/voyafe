@@ -167,11 +167,25 @@ test("composerSemaine — trail_descente_technique reste 1×/2 semaines en Base"
   assert.ok(base2.some((s) => s.catalogueId === "trail_descente_technique"));
 });
 
-test("composerSemaine — répétition générale trail remplace la sortie D+ progressif", () => {
+test("composerSemaine — répétition générale trail remplace la sortie D+ progressif (en fin de semaine)", () => {
   const normale = composerSemaine("developpement", "trail", 5, 3, false);
   const repGenerale = composerSemaine("developpement", "trail", 5, 3, true);
-  assert.equal(normale[0].catalogueId, "trail_sortie_dplus_progressif");
-  assert.equal(repGenerale[0].catalogueId, "trail_sortie_longue_specifique");
+  assert.equal(normale[normale.length - 1].catalogueId, "trail_sortie_dplus_progressif");
+  assert.equal(repGenerale[repGenerale.length - 1].catalogueId, "trail_sortie_longue_specifique");
+});
+
+test("composerSemaine — sortie longue en fin de semaine, endurance fondamentale en début", () => {
+  const semaine = composerSemaine("developpement", "route", 5, 2);
+  assert.equal(semaine[semaine.length - 1].catalogueId, "route_sortie_longue", "sortie longue attendue en dernier");
+
+  const semaineBase = composerSemaine("base", "route", 5, 1); // impaire -> pas de T
+  assert.equal(semaineBase[0].catalogueId, "route_endurance_fondamentale", "endurance fondamentale attendue en premier");
+  assert.equal(semaineBase[semaineBase.length - 1].catalogueId, "route_sortie_longue");
+});
+
+test("composerSemaine — sortie longue trail toujours en dernier, même à faible disponibilité", () => {
+  const semaine = composerSemaine("developpement", "trail", 3, 1);
+  assert.equal(semaine[semaine.length - 1].catalogueId, "trail_sortie_dplus_progressif");
 });
 
 test("genererPlanComplet — la répétition générale trail tombe sur la dernière semaine hors affûtage", () => {

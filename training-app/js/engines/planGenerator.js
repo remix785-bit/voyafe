@@ -149,9 +149,16 @@ export function composerSemaine(phase, discipline, nbSeancesDispo, semaineNumero
   const isBase = phase === "base";
   const semainePaire = semaineNumero % 2 === 0;
 
-  if (discipline === "route") {
-    slots.push({ catalogueId: "route_sortie_longue", jour: "dimanche" });
+  // Endurance en début de semaine, sortie longue en fin de semaine : la
+  // sortie longue est toujours le DERNIER élément (elle occupe le dernier
+  // créneau disponible), les fillers E générique le PREMIER, les séances
+  // qualité (+ leur récup) entre les deux. L'app ne modélise pas de vraies
+  // dates par séance (seule la semaine a une date) — cet ordre pilote donc
+  // directement l'ordre d'affichage (Dashboard/Plan), qui vaut agenda.
+  const slotsPourLongue = 1;
+  const slotsRestants = Math.max(0, nbSeancesDispo - slotsPourLongue);
 
+  if (discipline === "route") {
     const seancesQualite = [];
     if (isTaper) {
       // "1 séance courte à intensité maintenue, pas de nouveau stimulus" (Partie II §4.1)
@@ -169,33 +176,46 @@ export function composerSemaine(phase, discipline, nbSeancesDispo, semaineNumero
     }
 
     // Les séances qualité priment sur le footing récupération (lendemain de
-    // séance qualité, §6.1) qui prime lui-même sur l'endurance fondamentale
-    // générique — en cas de disponibilité restreinte, le fractionné (I/R) ne
-    // doit jamais être le premier sacrifié.
-    for (const q of seancesQualite) slots.push(q);
-    for (let i = 0; i < seancesQualite.length && slots.length < nbSeancesDispo; i++) {
-      slots.push({ catalogueId: "route_footing_recup", jour: "lendemain" });
+    // séance qualité, §6.1) — en cas de disponibilité restreinte, le
+    // fractionné (I/R) ne doit jamais être le premier sacrifié.
+    const blocQualite = seancesQualite.slice(0, slotsRestants);
+    for (let i = 0; i < seancesQualite.length && blocQualite.length < slotsRestants; i++) {
+      blocQualite.push({ catalogueId: "route_footing_recup", jour: "lendemain" });
     }
-    while (slots.length < nbSeancesDispo) {
-      slots.push({ catalogueId: "route_endurance_fondamentale", jour: "libre" });
-    }
+    const nbFillersE = Math.max(0, slotsRestants - blocQualite.length);
+    const fillersE = Array.from({ length: nbFillersE }, () => ({
+      catalogueId: "route_endurance_fondamentale",
+      jour: "libre",
+    }));
+
+    slots.push(...fillersE, ...blocQualite);
+    if (slotsPourLongue > 0) slots.push({ catalogueId: "route_sortie_longue", jour: "dimanche" });
   } else {
-    slots.push({
-      catalogueId: estRepetitionGenerale ? "trail_sortie_longue_specifique" : "trail_sortie_dplus_progressif",
-      jour: "dimanche",
-    });
+    const seancesQualite = [];
     if (!isTaper && !isBase) {
       // "Côtes longues 1×/sem, côtes courtes 1×/sem (alterné)" (Partie II §4.1) —
       // dues chaque semaine de Développement, sans seuil de disponibilité.
-      slots.push({ catalogueId: "trail_cotes_longues", jour: "mardi" });
-      slots.push({ catalogueId: "trail_cotes_courtes", jour: "jeudi" });
+      seancesQualite.push({ catalogueId: "trail_cotes_longues", jour: "mardi" });
+      seancesQualite.push({ catalogueId: "trail_cotes_courtes", jour: "jeudi" });
     }
     // "1×/2 semaines en phase Base, jusqu'à 1×/semaine en Développement" (§7.4)
     if ((isBase && semainePaire) || (!isBase && !isTaper)) {
-      slots.push({ catalogueId: "trail_descente_technique", jour: "mercredi" });
+      seancesQualite.push({ catalogueId: "trail_descente_technique", jour: "mercredi" });
     }
-    while (slots.length < nbSeancesDispo) {
-      slots.push({ catalogueId: "trail_sortie_dplus_progressif", jour: "libre" });
+
+    const blocQualite = seancesQualite.slice(0, slotsRestants);
+    const nbFillersE = Math.max(0, slotsRestants - blocQualite.length);
+    const fillersE = Array.from({ length: nbFillersE }, () => ({
+      catalogueId: "trail_sortie_dplus_progressif",
+      jour: "libre",
+    }));
+
+    slots.push(...fillersE, ...blocQualite);
+    if (slotsPourLongue > 0) {
+      slots.push({
+        catalogueId: estRepetitionGenerale ? "trail_sortie_longue_specifique" : "trail_sortie_dplus_progressif",
+        jour: "dimanche",
+      });
     }
   }
 
