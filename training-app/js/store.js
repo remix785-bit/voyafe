@@ -6,7 +6,15 @@ import * as db from "./data/db.js";
 import { genererPlanComplet } from "./engines/planGenerator.js";
 import { loadSummary } from "./engines/load.js";
 import { evaluerBoucleAdaptative, detecterRetestImplicite } from "./engines/adaptiveLoop.js";
-import { listerActivites, calculerEcart, estimerChargeJournaliere } from "./data/stravaSync.js";
+import {
+  listerActivites,
+  calculerEcart,
+  estimerChargeJournaliere,
+  urlAutorisation,
+  echangerCode,
+  rafraichirToken,
+  verifierAcces as verifierAccesStrava,
+} from "./data/stravaSync.js";
 
 const listeners = new Set();
 
@@ -17,7 +25,18 @@ const state = {
   logsQuotidiens: [], // tri chronologique
   seancesRealisees: [],
   historiqueAjustements: [],
-  reglages: { theme: "dark", githubToken: "", githubOwner: "", githubRepo: "", stravaToken: "" },
+  reglages: {
+    theme: "dark",
+    githubToken: "",
+    githubOwner: "",
+    githubRepo: "",
+    stravaClientId: "",
+    stravaClientSecret: "",
+    stravaAccessToken: "",
+    stravaRefreshToken: "",
+    stravaExpiresAt: 0,
+    stravaAthleteNom: "",
+  },
 };
 
 export function subscribe(fn) {
@@ -217,6 +236,80 @@ function trouverSeancePlanifieePourJour(plan, jourISO) {
 }
 
 /**
+ * URL vers laquelle rediriger pour connecter le compte Strava une seule fois
+ * (Client ID/Secret déjà enregistrés en amont). Après retour de Strava, voir
+ * finaliserConnexionStrava.
+ */
+export function demarrerConnexionStrava() {
+  const clientId = state.reglages.stravaClientId;
+  if (!clientId) throw new Error("Renseigne d'abord le Client ID Strava.");
+  const redirectUri = `${location.origin}${location.pathname}`;
+  location.href = urlAutorisation({ clientId, redirectUri });
+}
+
+/** Échange le `code` reçu dans l'URL de retour Strava contre les jetons durables. */
+export async function finaliserConnexionStrava(code) {
+  const { stravaClientId, stravaClientSecret } = state.reglages;
+  if (!stravaClientId || !stravaClientSecret) {
+    throw new Error("Client ID / Client Secret Strava manquants.");
+  }
+  const jetons = await echangerCode({ clientId: stravaClientId, clientSecret: stravaClientSecret, code });
+  state.reglages.stravaAccessToken = jetons.access_token;
+  state.reglages.stravaRefreshToken = jetons.refresh_token;
+  state.reglages.stravaExpiresAt = jetons.expires_at;
+  state.reglages.stravaAthleteNom = jetons.athlete ? `${jetons.athlete.firstname} ${jetons.athlete.lastname}` : "";
+  persistReglages();
+  notify();
+}
+
+export function deconnecterStrava() {
+  Object.assign(state.reglages, {
+    stravaAccessToken: "",
+    stravaRefreshToken: "",
+    stravaExpiresAt: 0,
+    stravaAthleteNom: "",
+  });
+  persistReglages();
+  notify();
+}
+
+/**
+ * Retourne un access_token Strava garanti valide, en le renouvelant via le
+ * refresh_token (durable) s'il est expiré ou sur le point de l'être — c'est
+ * ce qui évite d'avoir à recoller un token manuellement toutes les 6h.
+ */
+async function tokenStravaValide() {
+  const { stravaAccessToken, stravaRefreshToken, stravaExpiresAt, stravaClientId, stravaClientSecret } =
+    state.reglages;
+  if (!stravaRefreshToken) {
+    throw new Error("Strava non connecté — clique sur « Se connecter à Strava » dans Réglages.");
+  }
+  const maintenant = Math.floor(Date.now() / 1000);
+  if (stravaAccessToken && maintenant < stravaExpiresAt - 60) {
+    return stravaAccessToken;
+  }
+  const jetons = await rafraichirToken({
+    clientId: stravaClientId,
+    clientSecret: stravaClientSecret,
+    refreshToken: stravaRefreshToken,
+  });
+  state.reglages.stravaAccessToken = jetons.access_token;
+  state.reglages.stravaRefreshToken = jetons.refresh_token;
+  state.reglages.stravaExpiresAt = jetons.expires_at;
+  persistReglages();
+  return state.reglages.stravaAccessToken;
+}
+
+export async function testerConnexionStrava() {
+  const token = await tokenStravaValide();
+  return verifierAccesStrava({ token });
+}
+
+function persistReglages() {
+  localStorage.setItem("voyafe-settings", JSON.stringify(state.reglages));
+}
+
+/**
  * Synchronise les activités Strava récentes (Partie III §5, Étape ⑤ Partie
  * II §6) : ingère les nouvelles activités, les rapproche d'une séance
  * planifiée du même jour quand il y en a une (marquée "réalisée"
@@ -225,8 +318,7 @@ function trouverSeancePlanifieePourJour(plan, jourISO) {
  * @param {number} joursHistorique fenêtre de récupération (jours)
  */
 export async function synchroniserStrava(joursHistorique = 14) {
-  const token = state.reglages.stravaToken;
-  if (!token) throw new Error("Token Strava manquant — configure-le dans Réglages.");
+  const token = await tokenStravaValide();
 
   const after = Math.floor((Date.now() - joursHistorique * 24 * 60 * 60 * 1000) / 1000);
   const activites = await listerActivites({ token, after, perPage: 50 });
@@ -267,7 +359,7 @@ export async function synchroniserStrava(joursHistorique = 14) {
   }
 
   state.reglages.stravaDerniereSyncLe = new Date().toISOString();
-  localStorage.setItem("voyafe-settings", JSON.stringify(state.reglages));
+  persistReglages();
   notify();
   return { nouvelles, rapprochees, totalRecuperees: activites.length };
 }
@@ -312,7 +404,7 @@ function applyTheme() {
 
 export function sauvegarderReglages(partial) {
   Object.assign(state.reglages, partial);
-  localStorage.setItem("voyafe-settings", JSON.stringify(state.reglages));
+  persistReglages();
   notify();
 }
 

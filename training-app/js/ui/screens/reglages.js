@@ -1,6 +1,5 @@
 import * as store from "../../store.js";
 import { verifierAcces } from "../../data/githubSync.js";
-import { verifierAcces as verifierAccesStrava } from "../../data/stravaSync.js";
 import { exporterJson, telechargerExport, importerJson } from "../../data/exportImport.js";
 
 export async function render(container) {
@@ -39,17 +38,24 @@ export async function render(container) {
       </div>
 
       <div class="card">
-        <h2>Strava (Option A — token personnel)</h2>
-        <p class="muted">Sur <a href="https://www.strava.com/settings/api" target="_blank" rel="noopener">strava.com/settings/api</a>, copie le champ « Your Access Token » (pas le Client ID ni le Client Secret). ⚠️ Ce token <strong>expire au bout d'environ 6 heures</strong> — s'il est refusé (« invalide ou expiré »), retourne sur cette page, régénère-le, recolle-le puis re-teste tout de suite.</p>
-        <div class="field">
-          <label for="strava-token">Token d'accès</label>
-          <input id="strava-token" type="password" value="${escapeAttr(reglages.stravaToken)}" />
-        </div>
-        <div class="row">
-          <button class="btn btn--primary" id="strava-save">Enregistrer</button>
-          <button class="btn" id="strava-test">Tester la connexion</button>
-          <button class="btn" id="strava-sync">Synchroniser maintenant</button>
-        </div>
+        <h2>Strava (connexion OAuth — durable)</h2>
+        ${
+          reglages.stravaRefreshToken
+            ? `<p class="muted">Connecté${reglages.stravaAthleteNom ? ` — <strong>${escapeAttr(reglages.stravaAthleteNom)}</strong>` : ""}. Le jeton se renouvelle automatiquement en arrière-plan : plus besoin de rien recoller, même après 6h.</p>
+               <div class="row">
+                 <button class="btn" id="strava-test">Tester la connexion</button>
+                 <button class="btn btn--primary" id="strava-sync">Synchroniser maintenant</button>
+                 <button class="btn" id="strava-disconnect">Se déconnecter</button>
+               </div>`
+            : `<p class="muted">Crée une application sur <a href="https://www.strava.com/settings/api" target="_blank" rel="noopener">strava.com/settings/api</a> — champ <strong>« Authorization Callback Domain »</strong> = <code>${escapeAttr(location.hostname)}</code>. Colle ensuite son Client ID et Client Secret ci-dessous et connecte-toi <strong>une seule fois</strong> : l'appli renouvellera le jeton toute seule ensuite.</p>
+               <div class="field-row">
+                 <div class="field"><label for="strava-client-id">Client ID</label><input id="strava-client-id" value="${escapeAttr(reglages.stravaClientId)}" /></div>
+                 <div class="field"><label for="strava-client-secret">Client Secret</label><input id="strava-client-secret" type="password" value="${escapeAttr(reglages.stravaClientSecret)}" /></div>
+               </div>
+               <div class="row">
+                 <button class="btn btn--primary" id="strava-connect">Se connecter à Strava</button>
+               </div>`
+        }
         <p id="strava-status" class="muted">${reglages.stravaDerniereSyncLe ? `Dernière synchro : ${new Date(reglages.stravaDerniereSyncLe).toLocaleString("fr-FR")}` : "Jamais synchronisé."}</p>
         <p class="muted">La synchro rapproche automatiquement chaque activité d'une séance planifiée du même jour (marquée réalisée) et alimente le calcul de charge (ACWR/EWMA) avec la durée réelle plutôt que le RPE déclaré seul.</p>
       </div>
@@ -96,32 +102,56 @@ export async function render(container) {
     }
   });
 
-  container.querySelector("#strava-save").addEventListener("click", () => {
-    store.sauvegarderReglages({ stravaToken: container.querySelector("#strava-token").value });
-    container.querySelector("#strava-status").textContent = "Enregistré.";
-  });
+  const connectBtn = container.querySelector("#strava-connect");
+  if (connectBtn) {
+    connectBtn.addEventListener("click", () => {
+      store.sauvegarderReglages({
+        stravaClientId: container.querySelector("#strava-client-id").value.trim(),
+        stravaClientSecret: container.querySelector("#strava-client-secret").value.trim(),
+      });
+      try {
+        store.demarrerConnexionStrava();
+      } catch (err) {
+        container.querySelector("#strava-status").textContent = `Erreur : ${err.message}`;
+      }
+    });
+  }
 
-  container.querySelector("#strava-test").addEventListener("click", async () => {
-    const statusEl = container.querySelector("#strava-status");
-    statusEl.textContent = "Test en cours...";
-    try {
-      const res = await verifierAccesStrava({ token: container.querySelector("#strava-token").value });
-      statusEl.textContent = res.ok ? `Connexion OK — ${res.athlete.prenom} ${res.athlete.nom}.` : `Échec : ${res.raison}`;
-    } catch (err) {
-      statusEl.textContent = `Erreur réseau : ${err.message}`;
-    }
-  });
+  const disconnectBtn = container.querySelector("#strava-disconnect");
+  if (disconnectBtn) {
+    disconnectBtn.addEventListener("click", () => {
+      store.deconnecterStrava();
+      render(container);
+    });
+  }
 
-  container.querySelector("#strava-sync").addEventListener("click", async () => {
-    const statusEl = container.querySelector("#strava-status");
-    statusEl.textContent = "Synchronisation en cours...";
-    try {
-      const { nouvelles, rapprochees, totalRecuperees } = await store.synchroniserStrava();
-      statusEl.textContent = `${nouvelles} nouvelle${nouvelles > 1 ? "s" : ""} activité${nouvelles > 1 ? "s" : ""} (sur ${totalRecuperees} récupérée${totalRecuperees > 1 ? "s" : ""}), ${rapprochees} rapprochée${rapprochees > 1 ? "s" : ""} d'une séance planifiée.`;
-    } catch (err) {
-      statusEl.textContent = `Erreur : ${err.message}`;
-    }
-  });
+  const stravaTestBtn = container.querySelector("#strava-test");
+  if (stravaTestBtn) {
+    stravaTestBtn.addEventListener("click", async () => {
+      const statusEl = container.querySelector("#strava-status");
+      statusEl.textContent = "Test en cours...";
+      try {
+        const res = await store.testerConnexionStrava();
+        statusEl.textContent = res.ok ? `Connexion OK — ${res.athlete.prenom} ${res.athlete.nom}.` : `Échec : ${res.raison}`;
+      } catch (err) {
+        statusEl.textContent = `Erreur : ${err.message}`;
+      }
+    });
+  }
+
+  const stravaSyncBtn = container.querySelector("#strava-sync");
+  if (stravaSyncBtn) {
+    stravaSyncBtn.addEventListener("click", async () => {
+      const statusEl = container.querySelector("#strava-status");
+      statusEl.textContent = "Synchronisation en cours...";
+      try {
+        const { nouvelles, rapprochees, totalRecuperees } = await store.synchroniserStrava();
+        statusEl.textContent = `${nouvelles} nouvelle${nouvelles > 1 ? "s" : ""} activité${nouvelles > 1 ? "s" : ""} (sur ${totalRecuperees} récupérée${totalRecuperees > 1 ? "s" : ""}), ${rapprochees} rapprochée${rapprochees > 1 ? "s" : ""} d'une séance planifiée.`;
+      } catch (err) {
+        statusEl.textContent = `Erreur : ${err.message}`;
+      }
+    });
+  }
 
   container.querySelector("#export-json").addEventListener("click", async () => {
     const json = await exporterJson();

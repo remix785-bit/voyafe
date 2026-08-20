@@ -1,12 +1,60 @@
-// Intégration Strava — Option A retenue (Partie III §5) : token d'accès
-// personnel généré depuis la page des paramètres API Strava, sans flux OAuth
-// complet. Le client secret n'est jamais exposé (site statique public).
-// Évolution possible documentée : Option B, relais OAuth léger (serverless).
+// Intégration Strava (Partie III §5) : flux OAuth "Authorization Code"
+// complet exécuté entièrement côté client (pas de backend disponible pour un
+// relais serveur). Client ID/Secret propres à l'appli Strava de l'utilisateur
+// sont saisis et stockés localement (jamais commités), au même titre que le
+// PAT GitHub — l'échange initial produit un refresh_token durable qui permet
+// de renouveler l'access_token indéfiniment sans ressaisie manuelle (celui-ci
+// expire au bout de 6h côté Strava).
 
 const API_BASE = "https://www.strava.com/api/v3";
+const OAUTH_AUTHORIZE_URL = "https://www.strava.com/oauth/authorize";
+const OAUTH_TOKEN_URL = "https://www.strava.com/oauth/token";
 
 function authHeaders(token) {
   return { Authorization: `Bearer ${token}` };
+}
+
+/**
+ * URL vers laquelle rediriger l'utilisateur pour autoriser l'appli une seule
+ * fois (flux OAuth Authorization Code). Après acceptation, Strava redirige
+ * vers redirectUri avec `?code=...` — ce code s'échange ensuite (echangerCode)
+ * contre un access_token + refresh_token durable, ce qui évite d'avoir à
+ * recoller un token toutes les 6h.
+ * @param {{clientId:string, redirectUri:string}} params
+ */
+export function urlAutorisation({ clientId, redirectUri }) {
+  const url = new URL(OAUTH_AUTHORIZE_URL);
+  url.searchParams.set("client_id", clientId);
+  url.searchParams.set("redirect_uri", redirectUri);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("approval_prompt", "auto");
+  url.searchParams.set("scope", "read,activity:read_all");
+  return url.toString();
+}
+
+async function poserJetons(payload) {
+  const res = await fetch(OAUTH_TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`Échange de jetons Strava échoué (${res.status}): ${await res.text()}`);
+  return res.json(); // { access_token, refresh_token, expires_at, athlete? }
+}
+
+/** Échange le `code` reçu après autorisation contre le premier couple de jetons. */
+export async function echangerCode({ clientId, clientSecret, code }) {
+  return poserJetons({ client_id: clientId, client_secret: clientSecret, code, grant_type: "authorization_code" });
+}
+
+/** Renouvelle l'access_token (expiré ou sur le point de l'être) via le refresh_token. */
+export async function rafraichirToken({ clientId, clientSecret, refreshToken }) {
+  return poserJetons({
+    client_id: clientId,
+    client_secret: clientSecret,
+    refresh_token: refreshToken,
+    grant_type: "refresh_token",
+  });
 }
 
 /**

@@ -15,6 +15,20 @@ import * as reglages from "./ui/screens/reglages.js";
 async function boot() {
   await store.init();
 
+  // Retour du flux OAuth Strava (?code=... ajouté par Strava à l'URL de
+  // redirection) : on échange le code contre les jetons durables puis on
+  // nettoie l'URL pour ne pas la ré-échanger au prochain rechargement.
+  const codeStrava = new URLSearchParams(location.search).get("code");
+  if (codeStrava) {
+    history.replaceState(null, "", location.pathname + location.hash);
+    try {
+      await store.finaliserConnexionStrava(codeStrava);
+    } catch (err) {
+      console.error("Connexion Strava échouée", err);
+    }
+    location.hash = "#/reglages";
+  }
+
   registerRoute("dashboard", dashboard.render);
   registerRoute("plan", plan.render);
   registerRoute("seance", seanceDetail.render);
