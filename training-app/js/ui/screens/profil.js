@@ -1,8 +1,10 @@
 import * as store from "../../store.js";
 import { vdotFromPerformance, paceZonesForVdot, formatPace } from "../../engines/vdot.js";
+import { calculerAllureObjectif } from "../../engines/planGenerator.js";
 
 export async function render(container) {
   const { profil } = store.getState();
+  const planExistant = store.planActif() ?? store.getState().plans[store.getState().plans.length - 1] ?? null;
 
   container.innerHTML = `
     <div class="app-main">
@@ -41,32 +43,47 @@ export async function render(container) {
       </div>
 
       <div class="card">
-        <h2>Générer un plan</h2>
+        <h2>${planExistant ? "Modifier le plan" : "Générer un plan"}</h2>
+        ${planExistant ? `<p class="muted">Change la distance, le temps objectif ou l'échéance puis mets à jour — les séances déjà réalisées/manquées restent enregistrées.</p>` : ""}
         <form id="form-plan">
           <div class="field">
             <label for="discipline">Discipline</label>
             <select id="discipline">
-              <option value="route">Route</option>
-              <option value="trail">Trail</option>
+              <option value="route" ${planExistant?.discipline === "trail" ? "" : "selected"}>Route</option>
+              <option value="trail" ${planExistant?.discipline === "trail" ? "selected" : ""}>Trail</option>
             </select>
           </div>
           <div class="field">
-            <label for="objectif">Objectif</label>
-            <input type="text" id="objectif" placeholder="ex: Marathon de Paris sub-3h30" />
+            <label for="objectif">Objectif (libellé)</label>
+            <input type="text" id="objectif" value="${escapeAttr(planExistant?.objectif ?? "")}" placeholder="ex: Marathon de Paris sub-3h30" />
           </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="distance-objectif">Distance de la course (km)</label>
+              <input type="number" id="distance-objectif" step="0.001" min="0" value="${planExistant?.distanceObjectifM ? planExistant.distanceObjectifM / 1000 : ""}" placeholder="ex: 42.195" />
+            </div>
+            <div class="field">
+              <label for="temps-objectif">Temps objectif (hh:mm:ss)</label>
+              <input type="text" id="temps-objectif" value="${planExistant?.tempsObjectifS ? secondesVersLabel(planExistant.tempsObjectifS) : ""}" placeholder="ex: 3:30:00" />
+            </div>
+          </div>
+          <p class="muted data" id="allure-objectif-preview"></p>
           <div class="field">
             <label for="echeance">Date de la course</label>
-            <input type="date" id="echeance" />
+            <input type="date" id="echeance" value="${planExistant?.dateEcheance ? planExistant.dateEcheance.slice(0, 10) : ""}" />
           </div>
           <div class="field">
             <label for="charge">Charge hebdo actuelle</label>
             <select id="charge">
-              <option value="faible">Faible</option>
-              <option value="moderee" selected>Modérée</option>
-              <option value="elevee">Élevée</option>
+              <option value="faible" ${planExistant?.chargeHebdoMoyenneActuelle === "faible" ? "selected" : ""}>Faible</option>
+              <option value="moderee" ${!planExistant || planExistant.chargeHebdoMoyenneActuelle === "moderee" ? "selected" : ""}>Modérée</option>
+              <option value="elevee" ${planExistant?.chargeHebdoMoyenneActuelle === "elevee" ? "selected" : ""}>Élevée</option>
             </select>
           </div>
-          <button class="btn btn--primary" type="submit">Générer le plan</button>
+          <div class="row">
+            <button class="btn btn--primary" type="submit">${planExistant ? "Mettre à jour le plan" : "Générer le plan"}</button>
+            ${planExistant ? `<button class="btn btn--sm" type="button" id="btn-nouveau-plan">Créer un nouveau plan à la place</button>` : ""}
+          </div>
         </form>
       </div>
     </div>`;
@@ -85,6 +102,30 @@ export async function render(container) {
     renderHistory(container, updated);
   });
 
+  let modeCreationForcee = false;
+
+  const updateAllurePreview = () => {
+    const distanceKm = Number(container.querySelector("#distance-objectif").value);
+    const tempsLabel = container.querySelector("#temps-objectif").value.trim();
+    const preview = container.querySelector("#allure-objectif-preview");
+    if (!distanceKm || !tempsLabel) {
+      preview.textContent = "";
+      return;
+    }
+    const tempsS = labelVersSecondes(tempsLabel);
+    const allure = calculerAllureObjectif(distanceKm * 1000, tempsS);
+    preview.textContent = allure ? `Allure objectif : ${formatPace(allure)} — utilisée pour les blocs allure course (zone M) du plan.` : "";
+  };
+  container.querySelector("#distance-objectif").addEventListener("input", updateAllurePreview);
+  container.querySelector("#temps-objectif").addEventListener("input", updateAllurePreview);
+  updateAllurePreview();
+
+  container.querySelector("#btn-nouveau-plan")?.addEventListener("click", () => {
+    modeCreationForcee = true;
+    container.querySelector("#form-plan button[type=submit]").textContent = "Générer le plan";
+    container.querySelector("#btn-nouveau-plan").remove();
+  });
+
   container.querySelector("#form-plan").addEventListener("submit", async (e) => {
     e.preventDefault();
     const { profil: p } = store.getState();
@@ -94,21 +135,31 @@ export async function render(container) {
     }
     const discipline = container.querySelector("#discipline").value;
     const objectif = container.querySelector("#objectif").value;
+    const distanceKm = Number(container.querySelector("#distance-objectif").value) || null;
+    const tempsLabel = container.querySelector("#temps-objectif").value.trim();
     const echeance = container.querySelector("#echeance").value;
     const charge = container.querySelector("#charge").value;
     if (!echeance) {
       alert("Choisis une date de course.");
       return;
     }
-    await store.creerPlan({
+    const inputs = {
       discipline,
       objectif,
       dateEcheance: new Date(echeance).toISOString(),
-      dateDebut: new Date().toISOString(),
+      dateDebut: planExistant && !modeCreationForcee ? planExistant.creeLe ?? new Date().toISOString() : new Date().toISOString(),
       performanceRef: p.performanceRef,
       nbSeancesHebdo: p.disponibiliteHebdo,
       chargeHebdoMoyenneActuelle: charge,
-    });
+      distanceObjectifM: distanceKm ? distanceKm * 1000 : null,
+      tempsObjectifS: tempsLabel ? labelVersSecondes(tempsLabel) : null,
+    };
+
+    if (planExistant && !modeCreationForcee) {
+      await store.modifierPlan(planExistant.id, inputs);
+    } else {
+      await store.creerPlan(inputs);
+    }
     location.hash = "#/plan";
   });
 }

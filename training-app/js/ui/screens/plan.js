@@ -1,5 +1,6 @@
 import * as store from "../../store.js";
 import { WeekStrip, SessionCard } from "../components.js";
+import { formatPace } from "../../engines/vdot.js";
 
 export async function render(container, params) {
   const plan = store.planActif();
@@ -15,8 +16,12 @@ export async function render(container, params) {
   container.innerHTML = `
     <div class="app-main">
       <div class="card">
-        <h1>Plan — ${escapeAttr(plan.discipline)}</h1>
+        <div class="card__header">
+          <h1>Plan — ${escapeAttr(plan.discipline)}</h1>
+          <a class="btn btn--sm" href="#/profil">Modifier</a>
+        </div>
         <p class="muted">${escapeAttr(plan.objectif ?? "")} — échéance ${new Date(plan.dateEcheance).toLocaleDateString("fr-FR")}</p>
+        ${plan.distanceObjectifM && plan.tempsObjectifS ? `<p class="row"><span class="data">${(plan.distanceObjectifM / 1000).toFixed(1)} km</span><span class="muted">en</span><span class="data">${secondesVersLabel(plan.tempsObjectifS)}</span><span class="muted">— allure objectif</span><span class="data">${formatPace(plan.objectifPaceMinParKm)}</span></p>` : ""}
         ${WeekStrip(plan.semaines, semaine.numero)}
       </div>
 
@@ -66,6 +71,13 @@ function renderRenfo(renfoList) {
         .join("")}
       <a class="btn btn--sm" href="#/renfo">Voir le détail</a>
     </div>`;
+}
+
+function secondesVersLabel(s) {
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = Math.round(s % 60);
+  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}` : `${m}:${String(sec).padStart(2, "0")}`;
 }
 
 function escapeAttr(str) {
