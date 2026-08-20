@@ -85,3 +85,38 @@ export function variationPct(actuel, precedent) {
   if (!precedent) return null;
   return ((actuel - precedent) / precedent) * 100;
 }
+
+const MOIS_COURT = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
+
+/**
+ * Distance hebdomadaire réelle étiquetée (numéro ISO de semaine), pour un
+ * graphique en barres — même fenêtre que distanceHebdoRecente mais avec un
+ * libellé par barre.
+ */
+export function barresDistanceHebdo(seancesRealisees, nbSemaines = 8, maintenant = new Date()) {
+  const debutSemaineCourante = debutSemaineIso(maintenant);
+  const barres = [];
+  for (let i = nbSemaines - 1; i >= 0; i--) {
+    const debut = new Date(debutSemaineCourante.getTime() - i * 7 * 24 * 60 * 60 * 1000);
+    const fin = new Date(debut.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const value = agregerPeriode(seancesRealisees, debut, fin).distanceKm;
+    barres.push({ label: i === 0 ? "Cette sem." : `${debut.getDate()}/${debut.getMonth() + 1}`, value });
+  }
+  return barres;
+}
+
+/**
+ * Distance mensuelle réelle étiquetée (mois calendaire), pour un graphique
+ * en barres.
+ */
+export function barresDistanceMensuelle(seancesRealisees, nbMois = 6, maintenant = new Date()) {
+  const moisCourant = debutMoisCalendaire(maintenant);
+  const barres = [];
+  for (let i = nbMois - 1; i >= 0; i--) {
+    const debut = new Date(moisCourant.getFullYear(), moisCourant.getMonth() - i, 1);
+    const fin = new Date(debut.getFullYear(), debut.getMonth() + 1, 1);
+    const value = agregerPeriode(seancesRealisees, debut, fin).distanceKm;
+    barres.push({ label: MOIS_COURT[debut.getMonth()], value });
+  }
+  return barres;
+}

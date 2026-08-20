@@ -46,12 +46,15 @@
   --color-functional: #e0855f; /* ember éclairci */
   --color-functional-strong: var(--ember);
 
-  /* Zones Daniels E/M/T/I/R */
-  --zone-e: var(--color-structural);
-  --zone-m: #8fb08f;
-  --zone-t: var(--color-accent);
-  --zone-i: var(--color-functional);
-  --zone-r: #d3543a;
+  /* Zones Daniels E/M/T/I/R — palette catégorielle validée (5 teintes du set
+     de référence dataviz : aqua/orange/bleu/magenta/or), remplace l'ancienne
+     palette qui échouait la vérification CVD (E vs M : ΔE 2.8, quasi
+     indiscernables même en vision normale). */
+  --zone-e: #199e70;
+  --zone-m: #d95926;
+  --zone-t: #3987e5;
+  --zone-i: #d55181;
+  --zone-r: #c98500;
 
   --color-success: var(--color-structural);
   --color-warning: #d9a441;
@@ -77,11 +80,11 @@
   --color-functional: var(--ember);
   --color-functional-strong: #8f3c20;
 
-  --zone-e: var(--color-structural);
-  --zone-m: #5c7a55;
-  --zone-t: var(--color-accent);
-  --zone-i: var(--color-functional);
-  --zone-r: #8f3c20;
+  --zone-e: #1baf7a;
+  --zone-m: #eb6834;
+  --zone-t: #2a78d6;
+  --zone-i: #e87ba4;
+  --zone-r: #eda100;
 
   --color-success: var(--color-structural);
   --color-warning: #a5731c;

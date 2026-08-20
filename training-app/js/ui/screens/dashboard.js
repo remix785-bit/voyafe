@@ -1,8 +1,20 @@
 import * as store from "../../store.js";
-import { ElevationBar, LoadGauge, SessionCard, WeekStrip, ZoneLegend, Sparkline, ZoneRepartition } from "../components.js";
-import { formatPace } from "../../engines/vdot.js";
+import {
+  ElevationBar,
+  LoadGauge,
+  SessionCard,
+  WeekStrip,
+  ZoneLegend,
+  ZoneRepartition,
+  BarChart,
+  DonutChart,
+  LineChart,
+  attachChartInteractions,
+} from "../components.js";
+import { formatPace, ZONES } from "../../engines/vdot.js";
 import { dailyMacros } from "../../engines/nutrition.js";
-import { statsPerformance, distanceHebdoRecente, variationPct } from "../../engines/performance.js";
+import { statsPerformance, barresDistanceHebdo, barresDistanceMensuelle, variationPct } from "../../engines/performance.js";
+import { ewmaAcwr } from "../../engines/load.js";
 
 function joursRestants(dateEcheance) {
   const ms = new Date(dateEcheance) - new Date();
@@ -84,7 +96,8 @@ export async function render(container) {
   const dernierLog = logsQuotidiens[logsQuotidiens.length - 1];
 
   const perf = statsPerformance(seancesRealisees);
-  const tendanceHebdo = distanceHebdoRecente(seancesRealisees);
+  const barresHebdo = barresDistanceHebdo(seancesRealisees);
+  const barresMensuel = barresDistanceMensuelle(seancesRealisees);
   const semainesRetest = semainesDepuisDernierTest(profil?.historiqueVdot);
   const macros = profil?.weightKg ? dailyMacros(profil.weightKg, plan.chargeHebdoMoyenneActuelle ?? "moderee") : null;
 
@@ -125,17 +138,28 @@ export async function render(container) {
 
       <div class="card">
         <div class="card__header"><h2>Performance réelle</h2><a class="btn btn--sm" href="#/historique">Historique complet</a></div>
-        ${renderPerformanceReelle(perf, tendanceHebdo)}
+        ${renderPerformanceReelle(perf, barresHebdo, barresMensuel)}
       </div>
 
       <div class="card">
         <h2>Répartition des zones (semaine)</h2>
-        ${ZoneRepartition(semaineActuelle)}
+        ${DonutChart(segmentsZones(semaineActuelle), {
+          centreValeur: `${Math.round(semaineActuelle.seances.reduce((a, s) => a + s.volumeSeanceMin, 0))}`,
+          centreLabel: "min",
+        })}
+        <div style="margin-top:12px;">${ZoneRepartition(semaineActuelle)}</div>
       </div>
 
       <div class="card">
         <div class="card__header"><h2>VDOT actuel</h2><span class="data" style="font-size:1.3rem;">${plan.profilCourant.vdot.toFixed(1)}</span></div>
-        ${profil?.historiqueVdot?.length > 1 ? Sparkline(profil.historiqueVdot.map((h) => h.vdot)) : ""}
+        ${
+          profil?.historiqueVdot?.length > 1
+            ? LineChart(
+                profil.historiqueVdot.map((h) => ({ label: new Date(h.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }), value: h.vdot })),
+                { formatValue: (v) => v.toFixed(1) }
+              )
+            : `<p class="muted">Pas encore d'historique — un deuxième point apparaîtra après ton prochain retest ou une mise à jour de plan.</p>`
+        }
         <p class="muted" style="margin-top:8px;">${
           semainesRetest == null
             ? "Pas encore de retest enregistré."
@@ -149,6 +173,7 @@ export async function render(container) {
       <div class="card">
         <div class="card__header"><h2>Charge (ACWR/EWMA)</h2></div>
         ${chargeSummary ? LoadGauge(chargeSummary) : `<p class="muted">Pas encore assez de données (journal quotidien, min. 7 jours) pour calculer la tendance de charge.</p>`}
+        ${renderCourbeCharge()}
       </div>
 
       ${
@@ -226,9 +251,41 @@ export async function render(container) {
       render(container);
     });
   });
+
+  attachChartInteractions(container);
 }
 
-function renderPerformanceReelle(perf, tendanceHebdo) {
+/** Segments E/M/T/I/R (volume de la semaine) pour le DonutChart — mêmes données que ZoneRepartition. */
+function segmentsZones(semaine) {
+  const total = semaine.seances.reduce((a, s) => a + s.volumeSeanceMin, 0) || 1;
+  const parZone = {};
+  for (const s of semaine.seances) parZone[s.zoneDaniels] = (parZone[s.zoneDaniels] ?? 0) + s.volumeSeanceMin;
+  const ordre = ["E", "M", "T", "I", "R"];
+  return ordre
+    .filter((z) => parZone[z])
+    .map((z) => ({ label: `${z} — ${ZONES[z]?.label ?? z}`, value: parZone[z], colorVar: `--zone-${z.toLowerCase()}` }));
+}
+
+/** Courbe ACWR/EWMA — même calcul que l'écran Historique, ici pour donner une tendance directement sur le Dashboard. */
+function renderCourbeCharge() {
+  const loads = store.chargeHebdoDepuisLogs();
+  if (loads.length < 7) return "";
+  const points = [];
+  for (let i = 6; i < loads.length; i++) {
+    const fenetre = loads.slice(0, i + 1);
+    const joursAvantAujourdhui = loads.length - 1 - i;
+    points.push({
+      label: joursAvantAujourdhui === 0 ? "Aujourd'hui" : `J-${joursAvantAujourdhui}`,
+      value: ewmaAcwr(fenetre),
+    });
+  }
+  return `<div style="margin-top:12px;"><span class="muted">Tendance EWMA — ${points.length} derniers jours</span>${LineChart(points, {
+    formatValue: (v) => v.toFixed(2),
+    colorVar: "--color-functional-strong",
+  })}</div>`;
+}
+
+function renderPerformanceReelle(perf, barresHebdo, barresMensuel) {
   if (!perf.semaine.nbSeances && !perf.mois.nbSeances) {
     return `<p class="muted">Aucune activité réelle enregistrée — connecte Strava (<a href="#/reglages">Réglages</a>) pour voir tes stats réelles ici, ou synchronise si c'est déjà fait.</p>`;
   }
@@ -246,8 +303,13 @@ function renderPerformanceReelle(perf, tendanceHebdo) {
     <p class="muted">Semaine : ${Math.round(perf.semaine.dureeMin)} min · D+ ${Math.round(perf.semaine.deniveleM)} m · ${perf.semaine.nbSeances} séance${perf.semaine.nbSeances > 1 ? "s" : ""}${perf.semaine.allureMoyenneMinParKm ? ` · allure moy. ${formatPace(perf.semaine.allureMoyenneMinParKm)}` : ""}</p>
     <p class="muted">Mois : ${Math.round(perf.mois.dureeMin)} min · D+ ${Math.round(perf.mois.deniveleM)} m · ${perf.mois.nbSeances} séance${perf.mois.nbSeances > 1 ? "s" : ""}${perf.mois.allureMoyenneMinParKm ? ` · allure moy. ${formatPace(perf.mois.allureMoyenneMinParKm)}` : ""}</p>
     ${
-      tendanceHebdo.some((v) => v > 0)
-        ? `<div style="margin-top:12px;"><span class="muted">Volume hebdomadaire réel — 8 dernières semaines</span>${Sparkline(tendanceHebdo)}</div>`
+      barresHebdo.some((b) => b.value > 0)
+        ? `<div style="margin-top:16px;"><span class="muted">Distance réelle par semaine</span>${BarChart(barresHebdo, { unite: " km" })}</div>`
+        : ""
+    }
+    ${
+      barresMensuel.some((b) => b.value > 0)
+        ? `<div style="margin-top:16px;"><span class="muted">Distance réelle par mois</span>${BarChart(barresMensuel, { unite: " km", colorVar: "--color-functional-strong" })}</div>`
         : ""
     }`;
 }

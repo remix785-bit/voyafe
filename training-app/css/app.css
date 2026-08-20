@@ -302,6 +302,8 @@ textarea {
   color: var(--ink);
 }
 
+/* Couleur de texte choisie par zone/thème pour le meilleur contraste
+   mesuré (ink vs paper) sur chaque teinte — voir tokens.css. */
 .zone-badge--E {
   background: var(--zone-e);
 }
@@ -310,19 +312,69 @@ textarea {
 }
 .zone-badge--T {
   background: var(--zone-t);
-  color: var(--paper);
 }
 .zone-badge--I {
   background: var(--zone-i);
-  color: var(--paper);
 }
 .zone-badge--R {
   background: var(--zone-r);
+}
+:root[data-theme="light"] .zone-badge--T {
   color: var(--paper);
 }
 .zone-badge--renfo {
   background: var(--color-text-muted);
   color: var(--ink);
+}
+
+/* ---------- Graphiques (BarChart / DonutChart / LineChart) ---------- */
+
+.chart-svg {
+  overflow: visible;
+}
+
+.chart-mark {
+  cursor: pointer;
+  transition: filter 0.1s ease;
+}
+.chart-mark:hover,
+.chart-mark:focus-visible {
+  filter: brightness(1.18);
+  outline: none;
+}
+.chart-mark:focus-visible circle[r="12"],
+.chart-mark:focus-visible rect {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.chart-tooltip {
+  position: fixed;
+  display: none;
+  align-items: baseline;
+  gap: 6px;
+  z-index: 60;
+  pointer-events: none;
+  background: var(--color-surface-strong);
+  color: var(--color-text-on-strong);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  box-shadow: var(--shadow-card);
+  white-space: nowrap;
+}
+.chart-tooltip__swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: none;
+}
+.chart-tooltip__value {
+  font-family: var(--font-data);
+  font-weight: 700;
+}
+.chart-tooltip__label {
+  opacity: 0.75;
 }
 
 /* ---------- ElevationBar (signature) ----------

@@ -7,6 +7,8 @@ import {
   statsPerformance,
   distanceHebdoRecente,
   variationPct,
+  barresDistanceHebdo,
+  barresDistanceMensuelle,
 } from "../js/engines/performance.js";
 
 function iso(date) {
@@ -82,6 +84,35 @@ test("distanceHebdoRecente — 1 valeur par semaine sur la fenêtre demandée, l
   assert.equal(semaines[2], 20); // avant-dernière = semaine -1
   assert.equal(semaines[1], 0);
   assert.equal(semaines[0], 0);
+});
+
+test("barresDistanceHebdo — une barre étiquetée par semaine, la courante marquée « Cette sem. »", () => {
+  const maintenant = new Date(2026, 7, 20); // semaine du 17 août
+  const seances = [
+    { date: iso(new Date(2026, 7, 18)), distanceKm: 10 }, // semaine courante
+    { date: iso(new Date(2026, 7, 11)), distanceKm: 20 }, // semaine -1
+  ];
+  const barres = barresDistanceHebdo(seances, 3, maintenant);
+  assert.equal(barres.length, 3);
+  assert.equal(barres[2].label, "Cette sem.");
+  assert.equal(barres[2].value, 10);
+  assert.equal(barres[1].value, 20);
+  assert.equal(barres[0].value, 0);
+});
+
+test("barresDistanceMensuelle — une barre étiquetée par mois calendaire, la plus récente en dernier", () => {
+  const maintenant = new Date(2026, 7, 20); // août 2026
+  const seances = [
+    { date: iso(new Date(2026, 7, 5)), distanceKm: 30 }, // août (mois courant)
+    { date: iso(new Date(2026, 6, 15)), distanceKm: 40 }, // juillet
+  ];
+  const barres = barresDistanceMensuelle(seances, 3, maintenant);
+  assert.equal(barres.length, 3);
+  assert.equal(barres[2].label, "août");
+  assert.equal(barres[2].value, 30);
+  assert.equal(barres[1].label, "juil.");
+  assert.equal(barres[1].value, 40);
+  assert.equal(barres[0].value, 0);
 });
 
 test("variationPct — calcule la variation relative, null si période précédente vide", () => {

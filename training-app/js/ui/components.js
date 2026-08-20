@@ -70,6 +70,247 @@ export function ZoneRepartition(semaine) {
     .join("")}</div>`;
 }
 
+// ---------------------------------------------------------------------------
+// Graphiques interactifs (barres, camembert, courbes) — Dashboard graphique.
+// Pas de librairie : SVG généré en chaîne + interactions attachées après coup
+// (attachChartInteractions), même convention que le reste de l'appli.
+// ---------------------------------------------------------------------------
+
+/** Chemin d'une barre verticale : coins arrondis en haut, carrés à la base (mark spec). */
+function cheminBarre(x, yHaut, largeur, yBase, rayon) {
+  const r = Math.min(rayon, largeur / 2, Math.max(0, yBase - yHaut));
+  return `M${x},${yBase} L${x},${yHaut + r} Q${x},${yHaut} ${x + r},${yHaut} L${x + largeur - r},${yHaut} Q${x + largeur},${yHaut} ${x + largeur},${yHaut + r} L${x + largeur},${yBase} Z`;
+}
+
+/**
+ * BarChart — barres verticales (ex : distance courue par semaine/mois).
+ * Une seule série : pas de légende (le titre de la carte suffit). La
+ * dernière barre (l'histoire du graphe : "où j'en suis maintenant") porte
+ * son étiquette directe ; les autres restent accessibles au survol/focus.
+ * @param {{label:string, value:number}[]} barres
+ * @param {{height?:number, formatValue?:(v:number)=>string, colorVar?:string, unite?:string}} options
+ */
+export function BarChart(barres, options = {}) {
+  const { height = 150, formatValue = (v) => v.toFixed(1), colorVar = "--color-accent-strong", unite = "" } = options;
+  if (!barres.length) return `<p class="muted">—</p>`;
+
+  const slot = 44;
+  const largeurBarre = 20;
+  const w = barres.length * slot;
+  const padTop = 24; // place pour l'étiquette directe au-dessus de la barre max
+  const padBottom = 22; // libellés d'axe X
+  const yBase = height - padBottom;
+  const plotH = yBase - padTop;
+  const max = Math.max(...barres.map((b) => b.value), 1);
+
+  const idBase = `bar-${Math.random().toString(36).slice(2, 8)}`;
+  const marks = barres
+    .map((b, i) => {
+      const x = i * slot + (slot - largeurBarre) / 2;
+      const hauteur = max > 0 ? (b.value / max) * plotH : 0;
+      const yHaut = yBase - hauteur;
+      const estDerniere = i === barres.length - 1;
+      const valeurTxt = `${formatValue(b.value)}${unite}`;
+      return `
+      <g class="chart-mark" tabindex="0" role="img" aria-label="${escapeHtml(b.label)} : ${escapeHtml(valeurTxt)}" data-tip-label="${escapeHtml(b.label)}" data-tip-value="${escapeHtml(valeurTxt)}" data-tip-color="var(${colorVar})">
+        <rect x="${i * slot}" y="${padTop}" width="${slot}" height="${plotH}" fill="transparent" />
+        <path d="${cheminBarre(x, yHaut, largeurBarre, yBase, 4)}" fill="var(${colorVar})" />
+        ${estDerniere ? `<text x="${x + largeurBarre / 2}" y="${Math.max(10, yHaut - 6)}" font-size="10" text-anchor="middle" fill="var(--color-text)" font-weight="600">${escapeHtml(valeurTxt)}</text>` : ""}
+        <text x="${x + largeurBarre / 2}" y="${height - 6}" font-size="9" text-anchor="middle" fill="var(--color-text-muted)">${escapeHtml(b.label)}</text>
+      </g>`;
+    })
+    .join("");
+
+  return `
+    <svg id="${idBase}" class="chart-svg" viewBox="0 0 ${w} ${height}" width="100%" style="height:auto; display:block;" preserveAspectRatio="xMidYMid meet">
+      <line x1="0" y1="${yBase}" x2="${w}" y2="${yBase}" stroke="var(--color-border)" stroke-width="1" />
+      ${marks}
+    </svg>`;
+}
+
+/**
+ * DonutChart — répartition catégorielle en anneau (ex : zones E/M/T/I/R de
+ * la semaine). Couleurs = palette catégorielle validée (tokens.css --zone-*).
+ * Pas de légende propre : la carte l'associe à ZoneRepartition juste en
+ * dessous, qui sert à la fois de légende et de table de valeurs exactes.
+ * @param {{label:string, value:number, colorVar:string}[]} segments
+ * @param {{size?:number, epaisseur?:number, centreValeur?:string, centreLabel?:string}} options
+ */
+export function DonutChart(segments, options = {}) {
+  const { size = 168, epaisseur = 26, centreValeur = "", centreLabel = "" } = options;
+  const total = segments.reduce((a, s) => a + s.value, 0);
+  if (!total) return `<p class="muted">—</p>`;
+
+  const r = (size - epaisseur) / 2;
+  const cx = size / 2;
+  const cy = size / 2;
+  const circonference = 2 * Math.PI * r;
+  const ecartDeg = 2.2; // écart angulaire entre segments (équivalent du "surface gap")
+
+  let angleCumule = -90; // départ en haut
+  const arcs = segments
+    .map((s) => {
+      const part = s.value / total;
+      const angleSegment = part * 360;
+      const angleUtile = Math.max(0, angleSegment - ecartDeg);
+      const longueurArc = (angleUtile / 360) * circonference;
+      const decalage = (angleCumule / 360) * circonference;
+      const pct = Math.round(part * 100);
+      const angleMid = angleCumule + angleSegment / 2;
+      angleCumule += angleSegment;
+
+      const labelExterne =
+        pct >= 10
+          ? (() => {
+              const rad = (angleMid * Math.PI) / 180;
+              const lx = cx + (r + epaisseur / 2 + 12) * Math.cos(rad);
+              const ly = cy + (r + epaisseur / 2 + 12) * Math.sin(rad);
+              return `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" font-size="10" font-weight="600" text-anchor="middle" dominant-baseline="middle" fill="var(--color-text)">${pct}%</text>`;
+            })()
+          : "";
+
+      return `
+      <circle class="chart-mark" tabindex="0" role="img" aria-label="${escapeHtml(s.label)} : ${pct}%"
+        data-tip-label="${escapeHtml(s.label)}" data-tip-value="${pct}%" data-tip-color="${s.colorVar.startsWith("var(") ? s.colorVar : `var(${s.colorVar})`}"
+        cx="${cx}" cy="${cy}" r="${r}" fill="none"
+        stroke="${s.colorVar.startsWith("var(") ? s.colorVar : `var(${s.colorVar})`}" stroke-width="${epaisseur}"
+        stroke-dasharray="${longueurArc.toFixed(2)} ${(circonference - longueurArc).toFixed(2)}"
+        stroke-dashoffset="${(-decalage).toFixed(2)}"
+        transform="rotate(-90 ${cx} ${cy})" />
+      ${labelExterne}`;
+    })
+    .join("");
+
+  return `
+    <svg viewBox="0 0 ${size} ${size}" width="100%" style="height:auto; display:block; max-width:${size + 40}px; margin:0 auto;" preserveAspectRatio="xMidYMid meet">
+      ${arcs}
+      ${centreValeur ? `<text x="${cx}" y="${cy - 4}" font-size="20" font-weight="700" text-anchor="middle" fill="var(--color-text)">${escapeHtml(centreValeur)}</text>` : ""}
+      ${centreLabel ? `<text x="${cx}" y="${cy + 16}" font-size="10" text-anchor="middle" fill="var(--color-text-muted)">${escapeHtml(centreLabel)}</text>` : ""}
+    </svg>`;
+}
+
+/**
+ * LineChart — courbe avec aire, point final mis en évidence (valeur directe),
+ * axe Y min/max, axe X premier/dernier libellé, tooltip par point au survol.
+ * Une seule série : pas de légende (le titre de la carte la nomme).
+ * @param {{label:string, value:number}[]} points
+ * @param {{height?:number, formatValue?:(v:number)=>string, colorVar?:string}} options
+ */
+export function LineChart(points, options = {}) {
+  const { height = 150, formatValue = (v) => v.toFixed(1), colorVar = "--color-accent-strong" } = options;
+  const pts = points.filter((p) => p.value != null);
+  if (pts.length < 2) return `<p class="muted">Pas encore assez de données.</p>`;
+
+  const w = 420;
+  const padX = 8;
+  const padTop = 22;
+  const padBottom = 20;
+  const plotW = w - padX * 2;
+  const plotH = height - padTop - padBottom;
+  const min = Math.min(...pts.map((p) => p.value));
+  const max = Math.max(...pts.map((p) => p.value));
+  const range = max - min || 1;
+
+  const xAt = (i) => padX + (i / (pts.length - 1)) * plotW;
+  const yAt = (v) => padTop + plotH - ((v - min) / range) * plotH;
+
+  const ligne = pts.map((p, i) => `${xAt(i).toFixed(1)},${yAt(p.value).toFixed(1)}`).join(" ");
+  const aire = `${xAt(0).toFixed(1)},${(padTop + plotH).toFixed(1)} ${ligne} ${xAt(pts.length - 1).toFixed(1)},${(padTop + plotH).toFixed(1)}`;
+
+  const dernier = pts[pts.length - 1];
+  const marks = pts
+    .map((p, i) => {
+      const x = xAt(i);
+      const y = yAt(p.value);
+      const estDernier = i === pts.length - 1;
+      const valeurTxt = formatValue(p.value);
+      return `
+      <g class="chart-mark" tabindex="0" role="img" aria-label="${escapeHtml(p.label)} : ${escapeHtml(valeurTxt)}" data-tip-label="${escapeHtml(p.label)}" data-tip-value="${escapeHtml(valeurTxt)}" data-tip-color="var(${colorVar})">
+        <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="12" fill="transparent" />
+        <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${estDernier ? 5 : 3.5}" fill="var(${colorVar})" stroke="var(--color-surface)" stroke-width="2" />
+      </g>`;
+    })
+    .join("");
+
+  return `
+    <svg viewBox="0 0 ${w} ${height}" width="100%" style="height:auto; display:block;" preserveAspectRatio="xMidYMid meet">
+      <text x="${padX}" y="12" font-size="9" fill="var(--color-text-muted)">${formatValue(max)}</text>
+      <text x="${padX}" y="${height - 4}" font-size="9" fill="var(--color-text-muted)">${formatValue(min)}</text>
+      <polygon points="${aire}" fill="var(${colorVar})" opacity="0.1" />
+      <polyline points="${ligne}" fill="none" stroke="var(${colorVar})" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+      <text x="${xAt(pts.length - 1).toFixed(1)}" y="${(yAt(dernier.value) - 12).toFixed(1)}" font-size="10" font-weight="600" text-anchor="end" fill="var(--color-text)">${formatValue(dernier.value)}</text>
+      <text x="${padX}" y="${height - padBottom + 14}" font-size="9" fill="var(--color-text-muted)">${escapeHtml(pts[0].label)}</text>
+      <text x="${w - padX}" y="${height - padBottom + 14}" font-size="9" text-anchor="end" fill="var(--color-text-muted)">${escapeHtml(dernier.label)}</text>
+      ${marks}
+    </svg>`;
+}
+
+/**
+ * Attache la tooltip commune à tous les graphiques (.chart-mark[data-tip-*])
+ * d'un conteneur — à appeler une fois après avoir inséré le HTML des
+ * graphiques. Un seul élément tooltip flottant partagé, positionné au
+ * pointeur ; mêmes infos accessibles au clavier via focus (role=img +
+ * aria-label déjà posés sur chaque marque).
+ * @param {HTMLElement} root
+ */
+export function attachChartInteractions(root) {
+  let tooltip = document.querySelector(".chart-tooltip");
+  if (!tooltip) {
+    tooltip = document.createElement("div");
+    tooltip.className = "chart-tooltip";
+    document.body.appendChild(tooltip);
+  }
+
+  const afficher = (mark, x, y) => {
+    const label = mark.dataset.tipLabel ?? "";
+    const value = mark.dataset.tipValue ?? "";
+    const color = mark.dataset.tipColor;
+    tooltip.innerHTML = "";
+    if (color) {
+      const swatch = document.createElement("span");
+      swatch.className = "chart-tooltip__swatch";
+      swatch.style.background = color;
+      tooltip.appendChild(swatch);
+    }
+    const valEl = document.createElement("span");
+    valEl.className = "chart-tooltip__value";
+    valEl.textContent = value;
+    const labEl = document.createElement("span");
+    labEl.className = "chart-tooltip__label";
+    labEl.textContent = label;
+    tooltip.appendChild(valEl);
+    tooltip.appendChild(labEl);
+    tooltip.style.display = "flex";
+    positionner(x, y);
+  };
+
+  const positionner = (x, y) => {
+    const marge = 12;
+    const rect = tooltip.getBoundingClientRect();
+    let left = x + marge;
+    let top = y - rect.height - marge;
+    if (left + rect.width > window.innerWidth - 4) left = x - rect.width - marge;
+    if (top < 4) top = y + marge;
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+  };
+
+  const masquer = () => {
+    tooltip.style.display = "none";
+  };
+
+  root.querySelectorAll(".chart-mark").forEach((mark) => {
+    mark.addEventListener("pointerenter", (e) => afficher(mark, e.clientX, e.clientY));
+    mark.addEventListener("pointermove", (e) => positionner(e.clientX, e.clientY));
+    mark.addEventListener("pointerleave", masquer);
+    mark.addEventListener("focus", () => {
+      const box = mark.getBoundingClientRect();
+      afficher(mark, box.left + box.width / 2, box.top);
+    });
+    mark.addEventListener("blur", masquer);
+  });
+}
+
 /**
  * ElevationBar — barre de progression signature, tracée en profil de relief
  * plutôt qu'en rectangle plein.
