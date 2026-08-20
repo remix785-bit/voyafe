@@ -108,6 +108,58 @@ export async function creerPlan(inputs) {
   return plan;
 }
 
+/**
+ * Met à jour un plan existant (distance/temps objectif, échéance, discipline,
+ * charge, disponibilité...) en régénérant les étapes ①→④ avec les nouveaux
+ * inputs, tout en conservant l'identité du plan (id, statut) et l'historique
+ * des séances déjà passées (réalisée/manquée + note) pour les semaines dont
+ * la date de début est révolue — best-effort par numéro de semaine + zone.
+ */
+export async function modifierPlan(planId, inputs) {
+  const ancien = state.plans.find((p) => p.id === planId);
+  if (!ancien) throw new Error("Plan introuvable.");
+
+  const nouveau = genererPlanComplet(inputs);
+  nouveau.id = ancien.id;
+  nouveau.statut = ancien.statut;
+  nouveau.discipline = inputs.discipline;
+  nouveau.objectif = inputs.objectif;
+  nouveau.dateEcheance = inputs.dateEcheance;
+  nouveau.creeLe = ancien.creeLe;
+  nouveau.modifieLe = new Date().toISOString();
+
+  const maintenant = new Date();
+  for (const semaine of nouveau.semaines) {
+    if (new Date(semaine.dateDebut) > maintenant) continue;
+    const ancienneSemaine = ancien.semaines.find((s) => s.numero === semaine.numero);
+    if (!ancienneSemaine) continue;
+    for (const seance of semaine.seances) {
+      const ancienneSeance = ancienneSemaine.seances.find(
+        (s) => s.zoneDaniels === seance.zoneDaniels && s.statut !== "a_venir"
+      );
+      if (ancienneSeance) {
+        seance.statut = ancienneSeance.statut;
+        if (ancienneSeance.note) seance.note = ancienneSeance.note;
+      }
+    }
+  }
+
+  await db.put("plans", nouveau);
+  const idx = state.plans.findIndex((p) => p.id === planId);
+  state.plans[idx] = nouveau;
+
+  if (state.profil) {
+    state.profil.historiqueVdot = [
+      ...(state.profil.historiqueVdot ?? []),
+      { date: new Date().toISOString(), vdot: nouveau.profilCourant.vdot },
+    ];
+    await db.put("profil", state.profil);
+  }
+
+  notify();
+  return nouveau;
+}
+
 export async function marquerSeanceStatut(planId, semaineNumero, seanceIndex, statut, note) {
   const plan = state.plans.find((p) => p.id === planId);
   if (!plan) return;

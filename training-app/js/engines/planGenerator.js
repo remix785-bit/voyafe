@@ -190,12 +190,20 @@ function calculerVolumeSeance(volumeBase, semaineContexte) {
  * @param {object} profilCourant sortie de normaliserProfil
  * @param {object} semaineContexte { phase, statut, dateDebut }
  * @param {{penteMoyenne?:number}} contexteDenivele pour l'ajustement GAP (trail)
+ * @param {number|null} objectifPaceMinParKm allure de course objectif (distance+temps saisis
+ *   par l'utilisateur) — remplace, quand fournie, l'allure M déduite de la seule forme actuelle
+ *   pour les blocs "spécificité allure course" (zone M, route). Sans objectif renseigné, on
+ *   retombe sur l'allure M dérivée du VDOT comme avant.
  */
-export function instancierSeance(template, profilCourant, semaineContexte, contexteDenivele = {}) {
+export function instancierSeance(template, profilCourant, semaineContexte, contexteDenivele = {}, objectifPaceMinParKm = null) {
   const zoneCible = template.zoneDaniels;
   const allureZone = profilCourant.allures[zoneCible];
   let allureCible = allureZone ? allureZone.target : null;
   let gapWarning = null;
+
+  if (zoneCible === "M" && template.discipline === "route" && objectifPaceMinParKm != null) {
+    allureCible = objectifPaceMinParKm;
+  }
 
   if (template.discipline === "trail" && template.gapAjuste && allureCible != null) {
     const pente = contexteDenivele.penteMoyenne ?? 0;
@@ -251,8 +259,22 @@ function zoneCibleLabel(zone) {
 }
 
 /**
+ * Calcule l'allure de course objectif (min/km) à partir d'une distance et d'un
+ * temps cible saisis par l'utilisateur (Partie I §1 : "Objectif" = temps cible
+ * chronométré, "Distance/profil" = distance seule en route).
+ * @param {number|null} distanceObjectifM
+ * @param {number|null} tempsObjectifS
+ * @returns {number|null}
+ */
+export function calculerAllureObjectif(distanceObjectifM, tempsObjectifS) {
+  if (!distanceObjectifM || !tempsObjectifS) return null;
+  return (tempsObjectifS / 60) / (distanceObjectifM / 1000);
+}
+
+/**
  * Pipeline complet ①→④ : génère un plan daté à partir des inputs utilisateur.
- * @param {object} inputs voir Partie I §1 (discipline, objectif, échéance, performanceRef, ...)
+ * @param {object} inputs voir Partie I §1 (discipline, objectif, échéance, performanceRef,
+ *   distanceObjectifM, tempsObjectifS, ...)
  */
 export function genererPlanComplet(inputs) {
   const profilCourant = normaliserProfil(inputs.performanceRef, {
@@ -261,6 +283,7 @@ export function genererPlanComplet(inputs) {
   const semDispo = semainesDisponibles(inputs.dateEcheance, inputs.dateDebut);
   const macrocycle = construireMacrocycle(semDispo, inputs.chargeHebdoMoyenneActuelle ?? "moderee");
   const semaines = genererSemaines(macrocycle, inputs.dateDebut ?? new Date().toISOString());
+  const objectifPaceMinParKm = calculerAllureObjectif(inputs.distanceObjectifM, inputs.tempsObjectifS);
 
   const semainesAvecSeances = semaines.map((semaineContexte) => {
     const slots = composerSemaine(semaineContexte.phase, inputs.discipline, inputs.nbSeancesHebdo ?? 4);
@@ -268,7 +291,7 @@ export function genererPlanComplet(inputs) {
     const seances = slots
       .map((slot) => trouverTemplate(slot.catalogueId))
       .filter(Boolean)
-      .map((tpl) => instancierSeance(tpl, profilCourant, semaineContexte));
+      .map((tpl) => instancierSeance(tpl, profilCourant, semaineContexte, {}, objectifPaceMinParKm));
     const seancesWithCaps = appliquerPlafondsHebdo(seances);
     return { ...semaineContexte, seances: seancesWithCaps, renfoRecommande: renfo };
   });
@@ -277,6 +300,11 @@ export function genererPlanComplet(inputs) {
     profilCourant,
     macrocycle,
     semaines: semainesAvecSeances,
+    distanceObjectifM: inputs.distanceObjectifM ?? null,
+    tempsObjectifS: inputs.tempsObjectifS ?? null,
+    objectifPaceMinParKm,
+    nbSeancesHebdo: inputs.nbSeancesHebdo ?? 4,
+    chargeHebdoMoyenneActuelle: inputs.chargeHebdoMoyenneActuelle ?? "moderee",
     statut: "en_attente",
   };
 }

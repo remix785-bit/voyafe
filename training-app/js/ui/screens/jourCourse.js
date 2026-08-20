@@ -30,7 +30,7 @@ export async function render(container) {
         <div class="field-row">
           <div class="field">
             <label for="distance-course">Distance totale (km)</label>
-            <input type="number" id="distance-course" value="42.195" step="0.1" min="1" />
+            <input type="number" id="distance-course" value="42.195" step="0.001" min="1" />
           </div>
           <div class="field">
             <label for="temps-cible">Temps cible (hh:mm:ss)</label>

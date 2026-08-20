@@ -6,6 +6,8 @@ import {
   genererPlanComplet,
   semainesDisponibles,
   appliquerPlafondsHebdo,
+  calculerAllureObjectif,
+  instancierSeance,
 } from "../js/engines/planGenerator.js";
 
 test("Macrocycle — exemple chiffré du dossier: 16 semaines, charge modérée -> taper 2, base 7, dev 7", () => {
@@ -64,6 +66,59 @@ test("genererPlanComplet — pipeline complet produit un plan daté cohérent (r
       assert.ok(s.allureCibleMinParKm > 0);
     }
   }
+});
+
+test("calculerAllureObjectif — marathon en 3h30 donne ~4:58/km", () => {
+  const pace = calculerAllureObjectif(42195, 3.5 * 3600);
+  assert.ok(Math.abs(pace - 4.977) < 0.01, `allure inattendue: ${pace}`);
+});
+
+test("calculerAllureObjectif — null si distance ou temps manquant", () => {
+  assert.equal(calculerAllureObjectif(null, 3600), null);
+  assert.equal(calculerAllureObjectif(10000, null), null);
+});
+
+test("genererPlanComplet — l'allure objectif remplace l'allure M déduite du VDOT (route)", () => {
+  const dateDebut = new Date();
+  const dateEcheance = new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000);
+  const sansObjectif = genererPlanComplet({
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: dateEcheance.toISOString(),
+    nbSeancesHebdo: 5,
+  });
+  const avecObjectif = genererPlanComplet({
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: dateEcheance.toISOString(),
+    nbSeancesHebdo: 5,
+    distanceObjectifM: 42195,
+    tempsObjectifS: 3.5 * 3600, // objectif ambitieux, allure plus rapide que l'allure M de forme actuelle
+  });
+
+  const seanceM_sans = sansObjectif.semaines[0].seances.find((s) => s.zoneDaniels === "M");
+  const seanceM_avec = avecObjectif.semaines[0].seances.find((s) => s.zoneDaniels === "M");
+  assert.ok(seanceM_sans && seanceM_avec);
+  assert.notEqual(seanceM_sans.allureCibleMinParKm, seanceM_avec.allureCibleMinParKm);
+  assert.ok(Math.abs(seanceM_avec.allureCibleMinParKm - 4.977) < 0.01);
+  assert.equal(avecObjectif.objectifPaceMinParKm, seanceM_avec.allureCibleMinParKm);
+  assert.equal(avecObjectif.distanceObjectifM, 42195);
+});
+
+test("instancierSeance — sans objectif fourni, retombe sur l'allure M dérivée du VDOT", () => {
+  const dateDebut = new Date();
+  const plan = genererPlanComplet({
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000).toISOString(),
+    nbSeancesHebdo: 5,
+  });
+  const tplM = { zoneDaniels: "M", discipline: "route", corpsDeSeance: {} };
+  const s = instancierSeance(tplM, plan.profilCourant, plan.semaines[0], {}, null);
+  assert.equal(s.allureCibleMinParKm, plan.profilCourant.allures.M.target);
 });
 
 test("semainesDisponibles — calcule un nombre entier de semaines", () => {
