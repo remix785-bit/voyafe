@@ -192,6 +192,77 @@ export function calculerPacingEffortConstant(segments, tempsCibleSecondes, altit
 }
 
 /**
+ * Ré-agrège la sortie segment-par-segment de calculerPacingEffortConstant
+ * (segments à pente homogène, 150m-1.2km — corrects pour le calcul GAP mais
+ * illisibles affichés tels quels : jusqu'à un segment tous les ~150-200m sur
+ * un parcours vallonné) en une ligne par kilomètre complet, plus un dernier
+ * segment partiel si la distance totale n'est pas un multiple de 1km — c'est
+ * la granularité attendue d'une fiche de pacing (repère km par km en course).
+ * L'allure au sein d'un segment est traitée comme constante (comme le fait
+ * déjà calculerPacingEffortConstant) : le temps à une distance donnée est
+ * donc interpolé linéairement entre les points de rupture des segments.
+ * @param {ReturnType<typeof calculerPacingEffortConstant>["segments"]} segmentsPacing
+ * @param {number} distanceTotaleM
+ * @returns {{distance:number, allureMinParKm:number, tempsSegmentMin:number, tempsCumuleMin:number}[]}
+ */
+export function agregerPacingParKm(segmentsPacing, distanceTotaleM) {
+  const points = [{ distance: 0, temps: 0 }];
+  let distCum = 0;
+  let tempsCum = 0;
+  for (const seg of segmentsPacing) {
+    distCum += seg.distance;
+    tempsCum += seg.tempsSegmentMin;
+    points.push({ distance: distCum, temps: tempsCum });
+  }
+
+  const tempsADistance = (d) => {
+    if (d <= 0) return 0;
+    for (let i = 1; i < points.length; i++) {
+      if (d <= points[i].distance) {
+        const a = points[i - 1];
+        const b = points[i];
+        const ratio = b.distance > a.distance ? (d - a.distance) / (b.distance - a.distance) : 0;
+        return a.temps + ratio * (b.temps - a.temps);
+      }
+    }
+    return tempsCum; // au-delà du dernier point connu (arrondi flottant) -> temps total
+  };
+
+  const buckets = [];
+  const nbKmPleins = Math.floor(distanceTotaleM / 1000);
+  let distancePrecedente = 0;
+  let tempsPrecedent = 0;
+  for (let k = 1; k <= nbKmPleins; k++) {
+    const d = k * 1000;
+    const t = tempsADistance(d);
+    const distanceSegment = d - distancePrecedente;
+    const tempsSegmentMin = t - tempsPrecedent;
+    buckets.push({
+      distance: distanceSegment,
+      allureMinParKm: distanceSegment > 0 ? tempsSegmentMin / (distanceSegment / 1000) : 0,
+      tempsSegmentMin,
+      tempsCumuleMin: t,
+    });
+    distancePrecedente = d;
+    tempsPrecedent = t;
+  }
+
+  const reste = distanceTotaleM - nbKmPleins * 1000;
+  if (reste > 1) {
+    const t = tempsADistance(distanceTotaleM);
+    const tempsSegmentMin = t - tempsPrecedent;
+    buckets.push({
+      distance: reste,
+      allureMinParKm: tempsSegmentMin / (reste / 1000),
+      tempsSegmentMin,
+      tempsCumuleMin: t,
+    });
+  }
+
+  return buckets;
+}
+
+/**
  * Fusionne la timeline de pacing avec des marqueurs de ravitaillement,
  * selon les cibles de la Section 8 (Partie I).
  * @param {Array} segmentsPacing sortie de calculerPacingEffortConstant

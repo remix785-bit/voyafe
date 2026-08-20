@@ -5,6 +5,7 @@ import {
   decouperSegments,
   profilParcoursParDefaut,
   calculerPacingEffortConstant,
+  agregerPacingParKm,
   fusionnerNutritionPacing,
 } from "../../engines/pacing.js";
 import { PacingTimeline } from "../components.js";
@@ -106,7 +107,10 @@ export async function render(container) {
       tempsCibleS,
       altitudeM > 0 ? { altitudeM, acclimatation } : {}
     );
-    const timeline = fusionnerNutritionPacing(segments, { glucidesGParH, frequenceMin });
+    // Le pacing est calculé par segment à pente homogène (précision GAP), mais
+    // affiché par km — ré-agrégation nécessaire pour une fiche lisible.
+    const segmentsParKm = agregerPacingParKm(segments, distanceKm * 1000);
+    const timeline = fusionnerNutritionPacing(segmentsParKm, { glucidesGParH, frequenceMin });
 
     container.querySelector("#pacing-result").style.display = "block";
     container.querySelector("#pacing-table").innerHTML = PacingTimeline(timeline);

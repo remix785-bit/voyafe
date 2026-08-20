@@ -18,6 +18,7 @@ import { acwr, ewmaAcwr, acwrZone, loadSummary } from "../js/engines/load.js";
 import {
   decouperSegments,
   calculerPacingEffortConstant,
+  agregerPacingParKm,
 } from "../js/engines/pacing.js";
 import { evaluerBoucleAdaptative, detecterRetestImplicite } from "../js/engines/adaptiveLoop.js";
 
@@ -148,6 +149,45 @@ test("Pacing — effort constant: temps total des segments = temps cible", () =>
   assert.ok(out[1].allureMinParKm > out[0].allureMinParKm);
   // segment en descente légère doit être plus rapide que le plat (jusqu'à -10%, zone économique)
   assert.ok(out[2].allureMinParKm < out[0].allureMinParKm);
+});
+
+test("Pacing — agrégation par km: un parcours vallonné avec des segments de 150-200m donne une ligne par km complet", () => {
+  // Simule ce que produit decouperSegments sur un GPX vallonné réel : beaucoup
+  // de petits segments (150-300m) sur les 3 premiers km, un segment plus long ensuite.
+  const segmentsFins = [
+    { distance: 200, penteMoyenne: 0.03 },
+    { distance: 180, penteMoyenne: -0.02 },
+    { distance: 300, penteMoyenne: 0.01 },
+    { distance: 220, penteMoyenne: 0.04 },
+    { distance: 250, penteMoyenne: -0.01 },
+    { distance: 350, penteMoyenne: 0 },
+    { distance: 1000, penteMoyenne: 0.02 },
+    { distance: 1500, penteMoyenne: -0.02 },
+  ]; // total = 4000m
+  const tempsCibleSec = 1200; // 20 min
+  const { segments } = calculerPacingEffortConstant(segmentsFins, tempsCibleSec);
+
+  const parKm = agregerPacingParKm(segments, 4000);
+  assert.equal(parKm.length, 4, "4 lignes attendues pour 4000m (une par km complet)");
+  for (const ligne of parKm) {
+    assert.ok(Math.abs(ligne.distance - 1000) < 0.01, `chaque ligne doit couvrir exactement 1km, obtenu ${ligne.distance}`);
+  }
+  const tempsTotal = parKm[parKm.length - 1].tempsCumuleMin;
+  assert.ok(Math.abs(tempsTotal - 20) < 0.01, `temps cumulé final=${tempsTotal}, attendu 20min`);
+});
+
+test("Pacing — agrégation par km: distance non multiple de 1000m ajoute un dernier segment partiel", () => {
+  const segmentsFins = [
+    { distance: 1000, penteMoyenne: 0 },
+    { distance: 1000, penteMoyenne: 0 },
+    { distance: 195, penteMoyenne: 0 }, // ex. marathon 2195m après les 2 premiers km (simplifié)
+  ];
+  const { segments } = calculerPacingEffortConstant(segmentsFins, 600); // 10 min
+  const parKm = agregerPacingParKm(segments, 2195);
+  assert.equal(parKm.length, 3, "2 km complets + 1 segment partiel de 195m");
+  assert.ok(Math.abs(parKm[0].distance - 1000) < 0.01);
+  assert.ok(Math.abs(parKm[1].distance - 1000) < 0.01);
+  assert.ok(Math.abs(parKm[2].distance - 195) < 0.01);
 });
 
 test("Boucle adaptative — propose une conversion si 2 marqueurs sur 3 dégradés", () => {
