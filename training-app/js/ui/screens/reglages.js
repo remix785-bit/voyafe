@@ -1,5 +1,6 @@
 import * as store from "../../store.js";
 import { verifierAcces } from "../../data/githubSync.js";
+import { verifierAcces as verifierAccesStrava } from "../../data/stravaSync.js";
 import { exporterJson, telechargerExport, importerJson } from "../../data/exportImport.js";
 
 export async function render(container) {
@@ -43,7 +44,13 @@ export async function render(container) {
           <label for="strava-token">Token d'accès</label>
           <input id="strava-token" type="password" value="${escapeAttr(reglages.stravaToken)}" />
         </div>
-        <button class="btn btn--primary" id="strava-save">Enregistrer</button>
+        <div class="row">
+          <button class="btn btn--primary" id="strava-save">Enregistrer</button>
+          <button class="btn" id="strava-test">Tester la connexion</button>
+          <button class="btn" id="strava-sync">Synchroniser maintenant</button>
+        </div>
+        <p id="strava-status" class="muted">${reglages.stravaDerniereSyncLe ? `Dernière synchro : ${new Date(reglages.stravaDerniereSyncLe).toLocaleString("fr-FR")}` : "Jamais synchronisé."}</p>
+        <p class="muted">La synchro rapproche automatiquement chaque activité d'une séance planifiée du même jour (marquée réalisée) et alimente le calcul de charge (ACWR/EWMA) avec la durée réelle plutôt que le RPE déclaré seul.</p>
       </div>
 
       <div class="card">
@@ -90,6 +97,29 @@ export async function render(container) {
 
   container.querySelector("#strava-save").addEventListener("click", () => {
     store.sauvegarderReglages({ stravaToken: container.querySelector("#strava-token").value });
+    container.querySelector("#strava-status").textContent = "Enregistré.";
+  });
+
+  container.querySelector("#strava-test").addEventListener("click", async () => {
+    const statusEl = container.querySelector("#strava-status");
+    statusEl.textContent = "Test en cours...";
+    try {
+      const res = await verifierAccesStrava({ token: container.querySelector("#strava-token").value });
+      statusEl.textContent = res.ok ? `Connexion OK — ${res.athlete.prenom} ${res.athlete.nom}.` : `Échec : ${res.raison}`;
+    } catch (err) {
+      statusEl.textContent = `Erreur réseau : ${err.message}`;
+    }
+  });
+
+  container.querySelector("#strava-sync").addEventListener("click", async () => {
+    const statusEl = container.querySelector("#strava-status");
+    statusEl.textContent = "Synchronisation en cours...";
+    try {
+      const { nouvelles, rapprochees, totalRecuperees } = await store.synchroniserStrava();
+      statusEl.textContent = `${nouvelles} nouvelle${nouvelles > 1 ? "s" : ""} activité${nouvelles > 1 ? "s" : ""} (sur ${totalRecuperees} récupérée${totalRecuperees > 1 ? "s" : ""}), ${rapprochees} rapprochée${rapprochees > 1 ? "s" : ""} d'une séance planifiée.`;
+    } catch (err) {
+      statusEl.textContent = `Erreur : ${err.message}`;
+    }
   });
 
   container.querySelector("#export-json").addEventListener("click", async () => {

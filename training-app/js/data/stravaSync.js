@@ -29,6 +29,19 @@ export async function listerActivites({ token, after, before, page = 1, perPage 
 }
 
 /**
+ * Vérifie que le token a bien accès (lecture) à l'API Strava — même rôle
+ * que githubSync.js#verifierAcces, pour un "Tester la connexion" cohérent
+ * dans Réglages.
+ */
+export async function verifierAcces({ token }) {
+  const res = await fetch(`${API_BASE}/athlete`, { headers: authHeaders(token) });
+  if (res.status === 401) return { ok: false, raison: "Token invalide ou expiré." };
+  if (!res.ok) return { ok: false, raison: `Erreur inattendue (${res.status}).` };
+  const athlete = await res.json();
+  return { ok: true, athlete: { prenom: athlete.firstname, nom: athlete.lastname } };
+}
+
+/**
  * Convertit une activité Strava brute en écart exploitable par la boucle
  * adaptative (Partie II §6, étape 1 : séance_réalisée vs séance_planifiée).
  * @param {object} activiteStrava

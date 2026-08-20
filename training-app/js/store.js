@@ -6,6 +6,7 @@ import * as db from "./data/db.js";
 import { genererPlanComplet } from "./engines/planGenerator.js";
 import { loadSummary } from "./engines/load.js";
 import { evaluerBoucleAdaptative, detecterRetestImplicite } from "./engines/adaptiveLoop.js";
+import { listerActivites, calculerEcart, estimerChargeJournaliere } from "./data/stravaSync.js";
 
 const listeners = new Set();
 
@@ -183,8 +184,92 @@ export async function ajouterLogQuotidien(log) {
 }
 
 export function chargeHebdoDepuisLogs() {
-  // Approximation : charge journalière = RPE déclaré du log × 30 (faute de TRIMP/Strava réel).
-  return state.logsQuotidiens.map((l) => (l.rpe ?? 0) * 30);
+  // Charge journalière : durée RÉELLE de l'activité Strava synchronisée (×
+  // le RPE déclaré ce jour-là si connu, sinon un RPE par défaut) quand elle
+  // existe — sinon repli sur l'approximation RPE déclaré × 30 (faute de mieux
+  // sans données objectives ce jour-là).
+  const parJour = new Map();
+  for (const log of state.logsQuotidiens) {
+    parJour.set(log.date, (log.rpe ?? 0) * 30);
+  }
+  for (const seance of state.seancesRealisees) {
+    const jour = seance.date.slice(0, 10);
+    const logDuJour = state.logsQuotidiens.find((l) => l.date === jour);
+    const charge = estimerChargeJournaliere({ moving_time: seance.dureeMin * 60 }, logDuJour?.rpe ?? 5);
+    parJour.set(jour, charge);
+  }
+  return Array.from(parJour.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, charge]) => charge);
+}
+
+/**
+ * Cherche, dans le plan donné, la première séance encore "à venir" datée
+ * exactement sur le jour indiqué — pour rapprocher une activité Strava
+ * synchronisée de la séance planifiée correspondante.
+ */
+function trouverSeancePlanifieePourJour(plan, jourISO) {
+  for (const semaine of plan.semaines) {
+    const index = semaine.seances.findIndex((s) => s.date && s.date.slice(0, 10) === jourISO && s.statut === "a_venir");
+    if (index !== -1) return { semaine, index, seance: semaine.seances[index] };
+  }
+  return null;
+}
+
+/**
+ * Synchronise les activités Strava récentes (Partie III §5, Étape ⑤ Partie
+ * II §6) : ingère les nouvelles activités, les rapproche d'une séance
+ * planifiée du même jour quand il y en a une (marquée "réalisée"
+ * automatiquement — c'est un fait, pas une proposition de la boucle
+ * adaptative), et alimente le moteur de charge via chargeHebdoDepuisLogs.
+ * @param {number} joursHistorique fenêtre de récupération (jours)
+ */
+export async function synchroniserStrava(joursHistorique = 14) {
+  const token = state.reglages.stravaToken;
+  if (!token) throw new Error("Token Strava manquant — configure-le dans Réglages.");
+
+  const after = Math.floor((Date.now() - joursHistorique * 24 * 60 * 60 * 1000) / 1000);
+  const activites = await listerActivites({ token, after, perPage: 50 });
+  const plan = planActif();
+
+  let nouvelles = 0;
+  let rapprochees = 0;
+
+  for (const activite of activites) {
+    if (state.seancesRealisees.some((s) => s.stravaId === activite.id)) continue;
+
+    const jour = new Date(activite.start_date ?? activite.start_date_local).toISOString().slice(0, 10);
+    const correspondance = plan ? trouverSeancePlanifieePourJour(plan, jour) : null;
+    const ecart = calculerEcart(activite, correspondance?.seance ?? null);
+
+    const record = {
+      id: db.newId("realisee"),
+      stravaId: activite.id,
+      nom: activite.name ?? "Activité Strava",
+      date: activite.start_date ?? new Date(activite.start_date_local).toISOString(),
+      distanceKm: ecart.distanceKm,
+      dureeMin: ecart.dureeMin,
+      deniveleM: ecart.deniveleM,
+      allureMoyenneMinParKm: ecart.allureMoyenneMinParKm,
+      ecart: ecart.ecart,
+      planId: plan?.id ?? null,
+      semaineNumero: correspondance?.semaine.numero ?? null,
+      seanceIndex: correspondance?.index ?? null,
+    };
+    await db.put("seancesRealisees", record);
+    state.seancesRealisees.push(record);
+    nouvelles++;
+
+    if (plan && correspondance) {
+      await marquerSeanceStatut(plan.id, correspondance.semaine.numero, correspondance.index, "realisee");
+      rapprochees++;
+    }
+  }
+
+  state.reglages.stravaDerniereSyncLe = new Date().toISOString();
+  localStorage.setItem("voyafe-settings", JSON.stringify(state.reglages));
+  notify();
+  return { nouvelles, rapprochees, totalRecuperees: activites.length };
 }
 
 export function resumeCharge() {
