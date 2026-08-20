@@ -121,17 +121,35 @@ test("genererPlanComplet — l'allure objectif apparaît comme bloc dédié, l'a
   assert.ok(Math.abs(distanceRecalculee - seanceM_avec.distanceKm) < 0.01);
 });
 
-test("composerSemaine — route_footing_recup remplace l'endurance générique le lendemain d'une séance qualité", () => {
-  const semaineDev = composerSemaine("developpement", "route", 5, 2); // paire -> T + I
-  assert.ok(semaineDev.some((s) => s.catalogueId === "route_footing_recup"), "footing récup attendu après T et après I");
-  const idsSuiteT = semaineDev.map((s) => s.catalogueId);
-  const idxT = idsSuiteT.indexOf("route_seuil");
-  assert.equal(idsSuiteT[idxT + 1], "route_footing_recup");
+test("composerSemaine — le fractionné (T+I ou T+R) prime toujours sur le footing récupération quand la place manque", () => {
+  const semaineDev4 = composerSemaine("developpement", "route", 4, 2); // paire -> T + I, 4 séances dispo
+  const ids4 = semaineDev4.map((s) => s.catalogueId);
+  assert.ok(ids4.includes("route_seuil"), "T attendu même à 4 séances/semaine");
+  assert.ok(ids4.includes("route_interval"), "fractionné attendu même à 4 séances/semaine (pas de seuil arbitraire)");
+
+  const semaineDev5 = composerSemaine("developpement", "route", 5, 2);
+  const ids5 = semaineDev5.map((s) => s.catalogueId);
+  assert.ok(ids5.includes("route_footing_recup"), "avec assez de place, le footing récup complète la semaine");
 });
 
 test("composerSemaine — route_footing_recup absent quand il n'y a pas de séance qualité (Base, semaine impaire)", () => {
   const semaine = composerSemaine("base", "route", 5, 1);
   assert.ok(!semaine.some((s) => s.catalogueId === "route_footing_recup"));
+});
+
+test("composerSemaine — le fractionné survit même à 3 séances/semaine disponibles (régression)", () => {
+  const semainePaire = composerSemaine("developpement", "route", 3, 2);
+  const semaineImpaire = composerSemaine("developpement", "route", 3, 3);
+  const idsPaire = semainePaire.map((s) => s.catalogueId);
+  const idsImpaire = semaineImpaire.map((s) => s.catalogueId);
+  assert.ok(idsPaire.includes("route_interval"), `attendu route_interval, obtenu ${idsPaire}`);
+  assert.ok(idsImpaire.includes("route_repetition"), `attendu route_repetition, obtenu ${idsImpaire}`);
+});
+
+test("composerSemaine — trail_cotes_courtes survit même à 3 séances/semaine disponibles", () => {
+  const semaine = composerSemaine("developpement", "trail", 3, 1);
+  const ids = semaine.map((s) => s.catalogueId);
+  assert.ok(ids.includes("trail_cotes_courtes"), `attendu trail_cotes_courtes, obtenu ${ids}`);
 });
 
 test("composerSemaine — trail_descente_technique passe à 1×/semaine en Développement (§7.4)", () => {

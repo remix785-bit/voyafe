@@ -160,22 +160,22 @@ export function composerSemaine(phase, discipline, nbSeancesDispo, semaineNumero
       // "1 séance T tous les 15 jours, pas d'I/R" (Partie II §4.1)
       if (semainePaire) seancesQualite.push({ catalogueId: "route_seuil", jour: "mardi" });
     } else {
-      // Développement : "1 T/semaine + 1 I ou R en alternance" (Partie II §4.1)
+      // Développement : "1 T/semaine + 1 I ou R en alternance" (Partie II §4.1) —
+      // les deux sont dues chaque semaine de Développement, quel que soit le
+      // nombre de séances disponibles : le dossier ne conditionne cette règle
+      // à aucun seuil de disponibilité, donc on ne doit pas en inventer un.
       seancesQualite.push({ catalogueId: "route_seuil", jour: "mardi" });
-      if (nbSeancesDispo >= 4) {
-        seancesQualite.push({ catalogueId: semainePaire ? "route_interval" : "route_repetition", jour: "jeudi" });
-      }
+      seancesQualite.push({ catalogueId: semainePaire ? "route_interval" : "route_repetition", jour: "jeudi" });
     }
 
-    // Footing récupération le lendemain de chaque séance qualité (§6.1),
-    // plutôt que de la générique endurance fondamentale.
-    for (const q of seancesQualite) {
-      slots.push(q);
-      if (slots.length < nbSeancesDispo) {
-        slots.push({ catalogueId: "route_footing_recup", jour: "lendemain" });
-      }
+    // Les séances qualité priment sur le footing récupération (lendemain de
+    // séance qualité, §6.1) qui prime lui-même sur l'endurance fondamentale
+    // générique — en cas de disponibilité restreinte, le fractionné (I/R) ne
+    // doit jamais être le premier sacrifié.
+    for (const q of seancesQualite) slots.push(q);
+    for (let i = 0; i < seancesQualite.length && slots.length < nbSeancesDispo; i++) {
+      slots.push({ catalogueId: "route_footing_recup", jour: "lendemain" });
     }
-
     while (slots.length < nbSeancesDispo) {
       slots.push({ catalogueId: "route_endurance_fondamentale", jour: "libre" });
     }
@@ -185,11 +185,10 @@ export function composerSemaine(phase, discipline, nbSeancesDispo, semaineNumero
       jour: "dimanche",
     });
     if (!isTaper && !isBase) {
-      // "Côtes longues 1×/sem, côtes courtes 1×/sem (alterné)" (Partie II §4.1)
+      // "Côtes longues 1×/sem, côtes courtes 1×/sem (alterné)" (Partie II §4.1) —
+      // dues chaque semaine de Développement, sans seuil de disponibilité.
       slots.push({ catalogueId: "trail_cotes_longues", jour: "mardi" });
-      if (nbSeancesDispo >= 4) {
-        slots.push({ catalogueId: "trail_cotes_courtes", jour: "jeudi" });
-      }
+      slots.push({ catalogueId: "trail_cotes_courtes", jour: "jeudi" });
     }
     // "1×/2 semaines en phase Base, jusqu'à 1×/semaine en Développement" (§7.4)
     if ((isBase && semainePaire) || (!isBase && !isTaper)) {

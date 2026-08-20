@@ -24,6 +24,7 @@ export async function render(container, params) {
         </div>
         <p class="muted">${escapeAttr(seance.discipline)} · ${seance.distanceKm ? `<span class="data">${seance.distanceKm.toFixed(1)} km</span> · ` : ""}${Math.round(seance.volumeSeanceMin)} min · allure cible <span class="data">${seance.allureCibleMinParKm ? formatPace(seance.allureCibleMinParKm) : "—"}</span></p>
         ${seance.allureBlocObjectifMinParKm ? `<p>Dont un bloc à l'<strong>allure objectif</strong> (course visée) : <span class="data">${formatPace(seance.allureBlocObjectifMinParKm)}</span> — le reste de la sortie se court à l'allure cible ci-dessus.</p>` : ""}
+        ${seance.avertissementPlafond ? `<p class="badge-warning">${escapeAttr(seance.avertissementPlafond)}</p>` : ""}
         ${seance.precautions?.length ? seance.precautions.map((p) => `<p class="badge-warning">${escapeAttr(p)}</p>`).join("") : ""}
       </div>
 
