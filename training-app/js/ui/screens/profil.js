@@ -31,7 +31,8 @@ export async function render(container) {
               <input type="number" id="dispo" value="${profil?.disponibiliteHebdo ?? 5}" min="2" max="7" />
             </div>
           </div>
-          <button class="btn btn--primary" type="submit">Enregistrer et recalculer le VDOT</button>
+          <p id="correction-notice" class="muted" style="display:none; margin-top:-8px;">Correction du test du <strong id="correction-date"></strong> — <button type="button" id="annuler-correction" class="btn btn--sm" style="padding:2px 8px;">Annuler</button></p>
+          <button class="btn btn--primary" type="submit" id="submit-profil">Enregistrer et recalculer le VDOT</button>
         </form>
       </div>
 
@@ -39,6 +40,7 @@ export async function render(container) {
 
       <div class="card">
         <h2>Historique VDOT</h2>
+        <p class="muted">Un test par erreur ? Corrige-le (✎) ou supprime-le (✕) — il en faut toujours au moins un.</p>
         <div id="vdot-history"></div>
       </div>
 
@@ -106,8 +108,81 @@ export async function render(container) {
       </div>
     </div>`;
 
+  let indexEnCorrection = null;
+
+  function entrerModeCorrection(index, entree) {
+    indexEnCorrection = index;
+    container.querySelector("#distance").value = entree.distanceM;
+    container.querySelector("#temps").value = secondesVersLabel(entree.tempsS);
+    container.querySelector("#submit-profil").textContent = "Enregistrer la correction";
+    container.querySelector("#correction-date").textContent = new Date(entree.date).toLocaleDateString("fr-FR");
+    container.querySelector("#correction-notice").style.display = "block";
+    container.querySelector("#form-profil").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function sortirModeCorrection() {
+    indexEnCorrection = null;
+    container.querySelector("#submit-profil").textContent = "Enregistrer et recalculer le VDOT";
+    container.querySelector("#correction-notice").style.display = "none";
+    const { profil: actuel } = store.getState();
+    if (actuel) {
+      container.querySelector("#distance").value = actuel.performanceRef.distanceM;
+      container.querySelector("#temps").value = secondesVersLabel(actuel.performanceRef.tempsS);
+    }
+  }
+
+  function renderHistory(container, profil) {
+    const el = container.querySelector("#vdot-history");
+    const hist = profil?.historiqueVdot ?? [];
+    if (!hist.length) {
+      el.innerHTML = `<p class="muted">Pas encore d'historique — chaque test renseigné en enregistre un point.</p>`;
+      return;
+    }
+    el.innerHTML = `<div class="stack">${hist
+      .map((h, i) => {
+        const aDesBrutes = h.distanceM != null && h.tempsS != null;
+        return `
+        <div class="row" style="justify-content:space-between; gap:8px;">
+          <div>
+            <span class="muted">${new Date(h.date).toLocaleDateString("fr-FR")}</span>
+            <span class="data" style="margin-left:8px;">${h.vdot.toFixed(1)}</span>
+            ${aDesBrutes ? `<span class="muted" style="margin-left:8px;">(${(h.distanceM / 1000).toFixed(1)} km en ${secondesVersLabel(h.tempsS)})</span>` : ""}
+          </div>
+          <div class="row" style="gap:4px;">
+            ${aDesBrutes ? `<button type="button" class="btn btn--sm" data-edit-vdot="${i}" style="padding:2px 8px;" title="Corriger ce test">✎</button>` : ""}
+            ${hist.length > 1 ? `<button type="button" class="btn btn--sm" data-delete-vdot="${i}" style="padding:2px 8px;" title="Supprimer ce test">✕</button>` : ""}
+          </div>
+        </div>`;
+      })
+      .join("")}</div>`;
+
+    el.querySelectorAll("[data-edit-vdot]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.editVdot);
+        entrerModeCorrection(idx, hist[idx]);
+      });
+    });
+    el.querySelectorAll("[data-delete-vdot]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const idx = Number(btn.dataset.deleteVdot);
+        const entree = hist[idx];
+        if (!confirm(`Supprimer le test du ${new Date(entree.date).toLocaleDateString("fr-FR")} (VDOT ${entree.vdot.toFixed(1)}) ?`)) return;
+        try {
+          const updated = await store.supprimerTestVdot(idx);
+          if (indexEnCorrection === idx) sortirModeCorrection();
+          renderZones(container, updated);
+          renderHistory(container, updated);
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    });
+  }
+
   renderZones(container, profil);
   renderHistory(container, profil);
+
+  container.querySelector("#annuler-correction").addEventListener("click", sortirModeCorrection);
 
   container.querySelector("#form-profil").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -115,7 +190,15 @@ export async function render(container) {
     const tempsS = labelVersSecondes(container.querySelector("#temps").value);
     const poids = Number(container.querySelector("#poids").value);
     const dispo = Number(container.querySelector("#dispo").value);
-    const updated = await store.enregistrerProfil({ distanceM, tempsS, dateTest: new Date().toISOString() }, poids, dispo);
+
+    let updated;
+    if (indexEnCorrection != null) {
+      updated = await store.modifierTestVdot(indexEnCorrection, { distanceM, tempsS });
+      updated = await store.enregistrerProfil(updated.performanceRef, poids, dispo);
+      sortirModeCorrection();
+    } else {
+      updated = await store.enregistrerProfil({ distanceM, tempsS, dateTest: new Date().toISOString() }, poids, dispo);
+    }
     renderZones(container, updated);
     renderHistory(container, updated);
   });
@@ -220,18 +303,6 @@ function renderZones(container, profil) {
       </tbody>
     </table>
     <p class="muted" style="margin-top:8px;">Retest recommandé toutes les 4-6 semaines.</p>`;
-}
-
-function renderHistory(container, profil) {
-  const el = container.querySelector("#vdot-history");
-  const hist = profil?.historiqueVdot ?? [];
-  if (!hist.length) {
-    el.innerHTML = `<p class="muted">Pas encore d'historique — chaque génération de plan enregistre un point.</p>`;
-    return;
-  }
-  el.innerHTML = `<div class="stack">${hist
-    .map((h) => `<div class="row"><span class="muted">${new Date(h.date).toLocaleDateString("fr-FR")}</span><span class="data">${h.vdot.toFixed(1)}</span></div>`)
-    .join("")}</div>`;
 }
 
 function secondesVersLabel(s) {

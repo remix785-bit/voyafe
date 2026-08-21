@@ -199,10 +199,79 @@ export async function enregistrerProfil(performanceRef, weightKg, disponibiliteH
   const historiqueVdot = [...(ancien?.historiqueVdot ?? [])];
   if (performanceChangee) {
     const { vdot } = vdotFromPerformance(performanceRef.distanceM, performanceRef.tempsS);
-    historiqueVdot.push({ date: performanceRef.dateTest ?? new Date().toISOString(), vdot });
+    historiqueVdot.push({
+      date: performanceRef.dateTest ?? new Date().toISOString(),
+      vdot,
+      distanceM: performanceRef.distanceM,
+      tempsS: performanceRef.tempsS,
+    });
   }
 
   const profil = { id, performanceRef, weightKg, disponibiliteHebdo, historiqueVdot };
+  await db.put("profil", profil);
+  state.profil = profil;
+  notify();
+  return profil;
+}
+
+/**
+ * Supprime une entrée de l'historique VDOT (ex : test saisi par erreur).
+ * Garde toujours au moins un test — un profil sans performance de référence
+ * n'a pas de sens (zones/allures en dépendent). Si l'entrée supprimée était
+ * la plus récente (celle qui alimente le profil actif), la performance de
+ * référence retombe sur la nouvelle plus récente restante, quand elle porte
+ * encore sa distance/temps bruts (entrées créées avant cette fonctionnalité
+ * n'ont que le VDOT dérivé — dans ce cas la référence active est laissée
+ * telle quelle plutôt que d'être écrasée par une valeur incomplète).
+ * @param {number} index position dans profil.historiqueVdot
+ */
+export async function supprimerTestVdot(index) {
+  if (!state.profil) return state.profil;
+  const historique = state.profil.historiqueVdot ?? [];
+  if (historique.length <= 1) {
+    throw new Error("Impossible de supprimer le seul test enregistré — il en faut toujours au moins un.");
+  }
+  if (index < 0 || index >= historique.length) return state.profil;
+
+  const nouvelHistorique = historique.filter((_, i) => i !== index);
+  const profil = { ...state.profil, historiqueVdot: nouvelHistorique };
+
+  const supprimeLeDernier = index === historique.length - 1;
+  if (supprimeLeDernier) {
+    const nouveauDernier = nouvelHistorique[nouvelHistorique.length - 1];
+    if (nouveauDernier?.distanceM && nouveauDernier?.tempsS) {
+      profil.performanceRef = { distanceM: nouveauDernier.distanceM, tempsS: nouveauDernier.tempsS, dateTest: nouveauDernier.date };
+    }
+  }
+
+  await db.put("profil", profil);
+  state.profil = profil;
+  notify();
+  return profil;
+}
+
+/**
+ * Corrige une entrée existante de l'historique VDOT (ex : faute de frappe
+ * sur la distance/le temps saisis) — recalcule son VDOT, garde sa date
+ * d'origine. Si c'est l'entrée la plus récente, met aussi à jour la
+ * performance de référence active du profil.
+ * @param {number} index
+ * @param {{distanceM:number, tempsS:number}} performance corrigée
+ */
+export async function modifierTestVdot(index, { distanceM, tempsS }) {
+  if (!state.profil) return state.profil;
+  const historique = [...(state.profil.historiqueVdot ?? [])];
+  if (index < 0 || index >= historique.length) return state.profil;
+
+  const { vdot } = vdotFromPerformance(distanceM, tempsS);
+  const dateOrigine = historique[index].date;
+  historique[index] = { date: dateOrigine, vdot, distanceM, tempsS };
+
+  const profil = { ...state.profil, historiqueVdot: historique };
+  if (index === historique.length - 1) {
+    profil.performanceRef = { distanceM, tempsS, dateTest: dateOrigine };
+  }
+
   await db.put("profil", profil);
   state.profil = profil;
   notify();
