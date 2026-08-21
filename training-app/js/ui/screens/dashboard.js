@@ -12,7 +12,7 @@ import {
   attachChartInteractions,
 } from "../components.js";
 import { formatPace, ZONES } from "../../engines/vdot.js";
-import { statsPerformance, barresDistanceHebdo, barresDistanceMensuelle, variationPct } from "../../engines/performance.js";
+import { statsPerformance, barresDistanceHebdo, barresDistanceMensuelle, barresDPlusMensuel, variationPct } from "../../engines/performance.js";
 import { ewmaAcwr } from "../../engines/load.js";
 
 function joursRestants(dateEcheance) {
@@ -97,6 +97,7 @@ export async function render(container) {
   const perf = statsPerformance(seancesRealisees);
   const barresHebdo = barresDistanceHebdo(seancesRealisees);
   const barresMensuel = barresDistanceMensuelle(seancesRealisees);
+  const barresDPlus = barresDPlusMensuel(seancesRealisees);
   const semainesRetest = semainesDepuisDernierTest(profil?.historiqueVdot);
   // Le VDOT du plan est figé au moment de sa création/mise à jour ; l'historique
   // (alimenté à chaque retest, même sans toucher au plan) porte la valeur réelle
@@ -146,7 +147,7 @@ export async function render(container) {
 
       <div class="card">
         <div class="card__header"><h2>Performance réelle</h2><a class="btn btn--sm" href="#/historique">Historique complet</a></div>
-        ${renderPerformanceReelle(perf, barresHebdo, barresMensuel)}
+        ${renderPerformanceReelle(perf, barresHebdo, barresMensuel, barresDPlus)}
       </div>
 
       <div class="card">
@@ -270,7 +271,7 @@ function renderCourbeCharge() {
   })}</div>`;
 }
 
-function renderPerformanceReelle(perf, barresHebdo, barresMensuel) {
+function renderPerformanceReelle(perf, barresHebdo, barresMensuel, barresDPlus) {
   if (!perf.semaine.nbSeances && !perf.mois.nbSeances) {
     return `<p class="muted">Aucune activité réelle enregistrée — connecte Strava (<a href="#/reglages">Réglages</a>) pour voir tes stats réelles ici, ou synchronise si c'est déjà fait.</p>`;
   }
@@ -295,6 +296,11 @@ function renderPerformanceReelle(perf, barresHebdo, barresMensuel) {
     ${
       barresMensuel.some((b) => b.value > 0)
         ? `<div style="margin-top:16px;"><span class="muted">Distance réelle par mois</span>${BarChart(barresMensuel, { unite: " km", colorVar: "--color-functional-strong" })}</div>`
+        : ""
+    }
+    ${
+      barresDPlus.some((b) => b.value > 0)
+        ? `<div style="margin-top:16px;"><span class="muted">D+ cumulé par mois</span>${BarChart(barresDPlus, { unite: " m", formatValue: (v) => Math.round(v).toString(), colorVar: "--color-structural-strong" })}</div>`
         : ""
     }`;
 }
