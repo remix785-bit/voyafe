@@ -60,14 +60,24 @@ async function boot() {
     });
 
     navigator.serviceWorker
-      .register("./sw.js")
+      // updateViaCache: "none" force le navigateur à toujours vérifier sw.js
+      // sur le réseau (jamais depuis le cache HTTP) à chaque enregistrement —
+      // sans ça, GitHub Pages sert sw.js avec ses propres en-têtes de cache
+      // (non configurables sur Pages) et un navigateur, en particulier sur
+      // mobile, peut continuer à considérer une ancienne version comme "à
+      // jour" alors qu'elle a changé côté serveur.
+      .register("./sw.js", { updateViaCache: "none" })
       .then((registration) => {
         // Vérifie activement une mise à jour à chaque retour sur l'onglet,
         // plutôt que de dépendre uniquement des vérifications automatiques
         // du navigateur (peu fréquentes sur une SPA jamais rechargée).
+        // "focus" en plus de "visibilitychange" : sur certains navigateurs
+        // mobiles (PWA relancée depuis l'écran d'accueil), l'un des deux
+        // événements peut ne pas se déclencher de façon fiable.
         document.addEventListener("visibilitychange", () => {
           if (document.visibilityState === "visible") registration.update();
         });
+        window.addEventListener("focus", () => registration.update());
         registration.update();
       })
       .catch((err) => console.warn("SW registration failed", err));
