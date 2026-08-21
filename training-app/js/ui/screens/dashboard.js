@@ -99,6 +99,12 @@ export async function render(container) {
   const barresHebdo = barresDistanceHebdo(seancesRealisees);
   const barresMensuel = barresDistanceMensuelle(seancesRealisees);
   const semainesRetest = semainesDepuisDernierTest(profil?.historiqueVdot);
+  // Le VDOT du plan est figé au moment de sa création/mise à jour ; l'historique
+  // (alimenté à chaque retest, même sans toucher au plan) porte la valeur réelle
+  // la plus récente — c'est elle qu'on affiche en tête, pas celle du plan.
+  const vdotActuel = profil?.historiqueVdot?.length
+    ? profil.historiqueVdot[profil.historiqueVdot.length - 1].vdot
+    : plan.profilCourant.vdot;
   const macros = profil?.weightKg ? dailyMacros(profil.weightKg, plan.chargeHebdoMoyenneActuelle ?? "moderee") : null;
 
   const autresPlans = plans.filter((p) => p.id !== plan.id);
@@ -155,14 +161,19 @@ export async function render(container) {
       </div>
 
       <div class="card">
-        <div class="card__header"><h2>VDOT actuel</h2><span class="data" style="font-size:1.3rem;">${plan.profilCourant.vdot.toFixed(1)}</span></div>
+        <div class="card__header"><h2>VDOT actuel</h2><span class="data" style="font-size:1.3rem;">${vdotActuel.toFixed(1)}</span></div>
+        ${
+          Math.abs(vdotActuel - plan.profilCourant.vdot) >= 0.1
+            ? `<p class="muted">Le plan utilise encore ${plan.profilCourant.vdot.toFixed(1)} (dernier retest non encore appliqué) — <a href="#/profil">mets à jour le plan</a> pour recalculer les allures.</p>`
+            : ""
+        }
         ${
           profil?.historiqueVdot?.length > 1
             ? LineChart(
                 profil.historiqueVdot.map((h) => ({ label: new Date(h.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }), value: h.vdot })),
                 { formatValue: (v) => v.toFixed(1) }
               )
-            : `<p class="muted">Pas encore d'historique — un deuxième point apparaîtra après ton prochain retest ou une mise à jour de plan.</p>`
+            : `<p class="muted">Pas encore d'historique — un deuxième point apparaîtra après ton prochain retest.</p>`
         }
         <p class="muted" style="margin-top:8px;">${
           semainesRetest == null

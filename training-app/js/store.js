@@ -4,6 +4,7 @@
 
 import * as db from "./data/db.js";
 import { genererPlanComplet } from "./engines/planGenerator.js";
+import { vdotFromPerformance } from "./engines/vdot.js";
 import { loadSummary } from "./engines/load.js";
 import { evaluerBoucleAdaptative, detecterRetestImplicite } from "./engines/adaptiveLoop.js";
 import {
@@ -177,15 +178,31 @@ export function planActif() {
   return state.plans.find((p) => p.statut === "actif") ?? null;
 }
 
+/**
+ * Enregistre le profil (performance de référence, poids, disponibilité).
+ * Journalise un nouveau point d'historique VDOT quand la performance de
+ * référence (distance/temps) a réellement changé par rapport à l'enregistrement
+ * précédent — c'est-à-dire un retest — pas à chaque sauvegarde (modifier
+ * seulement le poids ou la disponibilité ne doit pas polluer l'historique
+ * VDOT de doublons). C'est l'unique point d'écriture de historiqueVdot :
+ * creerPlan/modifierPlan lisent ensuite ce même profil sans re-journaliser,
+ * pour ne jamais dupliquer l'entrée d'un même test.
+ */
 export async function enregistrerProfil(performanceRef, weightKg, disponibiliteHebdo) {
   const id = state.profil?.id ?? db.newId("profil");
-  const profil = {
-    id,
-    performanceRef,
-    weightKg,
-    disponibiliteHebdo,
-    historiqueVdot: [...(state.profil?.historiqueVdot ?? [])],
-  };
+  const ancien = state.profil;
+  const performanceChangee =
+    !ancien ||
+    ancien.performanceRef.distanceM !== performanceRef.distanceM ||
+    ancien.performanceRef.tempsS !== performanceRef.tempsS;
+
+  const historiqueVdot = [...(ancien?.historiqueVdot ?? [])];
+  if (performanceChangee) {
+    const { vdot } = vdotFromPerformance(performanceRef.distanceM, performanceRef.tempsS);
+    historiqueVdot.push({ date: performanceRef.dateTest ?? new Date().toISOString(), vdot });
+  }
+
+  const profil = { id, performanceRef, weightKg, disponibiliteHebdo, historiqueVdot };
   await db.put("profil", profil);
   state.profil = profil;
   notify();
@@ -207,14 +224,6 @@ export async function creerPlan(inputs) {
 
   await db.put("plans", plan);
   state.plans.push(plan);
-
-  if (state.profil) {
-    state.profil.historiqueVdot = [
-      ...(state.profil.historiqueVdot ?? []),
-      { date: new Date().toISOString(), vdot: plan.profilCourant.vdot },
-    ];
-    await db.put("profil", state.profil);
-  }
 
   notify();
   return plan;
@@ -259,14 +268,6 @@ export async function modifierPlan(planId, inputs) {
   await db.put("plans", nouveau);
   const idx = state.plans.findIndex((p) => p.id === planId);
   state.plans[idx] = nouveau;
-
-  if (state.profil) {
-    state.profil.historiqueVdot = [
-      ...(state.profil.historiqueVdot ?? []),
-      { date: new Date().toISOString(), vdot: nouveau.profilCourant.vdot },
-    ];
-    await db.put("profil", state.profil);
-  }
 
   notify();
   return nouveau;
