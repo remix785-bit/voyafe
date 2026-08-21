@@ -51,9 +51,15 @@ export function realPaceToFlatEquivalent(paceMinPerKm, slope) {
  * à viser sur un segment en pente donnée (pour générer une séance trail).
  * @param {number} flatPaceMinPerKm allure cible zone E/M/T/I/R (allure plat)
  * @param {number} slope pente du segment (fraction décimale)
+ * @param {number} facteurCalibre calibration personnelle (1 = modèle Minetti
+ *   standard, non calibré) — met à l'échelle l'ÉCART au plat plutôt que le
+ *   facteur entier, pour que 1.0 reste toujours "aucun changement" quelle que
+ *   soit la pente : >1 amplifie la sensibilité aux pentes (ce coureur souffre
+ *   plus que le modèle théorique en montée/descente), <1 l'atténue.
  */
-export function flatEquivalentToRealPace(flatPaceMinPerKm, slope) {
-  const factor = gapFactor(slope);
+export function flatEquivalentToRealPace(flatPaceMinPerKm, slope, facteurCalibre = 1) {
+  const factorBrut = gapFactor(slope);
+  const factor = 1 + (factorBrut - 1) * facteurCalibre;
   const adjusted = flatPaceMinPerKm * factor;
   const warning =
     slope < ECCENTRIC_LIMIT_SLOPE

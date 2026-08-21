@@ -1,6 +1,7 @@
 import * as store from "../../store.js";
 import { ewmaAcwr, acwr } from "../../engines/load.js";
-import { Sparkline, ZoneRepartition } from "../components.js";
+import { barresDPlusMensuel } from "../../engines/performance.js";
+import { Sparkline, ZoneRepartition, BarChart, attachChartInteractions } from "../components.js";
 import { formatPace } from "../../engines/vdot.js";
 
 export async function render(container) {
@@ -36,8 +37,13 @@ export async function render(container) {
         ${renderActivitesRecentes(seancesRealisees)}
       </div>
 
-      ${plan?.discipline === "trail" ? `<div class="card"><h2>D+ cumulé mensuel</h2>${renderDPlusMensuel(plan)}</div>` : ""}
+      <div class="card">
+        <h2>D+ cumulé mensuel</h2>
+        ${renderDPlusMensuel(seancesRealisees)}
+      </div>
     </div>`;
+
+  attachChartInteractions(container);
 }
 
 function renderLoadHistory(loads) {
@@ -69,8 +75,12 @@ function renderActivitesRecentes(seancesRealisees) {
     .join("")}</div>`;
 }
 
-function renderDPlusMensuel(plan) {
-  return `<p class="muted">D+ planifié agrégé par mois — nécessite le rattachement d'un profil de parcours par séance (v3).</p>`;
+function renderDPlusMensuel(seancesRealisees) {
+  const barres = barresDPlusMensuel(seancesRealisees);
+  if (!barres.some((b) => b.value > 0)) {
+    return `<p class="muted">Aucun dénivelé enregistré pour l'instant — connecte et synchronise Strava (<a href="#/reglages">Réglages</a>) pour le voir apparaître ici.</p>`;
+  }
+  return BarChart(barres, { unite: " m", formatValue: (v) => Math.round(v).toString(), colorVar: "--color-structural-strong" });
 }
 
 function semaineActuelle(plan) {

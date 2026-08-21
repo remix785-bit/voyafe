@@ -362,11 +362,12 @@ export function instancierSeance(
 
   if (template.discipline === "trail" && template.gapAjuste && allureCible != null) {
     const pente = contexteDenivele.penteMoyenne ?? 0;
-    const ajusteCible = flatEquivalentToRealPace(allureCible, pente);
+    const facteurCalibre = profilCourant.facteurGapCalibre ?? 1;
+    const ajusteCible = flatEquivalentToRealPace(allureCible, pente, facteurCalibre);
     allureCible = ajusteCible.paceMinPerKm;
     gapWarning = ajusteCible.warning;
     if (allureRapide != null) {
-      allureRapide = flatEquivalentToRealPace(allureRapide, pente).paceMinPerKm;
+      allureRapide = flatEquivalentToRealPace(allureRapide, pente, facteurCalibre).paceMinPerKm;
     }
   }
 

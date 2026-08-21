@@ -104,6 +104,30 @@ test("GAP — avertissement au-delà de -15%", () => {
   assert.ok(warning);
 });
 
+test("GAP — facteur de calibration 1.0 (défaut) reproduit exactement le modèle Minetti standard", () => {
+  const flatPace = 5.0;
+  const sansFacteur = flatEquivalentToRealPace(flatPace, 0.1);
+  const facteurUn = flatEquivalentToRealPace(flatPace, 0.1, 1);
+  assert.equal(sansFacteur.paceMinPerKm, facteurUn.paceMinPerKm);
+});
+
+test("GAP — facteur de calibration >1 amplifie l'écart au plat (coureur plus sensible aux pentes que le modèle)", () => {
+  const flatPace = 5.0;
+  const standard = flatEquivalentToRealPace(flatPace, 0.1, 1).paceMinPerKm;
+  const amplifie = flatEquivalentToRealPace(flatPace, 0.1, 1.5).paceMinPerKm;
+  assert.ok(amplifie > standard, "1.5x en montée doit ralentir davantage que le modèle non calibré");
+});
+
+test("GAP — facteur de calibration <1 atténue l'écart au plat, et à pente nulle le facteur n'a aucun effet", () => {
+  const flatPace = 5.0;
+  const standard = flatEquivalentToRealPace(flatPace, 0.1, 1).paceMinPerKm;
+  const attenue = flatEquivalentToRealPace(flatPace, 0.1, 0.5).paceMinPerKm;
+  assert.ok(attenue < standard, "0.5x en montée doit ralentir moins que le modèle non calibré");
+  assert.ok(attenue > flatPace, "reste tout de même plus lent qu'à plat");
+  // pente nulle -> gapFactor(0) = 1 -> l'écart (facteur-1) est nul quel que soit facteurCalibre
+  assert.equal(flatEquivalentToRealPace(flatPace, 0, 1.8).paceMinPerKm, flatPace);
+});
+
 test("ACWR — zone verte entre 0.8 et 1.3", () => {
   const loads = Array(28).fill(50);
   assert.equal(acwrZone(acwr(loads)), "verte");

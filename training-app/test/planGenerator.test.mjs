@@ -220,6 +220,30 @@ test("instancierSeance — sans objectif fourni, retombe sur l'allure M dérivé
   assert.equal(s.allureCibleMinParKm, plan.profilCourant.allures.M.target);
 });
 
+test("genererPlanComplet — facteurGapCalibre passé en input se retrouve sur profilCourant et amplifie l'ajustement GAP trail", () => {
+  const dateDebut = new Date();
+  const inputsCommuns = {
+    discipline: "trail",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000).toISOString(),
+    nbSeancesHebdo: 5,
+  };
+  const planStandard = genererPlanComplet(inputsCommuns);
+  const planCalibre = genererPlanComplet({ ...inputsCommuns, facteurGapCalibre: 1.5 });
+  assert.equal(planStandard.profilCourant.facteurGapCalibre, null);
+  assert.equal(planCalibre.profilCourant.facteurGapCalibre, 1.5);
+
+  const tplCotes = { zoneDaniels: "I", discipline: "trail", gapAjuste: true, corpsDeSeance: {} };
+  const montee = { penteMoyenne: 0.1 };
+  const seanceStandard = instancierSeance(tplCotes, planStandard.profilCourant, planStandard.semaines[0], montee, null);
+  const seanceCalibree = instancierSeance(tplCotes, planCalibre.profilCourant, planCalibre.semaines[0], montee, null);
+  assert.ok(
+    seanceCalibree.allureCibleMinParKm > seanceStandard.allureCibleMinParKm,
+    "avec un facteur >1, la séance en montée doit être ajustée à une allure plus lente que le modèle standard"
+  );
+});
+
 test("instancierSeance — porte aussi la borne rapide de la fourchette (route, pas de GAP)", () => {
   const dateDebut = new Date();
   const plan = genererPlanComplet({

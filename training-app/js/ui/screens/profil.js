@@ -56,6 +56,11 @@ export async function render(container) {
             </select>
           </div>
           <div class="field">
+            <label for="gap-calibre">Calibration GAP (trail, optionnel)</label>
+            <input type="number" id="gap-calibre" step="0.05" min="0.5" max="2" value="${planExistant?.profilCourant?.facteurGapCalibre ?? 1}" />
+          </div>
+          <p class="muted" style="margin-top:-8px;">Ajuste le modèle théorique (Minetti) à ta sensibilité réelle aux pentes. 1.0 = modèle standard ; augmente si tu ralentis plus que prévu en montée/descente technique, diminue si tu t'en sors mieux que prévu. Sans effet en route.</p>
+          <div class="field">
             <label for="objectif">Objectif (libellé)</label>
             <input type="text" id="objectif" value="${escapeAttr(planExistant?.objectif ?? "")}" placeholder="ex: Marathon de Paris sub-3h30" />
           </div>
@@ -250,6 +255,7 @@ export async function render(container) {
     const echeance = container.querySelector("#echeance").value;
     const charge = container.querySelector("#charge").value;
     const volumeHebdoMaxH = Number(container.querySelector("#volume-hebdo-max").value) || null;
+    const facteurGapCalibre = Number(container.querySelector("#gap-calibre").value) || 1;
     const joursEntrainement = Array.from(container.querySelectorAll("[data-jour]:checked")).map((cb) => Number(cb.value));
     if (!echeance) {
       alert("Choisis une date de course.");
@@ -270,6 +276,7 @@ export async function render(container) {
       distanceObjectifM: distanceKm ? distanceKm * 1000 : null,
       tempsObjectifS: tempsLabel ? labelVersSecondes(tempsLabel) : null,
       volumeHebdoMaxMin: volumeHebdoMaxH ? volumeHebdoMaxH * 60 : null,
+      facteurGapCalibre,
     };
 
     if (planExistant && !modeCreationForcee) {

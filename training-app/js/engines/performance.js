@@ -120,3 +120,22 @@ export function barresDistanceMensuelle(seancesRealisees, nbMois = 6, maintenant
   }
   return barres;
 }
+
+/**
+ * D+ cumulé réel (activités Strava synchronisées) par mois calendaire, pour
+ * un graphique en barres — même fenêtre/forme que barresDistanceMensuelle.
+ * D+ *réel*, pas planifié : le plan ne rattache aucun profil de parcours
+ * (altimétrie) à ses séances, seules les activités synchronisées portent un
+ * dénivelé exploitable (deniveleM, depuis Strava total_elevation_gain).
+ */
+export function barresDPlusMensuel(seancesRealisees, nbMois = 6, maintenant = new Date()) {
+  const moisCourant = debutMoisCalendaire(maintenant);
+  const barres = [];
+  for (let i = nbMois - 1; i >= 0; i--) {
+    const debut = new Date(moisCourant.getFullYear(), moisCourant.getMonth() - i, 1);
+    const fin = new Date(debut.getFullYear(), debut.getMonth() + 1, 1);
+    const value = agregerPeriode(seancesRealisees, debut, fin).deniveleM;
+    barres.push({ label: MOIS_COURT[debut.getMonth()], value });
+  }
+  return barres;
+}

@@ -9,6 +9,7 @@ import {
   variationPct,
   barresDistanceHebdo,
   barresDistanceMensuelle,
+  barresDPlusMensuel,
 } from "../js/engines/performance.js";
 
 function iso(date) {
@@ -113,6 +114,29 @@ test("barresDistanceMensuelle — une barre étiquetée par mois calendaire, la 
   assert.equal(barres[1].label, "juil.");
   assert.equal(barres[1].value, 40);
   assert.equal(barres[0].value, 0);
+});
+
+test("barresDPlusMensuel — agrège le D+ réel (deniveleM) par mois calendaire, pas la distance", () => {
+  const maintenant = new Date(2026, 7, 20); // août 2026
+  const seances = [
+    { date: iso(new Date(2026, 7, 5)), distanceKm: 10, deniveleM: 250 }, // août
+    { date: iso(new Date(2026, 7, 12)), distanceKm: 8, deniveleM: 150 }, // août
+    { date: iso(new Date(2026, 6, 15)), distanceKm: 15, deniveleM: 500 }, // juillet
+  ];
+  const barres = barresDPlusMensuel(seances, 3, maintenant);
+  assert.equal(barres.length, 3);
+  assert.equal(barres[2].label, "août");
+  assert.equal(barres[2].value, 400); // 250 + 150
+  assert.equal(barres[1].label, "juil.");
+  assert.equal(barres[1].value, 500);
+  assert.equal(barres[0].value, 0);
+});
+
+test("barresDPlusMensuel — séances sans deniveleM renseigné ne cassent pas (traitées comme 0)", () => {
+  const maintenant = new Date(2026, 7, 20);
+  const seances = [{ date: iso(new Date(2026, 7, 5)), distanceKm: 10 }];
+  const barres = barresDPlusMensuel(seances, 2, maintenant);
+  assert.equal(barres[1].value, 0);
 });
 
 test("variationPct — calcule la variation relative, null si période précédente vide", () => {
