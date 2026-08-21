@@ -39,7 +39,7 @@ export async function verifierEtNotifierSeanceDuJour() {
 
 /** Notification de test, indépendante de la présence d'une séance aujourd'hui — pour vérifier que l'autorisation fonctionne bien sur l'appareil. */
 export async function notifierTest() {
-  await afficherNotification("Rappel de test", "Les notifications Voyafe Training fonctionnent sur cet appareil.");
+  await afficherNotification("Rappel de test", "Les notifications de Coach Running pour Rémi fonctionnent sur cet appareil.");
 }
 
 async function afficherNotification(titre, corps) {

@@ -1,4 +1,4 @@
-/* Voyafe Training — feuille de style applicative.
+/* Coach Running pour Rémi — feuille de style applicative.
    Densité assumée sur les écrans de données, épurée sur les écrans d'action rapide. */
 
 * {
@@ -81,7 +81,9 @@ textarea {
   align-items: center;
   justify-content: space-between;
   padding: var(--space-4) var(--space-4);
-  background: var(--color-bg);
+  background: color-mix(in srgb, var(--color-bg) 88%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -89,9 +91,12 @@ textarea {
   font-family: var(--font-display);
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-size: 1rem;
-  color: var(--color-text);
+  letter-spacing: 0.03em;
+  font-size: 0.95rem;
+  background: linear-gradient(90deg, var(--color-accent) 0%, var(--color-functional) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
   text-decoration: none;
   display: flex;
   align-items: center;
@@ -115,7 +120,9 @@ textarea {
   right: 0;
   z-index: 10;
   display: flex;
-  background: var(--color-bg-elevated);
+  background: color-mix(in srgb, var(--color-bg-elevated) 92%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-top: 1px solid var(--color-border);
   padding-bottom: env(safe-area-inset-bottom);
   overflow-x: auto;
@@ -130,18 +137,28 @@ textarea {
   gap: 2px;
   padding: var(--space-2) var(--space-1);
   font-size: 0.65rem;
+  font-weight: 500;
   text-decoration: none;
   color: var(--color-text-muted);
-  border-top: 2px solid transparent;
 }
 
 .app-bottomnav a.active {
   color: var(--color-accent);
-  border-top-color: var(--color-accent);
 }
 
 .app-bottomnav .icon {
   font-size: 1.1rem;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  transition: background 0.15s ease;
+}
+
+.app-bottomnav a.active .icon {
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
 }
 
 /* ---------- Cartes ---------- */
@@ -156,7 +173,19 @@ textarea {
 }
 
 .card--action {
+  position: relative;
   padding: var(--space-5);
+  overflow: hidden;
+}
+
+.card--action::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--color-accent) 0%, var(--color-functional) 100%);
 }
 
 .card__header {
@@ -224,17 +253,17 @@ textarea {
   border: 1px solid var(--color-border);
   background: var(--color-bg-elevated);
   color: var(--color-text);
-  border-radius: var(--radius-card);
-  padding: 10px 16px;
+  border-radius: var(--radius-pill);
+  padding: 10px 18px;
   font-size: 0.9rem;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
   text-decoration: none;
 }
 
 .btn--primary {
-  background: var(--color-accent-strong);
-  border-color: var(--color-accent-strong);
+  background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-strong) 100%);
+  border-color: transparent;
   color: var(--paper);
 }
 
@@ -273,7 +302,7 @@ textarea {
   width: 100%;
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 10px 12px;
   font-size: 0.95rem;
 }
@@ -577,15 +606,15 @@ textarea {
   flex: 1 1 auto;
   min-width: 2rem;
   padding: 8px 0;
-  border-radius: 8px;
+  border-radius: 12px;
   border: 1px solid var(--color-border);
   background: var(--color-bg-elevated);
   font-family: var(--font-data);
 }
 
 .quick-log__scale button.selected {
-  background: var(--color-accent-strong);
-  border-color: var(--color-accent-strong);
+  background: linear-gradient(135deg, var(--color-accent) 0%, var(--color-accent-strong) 100%);
+  border-color: transparent;
   color: var(--paper);
 }
 

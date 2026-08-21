@@ -98,9 +98,9 @@ export function genererIcs(plan) {
   const ics = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Voyafe Training//FR",
+    "PRODID:-//Coach Running pour Rémi//FR",
     "CALSCALE:GREGORIAN",
-    `X-WR-CALNAME:${echapperTexte(plan.objectif ?? "Plan d'entraînement Voyafe")}`,
+    `X-WR-CALNAME:${echapperTexte(plan.objectif ?? "Plan d'entraînement Coach Running")}`,
     ...evenements,
     "END:VCALENDAR",
   ].join("\r\n");

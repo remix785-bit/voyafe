@@ -1,13 +1,13 @@
 {
-  "name": "Voyafe Training",
-  "short_name": "Voyafe",
+  "name": "Coach Running pour Rémi",
+  "short_name": "Coach Rémi",
   "description": "Plans d'entraînement course à pied et trail — VDOT, GAP, charge d'entraînement.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#16201b",
-  "theme_color": "#16201b",
+  "background_color": "#0a0b10",
+  "theme_color": "#0a0b10",
   "lang": "fr",
   "icons": [
     { "src": "./icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },

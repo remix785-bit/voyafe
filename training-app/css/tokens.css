@@ -1,25 +1,24 @@
-/* Système de tokens — identité visuelle "carnet de terrain topographique".
-   Partie III, Section 2. Thème sombre par défaut (usage terrain/matin),
-   thème clair disponible via [data-theme="light"] sur <html> (Réglages). */
+/* Système de tokens — identité visuelle "sport énergique" (Coach Running
+   pour Rémi). Fond quasi noir, accents cyan électrique / orange vif,
+   typographie bold impactante. Thème sombre par défaut (usage terrain/
+   matin), thème clair disponible via [data-theme="light"] sur <html>
+   (Réglages). */
 
-@import url("https://fonts.googleapis.com/css2?family=Archivo+Expanded:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap");
 
 :root {
   /* Palette brute */
-  --ink: #16201b;
-  --stone: #e7e3d6;
-  --moss: #45624c;
-  --slate-blue: #35566b;
-  --ember: #b8502e;
-  --paper: #fbfaf5;
+  --ink: #0a0b10;
+  --paper: #f5f6fa;
 
   /* Typographie */
-  --font-display: "Archivo Expanded", "Arial Narrow", sans-serif;
-  --font-body: "IBM Plex Sans", "Inter", system-ui, sans-serif;
-  --font-data: "IBM Plex Mono", "JetBrains Mono", ui-monospace, monospace;
+  --font-display: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, monospace;
 
-  /* Rayons / rythme */
-  --radius-card: 10px;
+  /* Rayons / rythme — coins bien plus arrondis qu'avant pour un rendu plus
+     graphique et dynamique. */
+  --radius-card: 18px;
   --radius-pill: 999px;
   --space-1: 4px;
   --space-2: 8px;
@@ -31,60 +30,60 @@
 
   /* Rôles sémantiques — thème sombre (défaut) */
   --color-bg: var(--ink);
-  --color-bg-elevated: #1d2a22;
-  --color-surface: #223027;
+  --color-bg-elevated: #12141f;
+  --color-surface: #171a26;
   --color-surface-strong: var(--paper);
-  --color-text: var(--stone);
+  --color-text: var(--paper);
   --color-text-on-strong: var(--ink);
-  --color-text-muted: #a9b3a5;
-  --color-border: #2f3f34;
+  --color-text-muted: #8a8fa6;
+  --color-border: #262a38;
 
-  --color-accent: #6f9cb8; /* slate-blue éclairci pour contraste sur fond sombre */
-  --color-accent-strong: var(--slate-blue);
-  --color-structural: #7fa886; /* moss éclairci */
-  --color-structural-strong: var(--moss);
-  --color-functional: #e0855f; /* ember éclairci */
-  --color-functional-strong: var(--ember);
+  --color-accent: #4fe8ff; /* cyan éclairci pour contraste sur fond sombre */
+  --color-accent-strong: #0b7ba6; /* cyan profond — texte blanc lisible dessus (≥4.5:1) */
+  --color-structural: #4ce0ac; /* mint éclairci */
+  --color-structural-strong: #12b886;
+  --color-functional: #ff8552; /* orange éclairci */
+  --color-functional-strong: #ff5a1f;
 
   /* Zones Daniels E/M/T/I/R — palette catégorielle validée (5 teintes du set
-     de référence dataviz : aqua/orange/bleu/magenta/or), remplace l'ancienne
-     palette qui échouait la vérification CVD (E vs M : ΔE 2.8, quasi
-     indiscernables même en vision normale). */
+     de référence dataviz : aqua/orange/bleu/magenta/or), non retouchée par
+     la refonte visuelle : recréer cette validation CVD (vérifiée hors
+     indiscernabilité E/M) sort du cadre d'un rafraîchissement graphique. */
   --zone-e: #199e70;
   --zone-m: #d95926;
   --zone-t: #3987e5;
   --zone-i: #d55181;
   --zone-r: #c98500;
 
-  /* Phases macrocycle (CountdownRing) — validées séparément des zones pour
-     rester distinctes à l'œil sur le même Dashboard (vert/violet/rouge). */
+  /* Phases macrocycle (CountdownRing) — idem, non retouchées (distinctes du
+     Dashboard, validées séparément des zones). */
   --phase-base: #008300;
   --phase-developpement: #9085e9;
   --phase-taper: #e66767;
 
   --color-success: var(--color-structural);
-  --color-warning: #d9a441;
+  --color-warning: #ffc93d;
   --color-danger: var(--color-functional-strong);
 
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.25);
+  --shadow-card: 0 2px 6px rgba(0, 0, 0, 0.45), 0 14px 32px rgba(0, 0, 0, 0.3);
 }
 
 :root[data-theme="light"] {
-  --color-bg: var(--stone);
-  --color-bg-elevated: #f1efe4;
-  --color-surface: var(--paper);
+  --color-bg: #f0f1f6;
+  --color-bg-elevated: #e6e8f0;
+  --color-surface: #ffffff;
   --color-surface-strong: var(--ink);
   --color-text: var(--ink);
   --color-text-on-strong: var(--paper);
-  --color-text-muted: #5b6a5f;
-  --color-border: #d7d2c1;
+  --color-text-muted: #666b80;
+  --color-border: #dbdee8;
 
-  --color-accent: var(--slate-blue);
-  --color-accent-strong: #24404f;
-  --color-structural: var(--moss);
-  --color-structural-strong: #30452f;
-  --color-functional: var(--ember);
-  --color-functional-strong: #8f3c20;
+  --color-accent: #0b7ba6;
+  --color-accent-strong: #086478;
+  --color-structural: #0fa574;
+  --color-structural-strong: #0a8563;
+  --color-functional: #e8460c;
+  --color-functional-strong: #c2410c;
 
   --zone-e: #1baf7a;
   --zone-m: #eb6834;
@@ -97,10 +96,10 @@
   --phase-taper: #e34948;
 
   --color-success: var(--color-structural);
-  --color-warning: #a5731c;
+  --color-warning: #a66a00;
   --color-danger: var(--color-functional-strong);
 
-  --shadow-card: 0 1px 2px rgba(22, 32, 27, 0.08), 0 4px 12px rgba(22, 32, 27, 0.08);
+  --shadow-card: 0 1px 2px rgba(10, 11, 16, 0.05), 0 10px 24px rgba(10, 11, 16, 0.08);
 }
 
 @media (prefers-reduced-motion: reduce) {

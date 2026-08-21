@@ -1,4 +1,4 @@
-# Voyafe Training
+# Coach Running pour Rémi
 
 Application d'entraînement course à pied &amp; trail — génération de plans fondée
 sur VDOT (Daniels-Gilbert), GAP trail (Minetti), charge d'entraînement
