@@ -31,6 +31,7 @@ const state = {
   historiqueAjustements: [],
   reglages: {
     theme: "dark",
+    rappelSeanceActif: false,
     githubToken: "",
     githubOwner: "",
     githubRepo: "",

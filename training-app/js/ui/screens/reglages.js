@@ -1,9 +1,11 @@
 import * as store from "../../store.js";
 import { verifierAcces } from "../../data/githubSync.js";
 import { exporterJson, telechargerExport, importerJson } from "../../data/exportImport.js";
+import { demanderPermission, permissionRefusee, verifierEtNotifierSeanceDuJour, notifierTest } from "../../notifications.js";
 
 export async function render(container) {
   const { reglages } = store.getState();
+  const notifDisponibles = "Notification" in window;
 
   container.innerHTML = `
     <div class="app-main">
@@ -16,6 +18,20 @@ export async function render(container) {
             <button class="btn ${reglages.theme === "light" ? "btn--primary" : ""}" data-theme-btn="light">Clair</button>
           </div>
         </div>
+      </div>
+
+      <div class="card">
+        <h2>Rappel de séance du jour</h2>
+        <p class="muted">Une notification s'affiche quand tu ouvres l'appli et qu'une séance est planifiée aujourd'hui — pratique pour ne pas l'oublier avant de partir. Ne fonctionne que quand l'appli est ouverte ou revient au premier plan (pas de serveur de notifications derrière cette appli 100% statique, donc pas de rappel appli fermée).</p>
+        ${
+          !notifDisponibles
+            ? `<p class="muted">Notifications non supportées par ce navigateur.</p>`
+            : `<div class="row">
+                 <button class="btn ${reglages.rappelSeanceActif ? "btn--primary" : ""}" id="rappel-toggle">${reglages.rappelSeanceActif ? "Désactiver" : "Activer"}</button>
+                 ${reglages.rappelSeanceActif ? `<button class="btn" id="rappel-test">Tester une notification</button>` : ""}
+               </div>
+               <p id="rappel-status" class="muted">${permissionRefusee() ? "Autorisation refusée dans le navigateur — réactive-la dans les réglages du site (icône cadenas dans la barre d'adresse) pour utiliser ce rappel." : ""}</p>`
+        }
       </div>
 
       <div class="card">
@@ -78,6 +94,34 @@ export async function render(container) {
       render(container);
     });
   });
+
+  const rappelToggleBtn = container.querySelector("#rappel-toggle");
+  if (rappelToggleBtn) {
+    rappelToggleBtn.addEventListener("click", async () => {
+      if (reglages.rappelSeanceActif) {
+        store.sauvegarderReglages({ rappelSeanceActif: false });
+        render(container);
+        return;
+      }
+      const accordee = await demanderPermission();
+      store.sauvegarderReglages({ rappelSeanceActif: accordee });
+      if (accordee) verifierEtNotifierSeanceDuJour().catch(() => {});
+      render(container);
+    });
+  }
+
+  const rappelTestBtn = container.querySelector("#rappel-test");
+  if (rappelTestBtn) {
+    rappelTestBtn.addEventListener("click", async () => {
+      const statusEl = container.querySelector("#rappel-status");
+      try {
+        await notifierTest();
+        statusEl.textContent = "Notification de test envoyée.";
+      } catch (err) {
+        statusEl.textContent = `Erreur : ${err.message}`;
+      }
+    });
+  }
 
   container.querySelector("#gh-save").addEventListener("click", () => {
     store.sauvegarderReglages({

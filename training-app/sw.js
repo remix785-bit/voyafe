@@ -2,7 +2,7 @@
 // sur le terrain (Partie III §6). Pas de dépendance Workbox (pas d'accès au
 // registre npm dans l'environnement de build) — implémentation manuelle minimale.
 
-const CACHE_VERSION = "v3";
+const CACHE_VERSION = "v4";
 const CACHE_NAME = `voyafe-training-${CACHE_VERSION}`;
 
 const APP_SHELL = [
@@ -15,6 +15,7 @@ const APP_SHELL = [
   "./js/app.js",
   "./js/router.js",
   "./js/store.js",
+  "./js/notifications.js",
   "./js/catalog/protocols.js",
   "./js/catalog/renfo.js",
   "./js/catalog/sessionsRoute.js",
@@ -31,6 +32,7 @@ const APP_SHELL = [
   "./js/engines/pacing.js",
   "./js/engines/performance.js",
   "./js/engines/planGenerator.js",
+  "./js/engines/reminder.js",
   "./js/engines/vdot.js",
   "./js/ui/components.js",
   "./js/ui/screens/dashboard.js",
@@ -89,4 +91,18 @@ self.addEventListener("fetch", (event) => {
 
   // Ressources externes (fonts, API) : réseau d'abord, pas de cache offline garanti.
   event.respondWith(fetch(request).catch(() => caches.match(request)));
+});
+
+// Clic sur le rappel de séance du jour (js/notifications.js) : ramène au
+// premier plan un onglet déjà ouvert plutôt que d'en ouvrir un nouveau.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientsArr) => {
+      for (const client of clientsArr) {
+        if ("focus" in client) return client.focus();
+      }
+      return self.clients.openWindow("./#/dashboard");
+    })
+  );
 });

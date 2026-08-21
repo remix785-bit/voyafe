@@ -1,5 +1,6 @@
 import * as store from "./store.js";
 import { initRouter, registerRoute } from "./router.js";
+import { verifierEtNotifierSeanceDuJour } from "./notifications.js";
 
 import * as dashboard from "./ui/screens/dashboard.js";
 import * as plan from "./ui/screens/plan.js";
@@ -45,6 +46,17 @@ async function boot() {
   const appMain = document.getElementById("app-view");
   const nav = document.getElementById("app-nav");
   initRouter(appMain, nav);
+
+  // Rappel de séance du jour : au démarrage, puis à chaque retour au
+  // premier plan (l'utilisateur peut ouvrir l'appli le matin, la laisser en
+  // arrière-plan, puis y revenir plus tard le même jour — le
+  // dédoublonnage dans notifications.js empêche un doublon dans ce cas).
+  verifierEtNotifierSeanceDuJour().catch((err) => console.warn("Rappel de séance du jour échoué", err));
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      verifierEtNotifierSeanceDuJour().catch((err) => console.warn("Rappel de séance du jour échoué", err));
+    }
+  });
 
   if ("serviceWorker" in navigator) {
     // Recharge automatiquement dès qu'un nouveau service worker prend le
