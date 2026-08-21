@@ -12,7 +12,6 @@ import {
   attachChartInteractions,
 } from "../components.js";
 import { formatPace, ZONES } from "../../engines/vdot.js";
-import { dailyMacros } from "../../engines/nutrition.js";
 import { statsPerformance, barresDistanceHebdo, barresDistanceMensuelle, variationPct } from "../../engines/performance.js";
 import { ewmaAcwr } from "../../engines/load.js";
 
@@ -105,7 +104,6 @@ export async function render(container) {
   const vdotActuel = profil?.historiqueVdot?.length
     ? profil.historiqueVdot[profil.historiqueVdot.length - 1].vdot
     : plan.profilCourant.vdot;
-  const macros = profil?.weightKg ? dailyMacros(profil.weightKg, plan.chargeHebdoMoyenneActuelle ?? "moderee") : null;
 
   const autresPlans = plans.filter((p) => p.id !== plan.id);
 
@@ -190,34 +188,6 @@ export async function render(container) {
         ${chargeSummary ? LoadGauge(chargeSummary) : `<p class="muted">Pas encore assez de données (journal quotidien, min. 7 jours) pour calculer la tendance de charge.</p>`}
         ${renderCourbeCharge()}
       </div>
-
-      ${
-        semaineActuelle.renfoRecommande?.length
-          ? `<div class="card">
-              <div class="card__header"><h2>Renfo cette semaine</h2><a class="btn btn--sm" href="#/renfo">Voir le détail</a></div>
-              <div class="stack">
-                ${semaineActuelle.renfoRecommande
-                  .map((r) => `<div class="row"><span class="zone-badge zone-badge--renfo">R</span><span>${escapeAttr(r.nom)} — ${Array.isArray(r.frequenceParSemaine) ? r.frequenceParSemaine.join("-") : r.frequenceParSemaine}×/sem</span></div>`)
-                  .join("")}
-              </div>
-            </div>`
-          : ""
-      }
-
-      ${
-        macros
-          ? `<div class="card">
-              <div class="card__header"><h2>Nutrition du jour</h2><a class="btn btn--sm" href="#/nutrition">Détail</a></div>
-              <table class="pacing-timeline">
-                <tbody>
-                  <tr><td>Glucides</td><td class="data">${macros.glucidesG} g</td></tr>
-                  <tr><td>Protéines</td><td class="data">${macros.proteinesG} g</td></tr>
-                  <tr><td>Lipides</td><td class="data">${macros.lipidesG} g</td></tr>
-                </tbody>
-              </table>
-            </div>`
-          : ""
-      }
 
       <div class="card">
         <div class="card__header">

@@ -293,11 +293,11 @@ function renderZones(container, profil) {
     <h2>VDOT actuel : <span class="data">${vdot.toFixed(1)}</span></h2>
     ${warnings.map((w) => `<p class="badge-warning">${escapeAttr(w)}</p>`).join("")}
     <table class="pacing-timeline">
-      <thead><tr><th>Zone</th><th>Allure rapide</th><th>Allure cible</th><th>Allure lente</th></tr></thead>
+      <thead><tr><th>Zone</th><th>Allure rapide</th><th>Allure cible</th></tr></thead>
       <tbody>
         ${Object.entries(zones)
           .map(
-            ([z, v]) => `<tr><td><span class="zone-badge zone-badge--${z}">${z}</span></td><td class="data">${formatPace(v.fast)}</td><td class="data">${formatPace(v.target)}</td><td class="data">${formatPace(v.slow)}</td></tr>`
+            ([z, v]) => `<tr><td><span class="zone-badge zone-badge--${z}">${z}</span></td><td class="data">${formatPace(v.fast)}</td><td class="data">${formatPace(v.target)}</td></tr>`
           )
           .join("")}
       </tbody>

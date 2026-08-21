@@ -220,6 +220,59 @@ test("instancierSeance — sans objectif fourni, retombe sur l'allure M dérivé
   assert.equal(s.allureCibleMinParKm, plan.profilCourant.allures.M.target);
 });
 
+test("instancierSeance — porte aussi la borne rapide de la fourchette (route, pas de GAP)", () => {
+  const dateDebut = new Date();
+  const plan = genererPlanComplet({
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000).toISOString(),
+    nbSeancesHebdo: 5,
+  });
+  const tplT = { zoneDaniels: "T", discipline: "route", corpsDeSeance: {} };
+  const s = instancierSeance(tplT, plan.profilCourant, plan.semaines[0], {}, null);
+  assert.equal(s.allureRapideMinParKm, plan.profilCourant.allures.T.fast);
+  assert.ok(s.allureRapideMinParKm < s.allureCibleMinParKm, "rapide doit être un temps/km plus petit (plus vite) que cible");
+});
+
+test("instancierSeance — la borne rapide suit le même ajustement GAP que l'allure cible (trail)", () => {
+  const dateDebut = new Date();
+  const plan = genererPlanComplet({
+    discipline: "trail",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000).toISOString(),
+    nbSeancesHebdo: 5,
+  });
+  const tplCotes = { zoneDaniels: "I", discipline: "trail", gapAjuste: true, corpsDeSeance: {} };
+  const plat = instancierSeance(tplCotes, plan.profilCourant, plan.semaines[0], { penteMoyenne: 0 }, null);
+  const montee = instancierSeance(tplCotes, plan.profilCourant, plan.semaines[0], { penteMoyenne: 0.1 }, null);
+  // en montée, l'allure GAP-ajustée (temps/km réel) doit être plus lente (nombre plus grand) qu'à plat,
+  // pour la cible ET pour la borne rapide -- sinon la fourchette affichée serait incohérente avec le terrain.
+  assert.ok(montee.allureCibleMinParKm > plat.allureCibleMinParKm);
+  assert.ok(montee.allureRapideMinParKm > plat.allureRapideMinParKm);
+  assert.ok(montee.allureRapideMinParKm < montee.allureCibleMinParKm);
+});
+
+test("instancierSeance — sortie longue avec objectif : la fourchette suit l'allure E majoritaire, pas la zone du template", () => {
+  const dateDebut = new Date();
+  const plan = genererPlanComplet({
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000).toISOString(),
+    nbSeancesHebdo: 5,
+    distanceObjectifM: 21097,
+  });
+  const tplLongue = { id: "route_sortie_longue", zoneDaniels: "E", discipline: "route", corpsDeSeance: {} };
+  const s = instancierSeance(tplLongue, plan.profilCourant, plan.semaines[0], {}, null, {
+    facteurPhase: 1,
+    distanceSortieLongueKm: 16,
+  });
+  assert.equal(s.allureRapideMinParKm, plan.profilCourant.allures.E.fast);
+  assert.equal(s.allureCibleMinParKm, plan.profilCourant.allures.E.target);
+});
+
 test("composerSemaine — Base route : T seulement 1 semaine sur 2, jamais d'I/R", () => {
   const semaine1 = composerSemaine("base", "route", 5, 1);
   const semaine2 = composerSemaine("base", "route", 5, 2);

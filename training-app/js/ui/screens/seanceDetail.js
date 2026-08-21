@@ -1,5 +1,5 @@
 import * as store from "../../store.js";
-import { ZoneBadge, TrainingTimer } from "../components.js";
+import { ZoneBadge, TrainingTimer, formatFourchettePace } from "../components.js";
 import { formatPace } from "../../engines/vdot.js";
 import { ECHAUFFEMENT_INTENSITE, RETOUR_AU_CALME } from "../../catalog/protocols.js";
 
@@ -22,7 +22,7 @@ export async function render(container, params) {
           ${ZoneBadge(seance.zoneDaniels)}
           <h1 style="margin:0;">${escapeAttr(seance.nom)}</h1>
         </div>
-        <p class="muted">${seance.date ? `${escapeAttr(new Date(seance.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" }))} · ` : ""}${escapeAttr(seance.discipline)} · ${seance.distanceKm ? `<span class="data">${seance.distanceKm.toFixed(1)} km</span> · ` : ""}${Math.round(seance.volumeSeanceMin)} min · allure cible <span class="data">${seance.allureCibleMinParKm ? formatPace(seance.allureCibleMinParKm) : "—"}</span></p>
+        <p class="muted">${seance.date ? `${escapeAttr(new Date(seance.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" }))} · ` : ""}${escapeAttr(seance.discipline)} · ${seance.distanceKm ? `<span class="data">${seance.distanceKm.toFixed(1)} km</span> · ` : ""}${Math.round(seance.volumeSeanceMin)} min · fourchette <span class="data">${formatFourchettePace(seance.allureRapideMinParKm, seance.allureCibleMinParKm)}</span></p>
         ${seance.allureBlocObjectifMinParKm ? `<p>Dont un bloc à l'<strong>allure objectif</strong> (course visée) : <span class="data">${formatPace(seance.allureBlocObjectifMinParKm)}</span> — le reste de la sortie se court à l'allure cible ci-dessus.</p>` : ""}
         ${seance.avertissementVolumeHebdo ? `<p class="badge-warning">${escapeAttr(seance.avertissementVolumeHebdo)}</p>` : ""}
         ${seance.avertissementPlafond ? `<p class="badge-warning">${escapeAttr(seance.avertissementPlafond)}</p>` : ""}
@@ -113,7 +113,9 @@ function wireTimer(container, seance) {
  * (avertissement de plafond hebdo au-dessus, catalogue pour le detail méthodo). */
 function renderProgrammeDuJour(seance) {
   const format = escapeAttr(seance.structureDetaillee?.format ?? "—");
-  const allure = seance.allureCibleMinParKm ? ` — à <span class="data">${formatPace(seance.allureCibleMinParKm)}</span>` : "";
+  const allure = seance.allureCibleMinParKm
+    ? ` — à <span class="data">${formatFourchettePace(seance.allureRapideMinParKm, seance.allureCibleMinParKm)}</span>`
+    : "";
   const recup =
     seance.structureDetaillee?.ratioEffortRecup && seance.structureDetaillee.ratioEffortRecup !== "n/a"
       ? ` (récup ${escapeAttr(seance.structureDetaillee.ratioEffortRecup)})`

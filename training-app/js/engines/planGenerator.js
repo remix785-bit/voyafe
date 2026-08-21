@@ -354,13 +354,20 @@ export function instancierSeance(
   const zoneCible = template.zoneDaniels;
   const allureZone = profilCourant.allures[zoneCible];
   let allureCible = allureZone ? allureZone.target : null;
+  // Borne rapide de la fourchette de zone — même traitement (GAP, relais
+  // sortie longue ci-dessous) que l'allure cible, pour que la fourchette
+  // affichée reste cohérente avec le terrain/la phase de la séance.
+  let allureRapide = allureZone ? allureZone.fast : null;
   let gapWarning = null;
 
   if (template.discipline === "trail" && template.gapAjuste && allureCible != null) {
     const pente = contexteDenivele.penteMoyenne ?? 0;
-    const ajuste = flatEquivalentToRealPace(allureCible, pente);
-    allureCible = ajuste.paceMinPerKm;
-    gapWarning = ajuste.warning;
+    const ajusteCible = flatEquivalentToRealPace(allureCible, pente);
+    allureCible = ajusteCible.paceMinPerKm;
+    gapWarning = ajusteCible.warning;
+    if (allureRapide != null) {
+      allureRapide = flatEquivalentToRealPace(allureRapide, pente).paceMinPerKm;
+    }
   }
 
   let volumeSeanceMin;
@@ -384,8 +391,10 @@ export function instancierSeance(
     if (semaineContexte.phase === "taper") distanceCible *= 0.5;
     distanceKm = distanceCible;
     const allureMajoriteE = zoneCible === "E" ? allureCible : profilCourant.allures.E.target;
+    const allureRapideMajoriteE = zoneCible === "E" ? allureRapide : profilCourant.allures.E.fast;
     volumeSeanceMin = distanceKm * allureMajoriteE;
     allureCible = allureMajoriteE;
+    allureRapide = allureRapideMajoriteE;
 
     if (zoneCible === "M" && template.discipline === "route" && objectifPaceMinParKm != null) {
       allureBlocObjectifMinParKm = objectifPaceMinParKm;
@@ -404,6 +413,7 @@ export function instancierSeance(
     discipline: template.discipline,
     zoneDaniels: zoneCible,
     allureCibleMinParKm: allureCible,
+    allureRapideMinParKm: allureRapide,
     allureBlocObjectifMinParKm,
     volumeSeanceMin,
     distanceKm,

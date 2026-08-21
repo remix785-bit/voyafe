@@ -433,6 +433,16 @@ export function WeekStrip(semaines, semaineActuelleNumero) {
     </div>`;
 }
 
+/**
+ * Formate une fourchette d'allure "rapide – cible" (ex: "4:41/km – 5:09/km").
+ * Retombe sur la seule allure cible si la borne rapide n'est pas disponible.
+ */
+export function formatFourchettePace(rapideMinParKm, cibleMinParKm) {
+  if (cibleMinParKm == null) return "—";
+  if (rapideMinParKm == null) return formatPace(cibleMinParKm);
+  return `${formatPace(rapideMinParKm)} – ${formatPace(cibleMinParKm)}`;
+}
+
 /** SessionCard — carte séance (résumé), utilisée sur Dashboard et Plan. */
 export function SessionCard(seance, href) {
   const statusClass =
@@ -442,7 +452,7 @@ export function SessionCard(seance, href) {
         ? "session-card__status--manquee"
         : "";
   const statusLabel = { a_venir: "à venir", realisee: "réalisée", manquee: "manquée" }[seance.statut] ?? seance.statut;
-  const allure = seance.allureCibleMinParKm ? formatPace(seance.allureCibleMinParKm) : "—";
+  const allure = formatFourchettePace(seance.allureRapideMinParKm, seance.allureCibleMinParKm);
   const distance = seance.distanceKm ? `${seance.distanceKm.toFixed(1)} km` : null;
   const jourLabel = seance.date
     ? new Date(seance.date).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" })
