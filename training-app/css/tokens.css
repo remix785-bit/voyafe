@@ -56,6 +56,12 @@
   --zone-i: #d55181;
   --zone-r: #c98500;
 
+  /* Phases macrocycle (CountdownRing) — validées séparément des zones pour
+     rester distinctes à l'œil sur le même Dashboard (vert/violet/rouge). */
+  --phase-base: #008300;
+  --phase-developpement: #9085e9;
+  --phase-taper: #e66767;
+
   --color-success: var(--color-structural);
   --color-warning: #d9a441;
   --color-danger: var(--color-functional-strong);
@@ -85,6 +91,10 @@
   --zone-t: #2a78d6;
   --zone-i: #e87ba4;
   --zone-r: #eda100;
+
+  --phase-base: #008300;
+  --phase-developpement: #4a3aa7;
+  --phase-taper: #e34948;
 
   --color-success: var(--color-structural);
   --color-warning: #a5731c;

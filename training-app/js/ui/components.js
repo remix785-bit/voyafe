@@ -311,23 +311,92 @@ export function attachChartInteractions(root) {
   });
 }
 
+/** Longueur et décalage d'un arc [debutDeg, finDeg] sur un cercle de circonférence donnée. */
+function segmentArc(debutDeg, finDeg, circonference) {
+  const debut = Math.max(0, debutDeg);
+  const fin = Math.min(360, finDeg);
+  if (fin <= debut) return null;
+  return { longueur: ((fin - debut) / 360) * circonference, decalage: (debut / 360) * circonference };
+}
+
 /**
- * ElevationBar — barre de progression signature, tracée en profil de relief
- * plutôt qu'en rectangle plein.
- * @param {number} pct 0-100
- * @param {string} id id DOM unique pour l'élément svg
+ * CountdownRing — anneau de compte à rebours vers l'échéance : le nombre de
+ * jours restants en grand au centre, un anneau qui matérialise tout le plan
+ * (Base/Développement/Affûtage, chaque phase sa couleur) et se remplit au fil
+ * de la progression, un marqueur à la position actuelle. Remplace l'ancienne
+ * ElevationBar (barre linéaire) — modélisation plus ludique de l'échéance.
+ * @param {{base:number, developpement:number, taper:number}} macrocycle nombre de semaines par phase
+ * @param {number} pctProgression 0-100
+ * @param {{size?:number, epaisseur?:number, centreValeur?:string, centreLabel?:string, centreSous?:string}} options
  */
-export function ElevationBar(pct, id = `eb-${Math.random().toString(36).slice(2, 8)}`) {
-  const clamped = Math.max(0, Math.min(100, pct));
-  // Profil de relief synthétique fixe (silhouette), la partie remplie suit le %.
-  const points = "0,28 40,18 80,24 130,8 180,20 240,6 300,16 360,10 400,22 400,36 0,36";
-  const trackPath = "M0,28 L40,18 L80,24 L130,8 L180,20 L240,6 L300,16 L360,10 L400,22";
-  const length = 460; // approximation de la longueur du tracé pour le dash-offset
-  const offset = length - (length * clamped) / 100;
+export function CountdownRing(macrocycle, pctProgression, options = {}) {
+  const { size = 200, epaisseur = 20, centreValeur = "", centreLabel = "", centreSous = "" } = options;
+  const totalSemaines = (macrocycle.base ?? 0) + (macrocycle.developpement ?? 0) + (macrocycle.taper ?? 0);
+  if (!totalSemaines) return "";
+
+  const PHASES = [
+    { label: "Base", n: macrocycle.base ?? 0, colorVar: "--phase-base" },
+    { label: "Développement", n: macrocycle.developpement ?? 0, colorVar: "--phase-developpement" },
+    { label: "Affûtage", n: macrocycle.taper ?? 0, colorVar: "--phase-taper" },
+  ].filter((p) => p.n > 0);
+
+  const r = (size - epaisseur) / 2;
+  const cx = size / 2;
+  const cy = size / 2;
+  const circonference = 2 * Math.PI * r;
+  const ecartDeg = 1.5; // équivalent du "surface gap" entre phases
+  const angleFin = Math.max(0, Math.min(360, (pctProgression / 100) * 360));
+
+  let cumAngle = 0;
+  let semaineDebut = 1;
+  const pistes = [];
+  const remplis = [];
+
+  for (const p of PHASES) {
+    const angleSeg = (p.n / totalSemaines) * 360;
+    const debut = cumAngle;
+    const fin = cumAngle + angleSeg;
+    const debutUtile = debut + (debut > 0 ? ecartDeg / 2 : 0);
+    const finUtile = fin - (fin < 360 ? ecartDeg / 2 : 0);
+    const semaineFin = semaineDebut + p.n - 1;
+
+    const piste = segmentArc(debutUtile, finUtile, circonference);
+    if (piste) {
+      const label = `${p.label} — semaine${p.n > 1 ? "s" : ""} ${semaineDebut}${p.n > 1 ? `-${semaineFin}` : ""}`;
+      pistes.push(`
+        <circle class="chart-mark" tabindex="0" role="img" aria-label="${escapeHtml(label)}"
+          data-tip-label="${escapeHtml(p.label)}" data-tip-value="${p.n} semaine${p.n > 1 ? "s" : ""}" data-tip-color="var(${p.colorVar})"
+          cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(${p.colorVar})" stroke-width="${epaisseur}" opacity="0.28"
+          stroke-dasharray="${piste.longueur.toFixed(2)} ${(circonference - piste.longueur).toFixed(2)}"
+          stroke-dashoffset="${(-piste.decalage).toFixed(2)}"
+          transform="rotate(-90 ${cx} ${cy})" />`);
+    }
+
+    const rempli = segmentArc(debutUtile, Math.min(finUtile, angleFin), circonference);
+    if (rempli) {
+      remplis.push(`
+        <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(${p.colorVar})" stroke-width="${epaisseur}"
+          stroke-dasharray="${rempli.longueur.toFixed(2)} ${(circonference - rempli.longueur).toFixed(2)}"
+          stroke-dashoffset="${(-rempli.decalage).toFixed(2)}"
+          transform="rotate(-90 ${cx} ${cy})" style="pointer-events:none;" />`);
+    }
+
+    cumAngle = fin;
+    semaineDebut = semaineFin + 1;
+  }
+
+  const angleRad = ((angleFin - 90) * Math.PI) / 180;
+  const mx = cx + r * Math.cos(angleRad);
+  const my = cy + r * Math.sin(angleRad);
+
   return `
-    <svg class="elevation-bar" viewBox="0 0 400 36" preserveAspectRatio="none" role="img" aria-label="Progression ${Math.round(clamped)}%">
-      <path class="eb-track" d="${trackPath}" />
-      <path class="eb-fill" id="${id}" d="${trackPath}" style="--eb-length:${length}; --eb-offset:${offset};" />
+    <svg viewBox="0 0 ${size} ${size}" width="100%" style="height:auto; display:block; max-width:${size + 20}px; margin:0 auto;" preserveAspectRatio="xMidYMid meet">
+      ${pistes.join("")}
+      ${remplis.join("")}
+      <circle cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" r="6" fill="var(--color-text)" stroke="var(--color-surface)" stroke-width="2" />
+      ${centreValeur ? `<text x="${cx}" y="${cy - 6}" font-size="30" font-weight="700" text-anchor="middle" fill="var(--color-text)">${escapeHtml(centreValeur)}</text>` : ""}
+      ${centreLabel ? `<text x="${cx}" y="${cy + 16}" font-size="11" text-anchor="middle" fill="var(--color-text-muted)">${escapeHtml(centreLabel)}</text>` : ""}
+      ${centreSous ? `<text x="${cx}" y="${cy + 32}" font-size="9" text-anchor="middle" fill="var(--color-text-muted)">${escapeHtml(centreSous)}</text>` : ""}
     </svg>`;
 }
 

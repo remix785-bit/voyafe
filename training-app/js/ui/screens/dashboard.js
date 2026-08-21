@@ -1,6 +1,6 @@
 import * as store from "../../store.js";
 import {
-  ElevationBar,
+  CountdownRing,
   LoadGauge,
   SessionCard,
   WeekStrip,
@@ -114,11 +114,15 @@ export async function render(container) {
       </div>
 
       <div class="card">
-        <div class="card__header"><h2>Échéance</h2><span class="data">${jours} j</span></div>
-        ${ElevationBar(pctProgression)}
-        <p class="muted" style="margin-top:8px;">Semaine ${semaineActuelle.numero}/${semainesTotal} — phase ${semaineActuelle.phase}${semaineActuelle.statut === "decharge" ? " (décharge)" : ""}</p>
-        ${WeekStrip(plan.semaines, semaineActuelle.numero)}
-        ${plan.distanceObjectifM && plan.tempsObjectifS ? `<p class="row" style="margin-top:8px;"><span class="data">${(plan.distanceObjectifM / 1000).toFixed(1)} km</span><span class="muted">en</span><span class="data">${secondesVersLabel(plan.tempsObjectifS)}</span><span class="muted">— allure objectif</span><span class="data">${formatPace(plan.objectifPaceMinParKm)}</span></p>` : ""}
+        <h2>Échéance</h2>
+        ${CountdownRing(plan.macrocycle, pctProgression, {
+          centreValeur: `${jours}`,
+          centreLabel: jours > 1 ? "jours restants" : "jour restant",
+          centreSous: new Date(plan.dateEcheance).toLocaleDateString("fr-FR", { day: "numeric", month: "short" }),
+        })}
+        <p class="muted" style="text-align:center; margin-top:4px;">Semaine ${semaineActuelle.numero}/${semainesTotal} — phase ${semaineActuelle.phase}${semaineActuelle.statut === "decharge" ? " (décharge)" : ""}</p>
+        ${plan.distanceObjectifM && plan.tempsObjectifS ? `<p class="row" style="justify-content:center; margin-top:8px;"><span class="data">${(plan.distanceObjectifM / 1000).toFixed(1)} km</span><span class="muted">en</span><span class="data">${secondesVersLabel(plan.tempsObjectifS)}</span><span class="muted">— allure objectif</span><span class="data">${formatPace(plan.objectifPaceMinParKm)}</span></p>` : ""}
+        <div style="margin-top:16px;">${WeekStrip(plan.semaines, semaineActuelle.numero)}</div>
       </div>
 
       <div class="card">

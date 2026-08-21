@@ -377,37 +377,6 @@ textarea {
   opacity: 0.75;
 }
 
-/* ---------- ElevationBar (signature) ----------
-   Barre de progression tracée en profil de relief plutôt qu'en rectangle plein. */
-
-.elevation-bar {
-  width: 100%;
-  height: 36px;
-  display: block;
-}
-
-.elevation-bar path.eb-track {
-  fill: none;
-  stroke: var(--color-border);
-  stroke-width: 2;
-}
-
-.elevation-bar path.eb-fill {
-  fill: none;
-  stroke: var(--color-accent-strong);
-  stroke-width: 3;
-  stroke-linecap: round;
-  stroke-dasharray: var(--eb-length, 1000);
-  stroke-dashoffset: var(--eb-offset, 1000);
-  transition: stroke-dashoffset 0.6s ease;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .elevation-bar path.eb-fill {
-    transition: none;
-  }
-}
-
 /* ---------- LoadGauge (ACWR/EWMA) ---------- */
 
 .load-gauge {
