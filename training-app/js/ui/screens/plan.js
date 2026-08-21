@@ -47,7 +47,7 @@ export async function render(container, params) {
 
       <div class="card">
         <h2>Zones d'entraînement</h2>
-        ${ZoneLegend()}
+        ${ZoneLegend(plan.profilCourant.vdot)}
       </div>
     </div>`;
 

@@ -2,7 +2,7 @@
 // Fonctions de rendu (chaînes HTML) + petites classes pour les composants
 // interactifs (TrainingTimer, QuickLog). Pas de framework : re-rendu ciblé.
 
-import { formatPace, ZONES } from "../../js/engines/vdot.js";
+import { formatPace, paceZonesForVdot, ZONES } from "../../js/engines/vdot.js";
 
 export function escapeHtml(str) {
   return String(str ?? "").replace(/[&<>"']/g, (c) => ({
@@ -24,13 +24,24 @@ export function ZoneBadge(zone) {
 
 /**
  * ZoneLegend — rappel permanent (pas seulement au survol, utile sur mobile)
- * de ce que signifie chaque lettre de zone E/M/T/I/R.
+ * de ce que signifie chaque lettre de zone E/M/T/I/R, avec sa fourchette
+ * d'allure rapide–cible quand un VDOT est fourni.
+ * @param {number} [vdot] optionnel — sans lui, affiche juste badge + nom (compat)
  */
-export function ZoneLegend() {
+export function ZoneLegend(vdot) {
+  const zones = vdot != null ? paceZonesForVdot(vdot) : null;
   const rows = Object.entries(ZONES)
-    .map(([zone, def]) => `<div class="row"><span class="zone-badge zone-badge--${zone}">${zone}</span><span class="muted">${escapeHtml(def.label)}</span></div>`)
+    .map(([zone, def]) => {
+      const fourchette = zones?.[zone] ? formatFourchettePace(zones[zone].fast, zones[zone].target) : "";
+      return `
+      <div style="display:grid; grid-template-columns:auto 1fr auto; align-items:center; column-gap:8px;">
+        <span class="zone-badge zone-badge--${zone}">${zone}</span>
+        <span class="muted">${escapeHtml(def.label)}</span>
+        <span class="data" style="white-space:nowrap;">${fourchette}</span>
+      </div>`;
+    })
     .join("");
-  return `<div class="stack" style="gap:6px;">${rows}</div>`;
+  return `<div class="stack" style="gap:8px;">${rows}</div>`;
 }
 
 /**

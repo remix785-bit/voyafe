@@ -224,7 +224,7 @@ export async function render(container) {
 
       <div class="card">
         <h2>Zones d'entraînement</h2>
-        ${ZoneLegend()}
+        ${ZoneLegend(vdotActuel)}
       </div>
     </div>`;
 
