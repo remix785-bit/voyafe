@@ -51,6 +51,28 @@ test("appliquerPlafondsHebdo — écrête le volume T au-delà de 10% du volume 
   assert.ok(t.volumeSeanceMin < 40);
 });
 
+test("appliquerPlafondsHebdo — quand le volume d'une séance à répétitions est écrêté, sa structure précise (structureSeance.js) est re-résolue en cohérence, pas figée sur l'ancien volume", () => {
+  const seanceInterval = instancierSeance(
+    {
+      zoneDaniels: "I",
+      discipline: "route",
+      corpsDeSeance: { dureeMin: [40, 56], type: "repetitions", repDureeMinRange: [3, 5], nbRepsRange: [4, 6], ratioEffortRecup: "1:1", recupLabel: "trot" },
+    },
+    { allures: { I: { target: 4, fast: 3.8 } } },
+    { numero: 1, phase: "developpement", statut: "normale" }
+  );
+  assert.equal(seanceInterval.volumeSeanceMin, 48); // (40+56)/2, pas de progression appliquée (contexte null)
+  assert.equal(seanceInterval.structureDetaillee.format, "6 × 4 min — récup 4 min trot"); // round(48/8)=6, plafond haut de [4,6]
+
+  // Volume hebdo dominé par une grosse sortie E -> I dépasse 8% et se fait écrêter.
+  const seances = [{ zoneDaniels: "E", volumeSeanceMin: 352 }, seanceInterval];
+  const [, iEcretee] = appliquerPlafondsHebdo(seances);
+  assert.ok(iEcretee.avertissementPlafond, "le plafond doit s'être déclenché");
+  assert.equal(iEcretee.volumeSeanceMin, 32); // 400 * 8%
+  assert.equal(iEcretee.structureDetaillee.format, "4 × 4 min — récup 4 min trot"); // round(32/8)=4, re-résolu sur le nouveau volume
+  assert.notEqual(iEcretee.structureDetaillee.format, seanceInterval.structureDetaillee.format, "le format doit refléter le volume réduit, pas rester celui d'avant écrêtage");
+});
+
 test("genererPlanComplet — pipeline complet produit un plan daté cohérent (route, 16 semaines)", () => {
   const dateDebut = new Date();
   const dateEcheance = new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000);
@@ -315,6 +337,31 @@ test("composerSemaine — Développement route : T chaque semaine, I/R en altern
   assert.ok(!semaine1.some((s) => s.catalogueId === "route_interval"));
   assert.ok(semaine2.some((s) => s.catalogueId === "route_interval"), "semaine paire -> I");
   assert.ok(!semaine2.some((s) => s.catalogueId === "route_repetition"));
+});
+
+test("genererPlanComplet — les séances à répétitions (T/I/R) du catalogue réel sortent avec UNE prescription précise, jamais une fourchette ni un choix « OU »", () => {
+  const dateDebut = new Date();
+  const dateEcheance = new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000);
+  const plan = genererPlanComplet({
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: dateEcheance.toISOString(),
+    nbSeancesHebdo: 5,
+    chargeHebdoMoyenneActuelle: "moderee",
+  });
+  const seancesQualite = plan.semaines
+    .flatMap((s) => s.seances)
+    .filter((s) => ["route_seuil", "route_interval", "route_repetition"].includes(s.templateId));
+  assert.ok(seancesQualite.length > 0, "le plan doit contenir des séances T/I/R (phase Développement)");
+  for (const s of seancesQualite) {
+    const format = s.structureDetaillee.format;
+    assert.ok(!/ OU /.test(format), `pas de choix « OU » attendu, obtenu : "${format}"`);
+    assert.ok(!/\d+\s*-\s*\d+/.test(format), `pas de fourchette numérique attendue, obtenu : "${format}"`);
+    if (s.templateId !== "route_seuil") {
+      assert.ok(/^\d+ ×/.test(format), `un nombre entier de répétitions est attendu en tête, obtenu : "${format}"`);
+    }
+  }
 });
 
 test("calculerFacteurProgression — croît de 0.75x à 1.15x au sein d'une phase", () => {

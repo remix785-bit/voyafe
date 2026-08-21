@@ -2,7 +2,7 @@
 // sur le terrain (Partie III §6). Pas de dépendance Workbox (pas d'accès au
 // registre npm dans l'environnement de build) — implémentation manuelle minimale.
 
-const CACHE_VERSION = "v5";
+const CACHE_VERSION = "v6";
 const CACHE_NAME = `voyafe-training-${CACHE_VERSION}`;
 
 const APP_SHELL = [
@@ -33,6 +33,7 @@ const APP_SHELL = [
   "./js/engines/performance.js",
   "./js/engines/planGenerator.js",
   "./js/engines/reminder.js",
+  "./js/engines/structureSeance.js",
   "./js/engines/vdot.js",
   "./js/ui/components.js",
   "./js/ui/screens/dashboard.js",

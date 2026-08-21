@@ -3,6 +3,7 @@
 
 import { vdotFromPerformance, paceZonesForVdot } from "./vdot.js";
 import { gapFactor, flatEquivalentToRealPace } from "./gap.js";
+import { resoudreStructureDetaillee } from "./structureSeance.js";
 import { SESSIONS_ROUTE } from "../catalog/sessionsRoute.js";
 import { SESSIONS_TRAIL } from "../catalog/sessionsTrail.js";
 import { renfoPourPhase } from "../catalog/renfo.js";
@@ -418,7 +419,7 @@ export function instancierSeance(
     allureBlocObjectifMinParKm,
     volumeSeanceMin,
     distanceKm,
-    structureDetaillee: template.corpsDeSeance,
+    structureDetaillee: resoudreStructureDetaillee(template.corpsDeSeance, volumeSeanceMin, allureCible),
     protocoleEchauffement: template.protocoleEchauffement ?? false,
     precautions: [template.precautions, gapWarning].filter(Boolean),
     statut: "a_venir",
@@ -442,6 +443,13 @@ export function appliquerPlafondsHebdo(seances) {
         ...s,
         volumeSeanceMin,
         distanceKm: s.allureCibleMinParKm ? volumeSeanceMin / s.allureCibleMinParKm : s.distanceKm,
+        // Le volume vient de changer : une structure à répétitions déjà résolue
+        // (4 × 4 min...) doit être re-résolue sur ce nouveau volume, sous peine
+        // d'afficher une prescription précise mais incohérente avec la durée
+        // réelle de la séance écrêtée.
+        structureDetaillee: s.structureDetaillee
+          ? resoudreStructureDetaillee(s.structureDetaillee, volumeSeanceMin, s.allureCibleMinParKm)
+          : s.structureDetaillee,
         avertissementPlafond: `Volume écrêté au plafond hebdo ${zoneCibleLabel(s.zoneDaniels)} (${Math.round(plafond * 100)}%) — excédent reconverti en E.`,
       };
     }
@@ -474,6 +482,11 @@ export function plafonnerVolumeHebdoTotal(seances, volumeHebdoMaxMin) {
       ...s,
       volumeSeanceMin,
       distanceKm: s.allureCibleMinParKm ? volumeSeanceMin / s.allureCibleMinParKm : s.distanceKm != null ? s.distanceKm * ratio : null,
+      // Même raison qu'au-dessus (appliquerPlafondsHebdo) : re-résoudre la
+      // structure à répétitions sur le volume réduit pour rester cohérent.
+      structureDetaillee: s.structureDetaillee
+        ? resoudreStructureDetaillee(s.structureDetaillee, volumeSeanceMin, s.allureCibleMinParKm)
+        : s.structureDetaillee,
       avertissementVolumeHebdo: `Volume réduit pour respecter ton volume hebdo maximum disponible (${(volumeHebdoMaxMin / 60).toFixed(1)} h).`,
     };
   });

@@ -11,9 +11,13 @@ export const SESSIONS_TRAIL = [
     zoneDaniels: "I",
     rpe: "8-9",
     corpsDeSeance: {
-      format: "8-12 × 1-2 min montée forte pente, récup descente trot/marche",
+      type: "repetitions",
+      repDureeMinRange: [1, 2],
+      nbRepsRange: [8, 12],
+      contexteLabel: "montée forte pente",
       contrainteVolume: "≤8% du volume hebdo (règle I-pace)",
-      ratioEffortRecup: "1:1 approx (descente active)",
+      ratioEffortRecup: "1:1",
+      recupLabel: "descente active",
     },
     frequenceRecommandee: "1×/semaine en alternance avec côtes longues (phase Développement)",
     precautions: null,
@@ -28,9 +32,13 @@ export const SESSIONS_TRAIL = [
     zoneDaniels: "T",
     rpe: "6-7",
     corpsDeSeance: {
-      format: "3-5 × 6-10 min montée pente modérée, récup descente active",
+      type: "repetitions",
+      repDureeMinRange: [6, 10],
+      nbRepsRange: [3, 5],
+      contexteLabel: "montée pente modérée",
       contrainteVolume: "≤10% du volume hebdo",
-      ratioEffortRecup: "5:1 approx",
+      ratioEffortRecup: "5:1",
+      recupLabel: "descente active",
     },
     frequenceRecommandee: "1×/semaine en alternance avec côtes courtes (phase Développement)",
     precautions: null,
@@ -63,13 +71,16 @@ export const SESSIONS_TRAIL = [
     zoneDaniels: "E",
     rpe: "4-6",
     corpsDeSeance: {
-      format:
-        "Première exposition courte (5-8 min, pente modérée) 3-4 semaines avant d'intensifier, puis 5-8 × 3-5 min segments techniques, volume croissant",
+      type: "repetitions",
+      repDureeMinRange: [3, 5],
+      nbRepsRange: [5, 8],
+      contexteLabel: "segments techniques en descente",
       contrainteVolume: "Volume croissant progressivement",
       ratioEffortRecup: "n/a",
     },
     frequenceRecommandee: "1×/2 semaines en phase Base, jusqu'à 1×/semaine en Développement",
-    precautions: "Jamais en fin de bloc avant une sortie longue ou une course.",
+    precautions:
+      "Premières séances du bloc en pente modérée et volume réduit (bas de fourchette), avant d'intensifier. Jamais en fin de bloc avant une sortie longue ou une course.",
     gapAjuste: false, // piloté par RPE/tolérance, pas par l'allure
   },
   {

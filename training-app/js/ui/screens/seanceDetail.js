@@ -116,8 +116,13 @@ function renderProgrammeDuJour(seance) {
   const allure = seance.allureCibleMinParKm
     ? ` — à <span class="data">${formatFourchettePace(seance.allureRapideMinParKm, seance.allureCibleMinParKm)}</span>`
     : "";
+  // Pour une séance à répétitions résolue (structureSeance.js), la
+  // récupération précise est déjà intégrée au texte de `format` ci-dessus —
+  // afficher aussi le ratio brut (ex. "5:1") ferait doublon.
   const recup =
-    seance.structureDetaillee?.ratioEffortRecup && seance.structureDetaillee.ratioEffortRecup !== "n/a"
+    seance.structureDetaillee?.type !== "repetitions" &&
+    seance.structureDetaillee?.ratioEffortRecup &&
+    seance.structureDetaillee.ratioEffortRecup !== "n/a"
       ? ` (récup ${escapeAttr(seance.structureDetaillee.ratioEffortRecup)})`
       : "";
   const blocObjectif = seance.allureBlocObjectifMinParKm
