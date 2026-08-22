@@ -547,8 +547,12 @@ export function QuickLogScale(name, value, min = 1, max = 10) {
 
 /** Formate un temps en minutes (décimal) en "h:mm". */
 export function formatDureeHM(minutes) {
-  const h = Math.floor(minutes / 60);
-  const m = Math.round(minutes % 60);
+  // Arrondit d'abord en secondes entières avant de dériver h/m : arrondir
+  // minutes%60 directement peut afficher "00:60" au lieu de "01:00" quand
+  // le cumul flotte tout près d'un multiple de 60 (ex. 59.999999...).
+  const totalSec = Math.round(minutes * 60);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 

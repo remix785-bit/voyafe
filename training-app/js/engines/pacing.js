@@ -2,7 +2,7 @@
 // Stratégie : effort métabolique constant GAP-ajusté (polynôme de Minetti).
 // Import/traitement GPX entièrement côté client (pas de backend, cf. Partie III §3).
 
-import { minettiEnergyCost } from "./gap.js";
+import { FLAT_ENERGY_COST, facteurGapPlafonne } from "./gap.js";
 import { adjustPaceForAltitude } from "./vdot.js";
 
 const EARTH_RADIUS_M = 6371000;
@@ -189,15 +189,24 @@ export function profilParcoursParDefaut(distanceM) {
  * @param {{distance:number, penteMoyenne:number}[]} segments
  * @param {number} tempsCibleSecondes temps cible total de la course
  * @param {{altitudeM?:number, acclimatation?:string}} altitudeOptions correction d'altitude optionnelle (Partie I §3.1)
- * @returns {{segments: Array, puissanceMetabolique:number}}
+ * @param {number} facteurGapCalibre calibration personnelle (Profil du plan actif, 1 = non calibré) — voir gap.js
+ * @returns {{segments: Array, puissanceMetabolique:number, plafonnageApplique:boolean}}
  */
-export function calculerPacingEffortConstant(segments, tempsCibleSecondes, altitudeOptions = {}) {
+export function calculerPacingEffortConstant(segments, tempsCibleSecondes, altitudeOptions = {}, facteurGapCalibre = 1) {
   const tempsCibleMin = tempsCibleSecondes / 60;
 
   // P = Σ[dᵢ × EC(iᵢ)] / temps_cible   (dᵢ en km pour une puissance en J/kg/km, indifférent tant que cohérent)
+  // Le plancher de facteurGapPlafonne (jamais plus rapide que ~11% de mieux
+  // que l'effort plat, cf. gap.js) est appliqué AU COÛT, pas après-coup sur
+  // l'allure : la puissance cible est donc recalculée sur des coûts déjà
+  // réalistes, et la solution reste fermée (le temps total reste exactement
+  // égal à tempsCibleSecondes, sans itération de rééquilibrage nécessaire).
   let sommeCoutTotal = 0;
+  let plafonnageApplique = false;
   const ecParSegment = segments.map((s) => {
-    const ec = minettiEnergyCost(s.penteMoyenne);
+    const { factor, plafonne } = facteurGapPlafonne(s.penteMoyenne, facteurGapCalibre);
+    if (plafonne) plafonnageApplique = true;
+    const ec = FLAT_ENERGY_COST * factor;
     sommeCoutTotal += (s.distance / 1000) * ec; // distance en km
     return ec;
   });
@@ -230,7 +239,7 @@ export function calculerPacingEffortConstant(segments, tempsCibleSecondes, altit
     };
   });
 
-  return { segments: segmentsPacing, puissanceMetabolique };
+  return { segments: segmentsPacing, puissanceMetabolique, plafonnageApplique };
 }
 
 /**

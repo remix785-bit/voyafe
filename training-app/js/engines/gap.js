@@ -37,6 +37,41 @@ export function gapFactor(slope) {
 export const ECCENTRIC_LIMIT_SLOPE = -0.15;
 
 /**
+ * Plancher de sécurité pour le pacing course (jour de course, pas la
+ * génération de séances d'entraînement) : même sur une descente où Minetti
+ * prédit un coût minimal (dès -8/-10%, bien avant le seuil de dommage
+ * excentrique ci-dessus), on ne prescrit jamais une allure plus de ~11%
+ * plus rapide que l'allure "effort plat" équivalente. Sans ce plancher, le
+ * modèle pur peut suggérer des allures réellement intenables (ex. 3:40/km
+ * pour un objectif marathon à 4:58/km de moyenne) — la technicité du
+ * terrain, le freinage excentrique et la sécurité limitent en pratique le
+ * gain de vitesse en descente bien plus que le coût métabolique seul.
+ * Valeur choisie par prudence (pas dérivée de Minetti) : conservatrice
+ * plutôt qu'optimiste, ajustable si besoin. Le coût Minetti chute vite dès
+ * les pentes légères (ex. déjà ~0.85 à -3%) : ce plancher laisse les
+ * descentes très douces (jusqu'à environ -3%) suivre le modèle brut, et
+ * plafonne tout ce qui va au-delà à un gain de vitesse constant et réaliste.
+ */
+export const DOWNHILL_BOOST_FLOOR = 0.85;
+
+/**
+ * Facteur GAP calibré (même mise à l'échelle que flatEquivalentToRealPace :
+ * l'écart au plat, pas le facteur brut, pour que facteurCalibre=1 reste
+ * neutre) ET plafonné à DOWNHILL_BOOST_FLOOR en descente, pour le pacing de
+ * course. Renvoie aussi si le plafond a effectivement été appliqué, pour
+ * que l'UI puisse prévenir le coureur que l'allure a été volontairement
+ * modérée par rapport au modèle Minetti pur.
+ * @param {number} slope pente du segment (fraction décimale)
+ * @param {number} facteurCalibre calibration personnelle (1 = non calibré)
+ */
+export function facteurGapPlafonne(slope, facteurCalibre = 1) {
+  const factorBrut = gapFactor(slope);
+  const factorCalibre = 1 + (factorBrut - 1) * facteurCalibre;
+  const factor = Math.max(factorCalibre, DOWNHILL_BOOST_FLOOR);
+  return { factor, plafonne: factor > factorCalibre };
+}
+
+/**
  * Convertit une allure réelle observée sur un segment en pente en allure
  * équivalente "effort plat" (pour analyser une séance réalisée en trail).
  * @param {number} paceMinPerKm allure réelle sur le segment

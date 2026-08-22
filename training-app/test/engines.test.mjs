@@ -13,6 +13,8 @@ import {
   gapFactor,
   flatEquivalentToRealPace,
   realPaceToFlatEquivalent,
+  facteurGapPlafonne,
+  DOWNHILL_BOOST_FLOOR,
 } from "../js/engines/gap.js";
 import { acwr, ewmaAcwr, acwrZone, loadSummary } from "../js/engines/load.js";
 import {
@@ -126,6 +128,59 @@ test("GAP — facteur de calibration <1 atténue l'écart au plat, et à pente n
   assert.ok(attenue > flatPace, "reste tout de même plus lent qu'à plat");
   // pente nulle -> gapFactor(0) = 1 -> l'écart (facteur-1) est nul quel que soit facteurCalibre
   assert.equal(flatEquivalentToRealPace(flatPace, 0, 1.8).paceMinPerKm, flatPace);
+});
+
+test("facteurGapPlafonne — pente forte en montée n'est jamais plafonnée (le plancher ne concerne que la descente)", () => {
+  const { factor, plafonne } = facteurGapPlafonne(0.15);
+  assert.equal(plafonne, false);
+  assert.equal(factor, gapFactor(0.15));
+});
+
+test("facteurGapPlafonne — descente économique (-8%) : le modèle brut dépasse le plancher, l'allure est plafonnée", () => {
+  const brut = gapFactor(-0.08);
+  assert.ok(brut < DOWNHILL_BOOST_FLOOR, "prérequis du test : -8% doit dépasser le plancher pour être un cas utile");
+  const { factor, plafonne } = facteurGapPlafonne(-0.08);
+  assert.equal(plafonne, true);
+  assert.equal(factor, DOWNHILL_BOOST_FLOOR);
+});
+
+test("facteurGapPlafonne — descente légère qui ne dépasse pas le plancher n'est pas plafonnée", () => {
+  const { factor, plafonne } = facteurGapPlafonne(-0.02);
+  assert.equal(plafonne, false);
+  assert.equal(factor, gapFactor(-0.02));
+});
+
+test("facteurGapPlafonne — le plancher s'applique même avec une calibration qui atténuerait normalement l'écart (sécurité indépendante de la calibration personnelle)", () => {
+  // Pente très raide + calibration à moitié atténuée : même en réduisant
+  // de moitié l'écart au plat, le résultat reste sous le plancher.
+  const brutCalibre = 1 + (gapFactor(-0.25) - 1) * 0.5;
+  assert.ok(brutCalibre < DOWNHILL_BOOST_FLOOR, "prérequis du test : même calibré à 0.5, -25% doit dépasser le plancher");
+  const { factor, plafonne } = facteurGapPlafonne(-0.25, 0.5);
+  assert.equal(plafonne, true);
+  assert.equal(factor, DOWNHILL_BOOST_FLOOR);
+});
+
+test("Pacing — sur une descente économique non plafonnée manuellement, calculerPacingEffortConstant ne prescrit jamais une allure plus de ~11% plus rapide que l'allure plat globale, et le temps total reste exact malgré le plafond", () => {
+  const segments = [
+    { distance: 10000, penteMoyenne: 0 },
+    { distance: 5000, penteMoyenne: -0.1 }, // descente bien au-delà du plancher en brut
+  ];
+  const tempsCibleSec = 60 * 60; // 1h sur 15km, ~4:00/km moyen
+  const { segments: out, plafonnageApplique, puissanceMetabolique } = calculerPacingEffortConstant(segments, tempsCibleSec);
+  assert.equal(plafonnageApplique, true);
+  // Allure "plat pur" équivalente à la puissance calibrée (pente 0 -> ec = FLAT_ENERGY_COST)
+  const alluresPlat = out[0].allureMinParKm;
+  const alluresDescente = out[1].allureMinParKm;
+  assert.ok(alluresDescente >= alluresPlat * DOWNHILL_BOOST_FLOOR - 1e-9, `allure descente ${alluresDescente} ne doit pas dépasser ${DOWNHILL_BOOST_FLOOR * 100}% de la vitesse plat (allure ${alluresPlat})`);
+  const dernierCumule = out[out.length - 1].tempsCumuleMin;
+  assert.ok(Math.abs(dernierCumule - 60) < 0.01, `temps cumulé final=${dernierCumule}, attendu 60 malgré le plafonnage`);
+  assert.ok(puissanceMetabolique > 0);
+});
+
+test("Pacing — sans descente marquée, aucun plafonnage n'est signalé", () => {
+  const segments = [{ distance: 5000, penteMoyenne: 0.02 }, { distance: 5000, penteMoyenne: -0.015 }];
+  const { plafonnageApplique } = calculerPacingEffortConstant(segments, 1800);
+  assert.equal(plafonnageApplique, false);
 });
 
 test("ACWR — zone verte entre 0.8 et 1.3", () => {

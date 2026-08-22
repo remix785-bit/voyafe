@@ -73,6 +73,7 @@ export async function render(container) {
           <button class="btn btn--sm" id="print-pacing">Imprimer / exporter</button>
         </div>
         <div id="profil-course-chart"></div>
+        <p id="pacing-plafond-note" class="muted" style="display:none;">Certaines descentes ont été plafonnées à une allure réaliste (jamais plus de ~18% plus rapide que ton allure à plat) — le modèle Minetti pur suggérerait des allures intenables sur ces portions ; le temps a été redistribué sur le reste du parcours pour conserver ton objectif exact.</p>
         <div id="pacing-table"></div>
       </div>
     </div>`;
@@ -106,10 +107,12 @@ export async function render(container) {
 
     const distanceTotaleM = distanceKm * 1000;
     const profilParcours = profilParcoursCourant ?? profilParcoursParDefaut(distanceTotaleM);
-    const { segments } = calculerPacingEffortConstant(
+    const facteurGapCalibre = store.planActif()?.profilCourant?.facteurGapCalibre ?? 1;
+    const { segments, plafonnageApplique } = calculerPacingEffortConstant(
       profilParcours.segments,
       tempsCibleS,
-      altitudeM > 0 ? { altitudeM, acclimatation } : {}
+      altitudeM > 0 ? { altitudeM, acclimatation } : {},
+      facteurGapCalibre
     );
     // Le pacing est calculé par segment à pente homogène (précision GAP), mais
     // affiché par km — ré-agrégation nécessaire pour une fiche lisible.
@@ -149,6 +152,7 @@ export async function render(container) {
       timeline
     );
     container.querySelector("#pacing-table").innerHTML = PacingTimeline(timeline);
+    container.querySelector("#pacing-plafond-note").style.display = plafonnageApplique ? "block" : "none";
   });
 
   container.querySelector("#print-pacing").addEventListener("click", () => window.print());
