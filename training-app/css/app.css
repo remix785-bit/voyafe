@@ -618,6 +618,24 @@ textarea {
   color: var(--paper);
 }
 
+/* ---------- Carte du parcours (Leaflet / RouteMapFallback) ---------- */
+
+.route-map {
+  height: 320px;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  margin-bottom: var(--space-2);
+  background: var(--color-bg-elevated);
+}
+
+/* Leaflet applique ses propres styles de contrôles (zoom, attribution) —
+   on ne touche qu'à l'habillage pour rester cohérent avec les cartes de
+   l'appli (rayon, police), sans casser le fonctionnement interne de Leaflet. */
+.route-map .leaflet-control-attribution {
+  font-family: var(--font-body);
+  font-size: 0.65rem;
+}
+
 /* ---------- PacingTimeline ---------- */
 
 .pacing-timeline {

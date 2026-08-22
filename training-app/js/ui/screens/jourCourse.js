@@ -10,9 +10,85 @@ import {
   agregerPacingParKm,
   fusionnerNutritionPacing,
 } from "../../engines/pacing.js";
-import { PacingTimeline, ProfilCourseChart } from "../components.js";
+import { latLonADistance } from "../../engines/geoMap.js";
+import { PacingTimeline, ProfilCourseChart, RouteMapFallback, formatDureeHM } from "../components.js";
 
 let profilParcoursCourant = null;
+let mapInstance = null;
+
+/**
+ * Carte du parcours : vraie carte (Leaflet + tuiles OpenStreetMap/CartoDB,
+ * chargées en CDN, cf. index.html) quand elle est disponible, sinon repli
+ * automatique sur RouteMapFallback (tracé GPS exact, sans fond de carte,
+ * 100% local) — pas de connexion, CDN bloqué, ou pas de GPX importé (mode
+ * dégradé, pas de coordonnées GPS à afficher).
+ */
+function initierCarte(container, pointsProfil, reperesKm, reperesSignificatifs, timeline) {
+  const mapEl = container.querySelector("#route-map");
+  if (mapInstance) {
+    mapInstance.remove();
+    mapInstance = null;
+  }
+
+  if (typeof window.L === "undefined" || pointsProfil[0]?.lat == null) {
+    mapEl.innerHTML = RouteMapFallback(pointsProfil, reperesKm, reperesSignificatifs, timeline);
+    return;
+  }
+  mapEl.innerHTML = "";
+
+  const themeSombre = document.documentElement.getAttribute("data-theme") !== "light";
+  const tileUrl = themeSombre
+    ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+    : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const attribution = themeSombre
+    ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+    : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+
+  const map = window.L.map(mapEl, { scrollWheelZoom: false });
+  window.L.tileLayer(tileUrl, { attribution, maxZoom: 18 }).addTo(map);
+
+  const latlngs = pointsProfil.map((p) => [p.lat, p.lon]);
+  const route = window.L.polyline(latlngs, { color: "var(--color-accent-strong)", weight: 4, opacity: 0.9, lineJoin: "round" }).addTo(map);
+  map.fitBounds(route.getBounds(), { padding: [24, 24] });
+
+  const marqueur = (latlng, color, tooltip) =>
+    window.L.circleMarker(latlng, { radius: 6, color: "var(--color-surface)", weight: 2, fillColor: color, fillOpacity: 1 })
+      .bindTooltip(tooltip, { direction: "top" })
+      .addTo(map);
+
+  marqueur(latlngs[0], "var(--color-structural-strong)", "Départ");
+  marqueur(latlngs[latlngs.length - 1], "var(--color-functional-strong)", "Arrivée");
+
+  for (const r of reperesKm) {
+    const ll = latLonADistance(pointsProfil, r.distanceM);
+    if (ll) window.L.circleMarker([ll.lat, ll.lon], { radius: 4, color: "var(--color-surface)", weight: 1.5, fillColor: "var(--color-accent-strong)", fillOpacity: 1 })
+      .bindTooltip(`${r.label} km — ${formatDureeHM(r.tempsCumuleMin)}`, { direction: "top" })
+      .addTo(map);
+  }
+
+  for (const r of reperesSignificatifs) {
+    const ll = latLonADistance(pointsProfil, r.distanceM);
+    if (!ll) continue;
+    const estSommet = r.type === "sommet";
+    marqueur(
+      [ll.lat, ll.lon],
+      estSommet ? "var(--color-danger, #d9534f)" : "var(--color-accent, #4a90d9)",
+      `${estSommet ? "▲" : "▼"} ${Math.round(r.altitude)} m — ${formatDureeHM(r.tempsCumuleMin)}`
+    );
+  }
+
+  for (const t of timeline) {
+    if (!t.actionNutrition) continue;
+    const ll = latLonADistance(pointsProfil, t.km * 1000);
+    if (ll) marqueur([ll.lat, ll.lon], "var(--color-warning, #e0a800)", t.actionNutrition);
+  }
+
+  mapInstance = map;
+  // #pacing-result vient de passer de display:none à block juste avant cet
+  // appel : Leaflet a pu mesurer un conteneur de taille nulle au premier
+  // rendu — un invalidateSize() au tick suivant force un recalcul correct.
+  requestAnimationFrame(() => map.invalidateSize());
+}
 
 export async function render(container) {
   const { profil } = store.getState();
@@ -72,6 +148,7 @@ export async function render(container) {
           <h2>Fiche de pacing</h2>
           <button class="btn btn--sm" id="print-pacing">Imprimer / exporter</button>
         </div>
+        <div id="route-map" class="route-map"></div>
         <div id="profil-course-chart"></div>
         <p id="pacing-plafond-note" class="muted" style="display:none;">Certaines descentes ont été plafonnées à une allure réaliste (jamais plus de ~18% plus rapide que ton allure à plat) — le modèle Minetti pur suggérerait des allures intenables sur ces portions ; le temps a été redistribué sur le reste du parcours pour conserver ton objectif exact.</p>
         <div id="pacing-table"></div>
@@ -145,6 +222,7 @@ export async function render(container) {
       : [];
 
     container.querySelector("#pacing-result").style.display = "block";
+    initierCarte(container, pointsProfil, reperesKm, reperesSignificatifs, timeline);
     container.querySelector("#profil-course-chart").innerHTML = ProfilCourseChart(
       pointsProfil,
       reperesKm,

@@ -3,6 +3,7 @@
 // interactifs (TrainingTimer, QuickLog). Pas de framework : re-rendu ciblé.
 
 import { formatPace, paceZonesForVdot, ZONES } from "../../js/engines/vdot.js";
+import { latLonADistance, projeterPlan, arrondirEchelle } from "../../js/engines/geoMap.js";
 
 export function escapeHtml(str) {
   return String(str ?? "").replace(/[&<>"']/g, (c) => ({
@@ -715,4 +716,113 @@ export function ProfilCourseChart(profilPoints, reperesKm, reperesSignificatifs 
       ${ravitosSvg}
     </svg>
     <p class="muted" style="margin-top:4px;">▲ sommet · ▼ creux · point orange = ravitaillement · D+ ${Math.round(altitudes.reduce((acc, _, i) => (i > 0 && altitudes[i] > altitudes[i - 1] ? acc + (altitudes[i] - altitudes[i - 1]) : acc), 0))} m</p>`;
+}
+
+/**
+ * RouteMapFallback — carte schématique du tracé GPS (forme réelle, nord en
+ * haut, échelle) quand Leaflet/les tuiles ne sont pas disponibles (pas de
+ * connexion, ou usage terrain hors-ligne — cf. jourCourse.js). Pas de fond
+ * de carte réel (rues/relief) : uniquement la géométrie exacte du parcours,
+ * projetée localement (geoMap.js) — jamais de distorsion de la forme
+ * (échelle x et y identique, contrairement à ProfilCourseChart qui étire
+ * volontairement l'altitude).
+ * @param {{lat:number, lon:number, distanceCumulee:number}[]} profilPoints
+ * @param {{distanceM:number, label:string}[]} reperesKm
+ * @param {{distanceM:number, altitude:number, type:"sommet"|"creux"}[]} reperesSignificatifs
+ * @param {{km:number, actionNutrition:string|null}[]} ravitosTimeline
+ */
+export function RouteMapFallback(profilPoints, reperesKm = [], reperesSignificatifs = [], ravitosTimeline = []) {
+  if (!profilPoints || profilPoints.length < 2 || profilPoints[0].lat == null) {
+    return `<p class="muted">Carte indisponible — importe un GPX pour voir le tracé (mode dégradé sans GPX : pas de coordonnées GPS).</p>`;
+  }
+
+  const w = 800;
+  const h = 600; // ratio plus proche d'une carte mobile typique que 800:440 (moins de bandes vides autour du tracé projeté)
+  const pad = 44;
+  const plotW = w - pad * 2;
+  const plotH = h - pad * 2;
+
+  const reference = { lat: profilPoints[0].lat, lon: profilPoints[0].lon };
+  const decimes = decimerPoints(profilPoints, 400);
+  const plan = projeterPlan(decimes, reference).map((p) => ({ x: p.x, y: -p.y })); // y inversé : nord = haut
+
+  const minX = Math.min(...plan.map((p) => p.x));
+  const maxX = Math.max(...plan.map((p) => p.x));
+  const minY = Math.min(...plan.map((p) => p.y));
+  const maxY = Math.max(...plan.map((p) => p.y));
+  const largeurM = maxX - minX || 1;
+  const hauteurM = maxY - minY || 1;
+  // Échelle unique en x et y : ne jamais déformer la forme réelle du tracé.
+  const echelle = Math.min(plotW / largeurM, plotH / hauteurM);
+  const offsetX = pad + (plotW - largeurM * echelle) / 2;
+  const offsetY = pad + (plotH - hauteurM * echelle) / 2;
+  const screenX = (x) => offsetX + (x - minX) * echelle;
+  const screenY = (y) => offsetY + (y - minY) * echelle;
+
+  const ligne = plan.map((p) => `${screenX(p.x).toFixed(1)},${screenY(p.y).toFixed(1)}`).join(" ");
+
+  const projeterDistance = (distanceM) => {
+    const ll = latLonADistance(profilPoints, distanceM);
+    const [p] = projeterPlan([ll], reference);
+    return { x: screenX(p.x), y: screenY(-p.y) };
+  };
+
+  const kmSvg = reperesKm
+    .map((r) => {
+      const { x, y } = projeterDistance(r.distanceM);
+      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2" fill="var(--color-text-muted)" />`;
+    })
+    .join("");
+
+  const sigSvg = reperesSignificatifs
+    .map((r) => {
+      const { x, y } = projeterDistance(r.distanceM);
+      const estSommet = r.type === "sommet";
+      return `
+      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="${estSommet ? "var(--color-danger, #d9534f)" : "var(--color-accent, #4a90d9)"}" />
+      <text x="${x.toFixed(1)}" y="${(y - 8).toFixed(1)}" font-size="10" text-anchor="middle" fill="var(--color-text)">${estSommet ? "▲" : "▼"} ${Math.round(r.altitude)}m</text>`;
+    })
+    .join("");
+
+  const ravitoSvg = ravitosTimeline
+    .filter((t) => t.actionNutrition)
+    .map((t) => {
+      const { x, y } = projeterDistance(t.km * 1000);
+      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.5" fill="var(--color-warning, #e0a800)" />`;
+    })
+    .join("");
+
+  const depart = plan[0];
+  const arrivee = plan[plan.length - 1];
+
+  // Barre d'échelle : ~25% de la largeur du tracé, arrondie à une valeur
+  // lisible (1/2/5 × 10ⁿ), en bas à gauche.
+  const echelleValeurM = arrondirEchelle((plotW * 0.25) / echelle);
+  const echelleLongueurPx = echelleValeurM * echelle;
+  const echelleLabel = echelleValeurM >= 1000 ? `${(echelleValeurM / 1000).toFixed(echelleValeurM % 1000 === 0 ? 0 : 1)} km` : `${echelleValeurM} m`;
+  const echelleX = pad;
+  const echelleY = h - 16;
+
+  return `
+    <svg viewBox="0 0 ${w} ${h}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Carte schématique du tracé (mode hors-ligne, sans fond de carte)">
+      <polyline points="${ligne}" fill="none" stroke="var(--color-accent-strong)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />
+      ${kmSvg}
+      ${sigSvg}
+      ${ravitoSvg}
+      <circle cx="${screenX(depart.x).toFixed(1)}" cy="${screenY(depart.y).toFixed(1)}" r="5" fill="var(--color-structural-strong)" stroke="var(--color-surface)" stroke-width="2" />
+      <text x="${screenX(depart.x).toFixed(1)}" y="${(screenY(depart.y) + 18).toFixed(1)}" font-size="10" text-anchor="middle" fill="var(--color-text-muted)">Départ</text>
+      <circle cx="${screenX(arrivee.x).toFixed(1)}" cy="${screenY(arrivee.y).toFixed(1)}" r="5" fill="var(--color-functional-strong)" stroke="var(--color-surface)" stroke-width="2" />
+      <text x="${screenX(arrivee.x).toFixed(1)}" y="${(screenY(arrivee.y) + 18).toFixed(1)}" font-size="10" text-anchor="middle" fill="var(--color-text-muted)">Arrivée</text>
+      <g aria-hidden="true">
+        <polygon points="${w - 34},${20} ${w - 28},${34} ${w - 40},${34}" fill="var(--color-text-muted)" />
+        <text x="${w - 34}" y="${48}" font-size="11" font-weight="700" text-anchor="middle" fill="var(--color-text-muted)">N</text>
+      </g>
+      <g aria-hidden="true">
+        <line x1="${echelleX}" y1="${echelleY}" x2="${(echelleX + echelleLongueurPx).toFixed(1)}" y2="${echelleY}" stroke="var(--color-text-muted)" stroke-width="1.5" />
+        <line x1="${echelleX}" y1="${echelleY - 4}" x2="${echelleX}" y2="${echelleY + 4}" stroke="var(--color-text-muted)" stroke-width="1.5" />
+        <line x1="${(echelleX + echelleLongueurPx).toFixed(1)}" y1="${echelleY - 4}" x2="${(echelleX + echelleLongueurPx).toFixed(1)}" y2="${echelleY + 4}" stroke="var(--color-text-muted)" stroke-width="1.5" />
+        <text x="${(echelleX + echelleLongueurPx / 2).toFixed(1)}" y="${echelleY - 8}" font-size="10" text-anchor="middle" fill="var(--color-text-muted)">${echelleLabel}</text>
+      </g>
+    </svg>
+    <p class="muted" style="margin-top:4px;">Carte schématique (hors-ligne ou fond de carte indisponible) — tracé GPS exact, sans rues ni relief. ▲ sommet · ▼ creux · point orange = ravitaillement.</p>`;
 }
