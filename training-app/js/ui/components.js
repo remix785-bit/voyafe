@@ -632,12 +632,40 @@ export function ProfilCourseChart(profilPoints, reperesKm, reperesSignificatifs 
   const altRange = altMax - altMin || 10;
   const altPad = altRange * 0.15;
 
+  // L'encodage x/y (distance -> position horizontale, altitude -> position
+  // verticale) reste strictement le même qu'en 2D — aucune perspective ni
+  // rotation qui fausserait la lecture du dénivelé ou des repères. Le rendu
+  // "3D" vient d'une extrusion en aplat (ruban de terrain avec une face
+  // d'ombre décalée) et d'un lavis en dégradé, pas d'une déformation des
+  // données : les temps de passage/km et les sommets/creux restent au pixel
+  // près ce qu'ils étaient en 2D.
   const xAt = (d) => padLeft + (d / distMax) * plotW;
   const yAt = (alt) => padTop + plotH - ((alt - (altMin - altPad)) / (altRange + altPad * 2)) * plotH;
 
   const decimes = decimerPoints(profilPoints, 300);
   const ligne = decimes.map((p) => `${xAt(p.distanceCumulee).toFixed(1)},${yAt(p.altitude).toFixed(1)}`).join(" ");
   const aire = `${xAt(0).toFixed(1)},${(padTop + plotH).toFixed(1)} ${ligne} ${xAt(distMax).toFixed(1)},${(padTop + plotH).toFixed(1)}`;
+
+  // Ruban extrudé (Étape "3D") : une fine face d'ombre décalée sous la
+  // ligne de crête, un quadrilatère par segment décimé pour pouvoir foncer
+  // l'ombre là où la pente est la plus marquée (hillshading simplifié) —
+  // le relief se lit donc un peu plus fort à la pente qu'à la simple
+  // couleur, en plus de l'effet de profondeur.
+  const EXT_DX = 12;
+  const EXT_DY = 9;
+  let reliefSvg = "";
+  for (let i = 0; i < decimes.length - 1; i++) {
+    const a = decimes[i];
+    const b = decimes[i + 1];
+    const ax = xAt(a.distanceCumulee);
+    const ay = yAt(a.altitude);
+    const bx = xAt(b.distanceCumulee);
+    const by = yAt(b.altitude);
+    const dDist = b.distanceCumulee - a.distanceCumulee;
+    const pente = dDist > 0 ? Math.abs((b.altitude - a.altitude) / dDist) : 0;
+    const opacite = Math.min(0.6, 0.16 + pente * 3.2).toFixed(2);
+    reliefSvg += `<polygon points="${ax.toFixed(1)},${ay.toFixed(1)} ${bx.toFixed(1)},${by.toFixed(1)} ${(bx + EXT_DX).toFixed(1)},${(by + EXT_DY).toFixed(1)} ${(ax + EXT_DX).toFixed(1)},${(ay + EXT_DY).toFixed(1)}" fill="color-mix(in srgb, var(--color-accent-strong) 55%, black)" opacity="${opacite}" />`;
+  }
 
   const reperesKmSvg = reperesKm
     .map((r) => {
@@ -672,9 +700,16 @@ export function ProfilCourseChart(profilPoints, reperesKm, reperesSignificatifs 
     .join("");
 
   return `
-    <svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="none" role="img" aria-label="Profil altimétrique du parcours">
-      <polygon points="${aire}" fill="var(--color-accent-strong)" opacity="0.12" />
-      <polyline points="${ligne}" fill="none" stroke="var(--color-accent-strong)" stroke-width="2" />
+    <svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="none" role="img" aria-label="Profil altimétrique du parcours (relief en volume)">
+      <defs>
+        <linearGradient id="profil-course-aire" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" style="stop-color:var(--color-accent-strong);stop-opacity:0.28" />
+          <stop offset="100%" style="stop-color:var(--color-accent-strong);stop-opacity:0" />
+        </linearGradient>
+      </defs>
+      <polygon points="${aire}" fill="url(#profil-course-aire)" />
+      ${reliefSvg}
+      <polyline points="${ligne}" fill="none" stroke="var(--color-accent-strong)" stroke-width="2" stroke-linejoin="round" />
       ${reperesKmSvg}
       ${reperesSigSvg}
       ${ravitosSvg}
