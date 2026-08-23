@@ -17,77 +17,133 @@ let profilParcoursCourant = null;
 let mapInstance = null;
 
 /**
- * Carte du parcours : vraie carte (Leaflet + tuiles OpenStreetMap/CartoDB,
- * chargées en CDN, cf. index.html) quand elle est disponible, sinon repli
+ * Style MapLibre : fond de carte (OSM clair / CartoDB Dark Matter sombre,
+ * cohérence avec le thème de l'appli) + relief 3D. La source "terrain-dem"
+ * (tuiles d'altitude Terrarium, jeu de données ouvert hébergé par AWS, sans
+ * clé) sert deux fois : géométrie du terrain (propriété `terrain`, avec
+ * exagération pour bien lire le relief à l'écran) ET estompage ombré
+ * (couche hillshade) pour que les pentes se voient même en vue peu inclinée.
+ */
+function construireStyleCarte(themeSombre) {
+  const tileUrl = themeSombre
+    ? "https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+    : "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const attribution = themeSombre
+    ? '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>'
+    : '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>';
+  return {
+    version: 8,
+    sources: {
+      "base-tiles": { type: "raster", tiles: [tileUrl], tileSize: 256, attribution, maxzoom: 19 },
+      "terrain-dem": {
+        type: "raster-dem",
+        tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"],
+        tileSize: 256,
+        encoding: "terrarium",
+        maxzoom: 15,
+      },
+    },
+    layers: [
+      { id: "base-tiles-layer", type: "raster", source: "base-tiles" },
+      { id: "hillshade-layer", type: "hillshade", source: "terrain-dem", paint: { "hillshade-exaggeration": 0.6 } },
+      { id: "sky-layer", type: "sky", paint: { "sky-type": "atmosphere", "sky-atmosphere-sun-intensity": 5 } },
+    ],
+    terrain: { source: "terrain-dem", exaggeration: 1.4 },
+  };
+}
+
+/**
+ * Carte du parcours : vraie carte 3D (MapLibre GL, tuiles + relief chargés
+ * en CDN, cf. index.html) quand elle est disponible, sinon repli
  * automatique sur RouteMapFallback (tracé GPS exact, sans fond de carte,
  * 100% local) — pas de connexion, CDN bloqué, ou pas de GPX importé (mode
- * dégradé, pas de coordonnées GPS à afficher).
+ * dégradé, pas de coordonnées GPS à afficher). Volontairement épurée :
+ * seuls départ/arrivée/sommets/creux/ravitaillement sont marqués — pas un
+ * point par km, qui saturerait le tracé (déjà détaillé km par km dans le
+ * tableau de pacing en dessous).
  */
-function initierCarte(container, pointsProfil, reperesKm, reperesSignificatifs, timeline) {
+function initierCarte(container, pointsProfil, reperesSignificatifs, timeline) {
   const mapEl = container.querySelector("#route-map");
   if (mapInstance) {
     mapInstance.remove();
     mapInstance = null;
   }
 
-  if (typeof window.L === "undefined" || pointsProfil[0]?.lat == null) {
-    mapEl.innerHTML = RouteMapFallback(pointsProfil, reperesKm, reperesSignificatifs, timeline);
+  if (typeof window.maplibregl === "undefined" || pointsProfil[0]?.lat == null) {
+    mapEl.innerHTML = RouteMapFallback(pointsProfil, reperesSignificatifs, timeline);
     return;
   }
   mapEl.innerHTML = "";
 
   const themeSombre = document.documentElement.getAttribute("data-theme") !== "light";
-  const tileUrl = themeSombre
-    ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-    : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
-  const attribution = themeSombre
-    ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-    : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+  const lons = pointsProfil.map((p) => p.lon);
+  const lats = pointsProfil.map((p) => p.lat);
+  const bounds = [
+    [Math.min(...lons), Math.min(...lats)],
+    [Math.max(...lons), Math.max(...lats)],
+  ];
 
-  const map = window.L.map(mapEl, { scrollWheelZoom: false });
-  window.L.tileLayer(tileUrl, { attribution, maxZoom: 18 }).addTo(map);
+  const map = new window.maplibregl.Map({
+    container: mapEl,
+    style: construireStyleCarte(themeSombre),
+    bounds,
+    fitBoundsOptions: { padding: 40 },
+    pitch: 55,
+    bearing: -12,
+  });
+  map.addControl(new window.maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
+  map.scrollZoom.disable();
 
-  const latlngs = pointsProfil.map((p) => [p.lat, p.lon]);
-  const route = window.L.polyline(latlngs, { color: "var(--color-accent-strong)", weight: 4, opacity: 0.9, lineJoin: "round" }).addTo(map);
-  map.fitBounds(route.getBounds(), { padding: [24, 24] });
-
-  const marqueur = (latlng, color, tooltip) =>
-    window.L.circleMarker(latlng, { radius: 6, color: "var(--color-surface)", weight: 2, fillColor: color, fillOpacity: 1 })
-      .bindTooltip(tooltip, { direction: "top" })
+  const marqueur = (lonLat, color, texte) => {
+    const el = document.createElement("div");
+    el.className = "route-map-marker";
+    el.style.setProperty("--marker-color", color);
+    new window.maplibregl.Marker({ element: el })
+      .setLngLat(lonLat)
+      .setPopup(new window.maplibregl.Popup({ offset: 14, closeButton: false }).setText(texte))
       .addTo(map);
+  };
 
-  marqueur(latlngs[0], "var(--color-structural-strong)", "Départ");
-  marqueur(latlngs[latlngs.length - 1], "var(--color-functional-strong)", "Arrivée");
+  map.on("load", () => {
+    map.addSource("route", {
+      type: "geojson",
+      data: { type: "Feature", geometry: { type: "LineString", coordinates: pointsProfil.map((p) => [p.lon, p.lat]) } },
+    });
+    map.addLayer({
+      id: "route-line",
+      type: "line",
+      source: "route",
+      layout: { "line-join": "round", "line-cap": "round" },
+      paint: { "line-color": "var(--color-accent-strong)", "line-width": 4, "line-opacity": 0.95 },
+    });
 
-  for (const r of reperesKm) {
-    const ll = latLonADistance(pointsProfil, r.distanceM);
-    if (ll) window.L.circleMarker([ll.lat, ll.lon], { radius: 4, color: "var(--color-surface)", weight: 1.5, fillColor: "var(--color-accent-strong)", fillOpacity: 1 })
-      .bindTooltip(`${r.label} km — ${formatDureeHM(r.tempsCumuleMin)}`, { direction: "top" })
-      .addTo(map);
-  }
+    marqueur([pointsProfil[0].lon, pointsProfil[0].lat], "var(--color-structural-strong)", "Départ");
+    const dernier = pointsProfil[pointsProfil.length - 1];
+    marqueur([dernier.lon, dernier.lat], "var(--color-functional-strong)", "Arrivée");
 
-  for (const r of reperesSignificatifs) {
-    const ll = latLonADistance(pointsProfil, r.distanceM);
-    if (!ll) continue;
-    const estSommet = r.type === "sommet";
-    marqueur(
-      [ll.lat, ll.lon],
-      estSommet ? "var(--color-danger, #d9534f)" : "var(--color-accent, #4a90d9)",
-      `${estSommet ? "▲" : "▼"} ${Math.round(r.altitude)} m — ${formatDureeHM(r.tempsCumuleMin)}`
-    );
-  }
+    for (const r of reperesSignificatifs) {
+      const ll = latLonADistance(pointsProfil, r.distanceM);
+      if (!ll) continue;
+      const estSommet = r.type === "sommet";
+      marqueur(
+        [ll.lon, ll.lat],
+        estSommet ? "var(--color-danger, #d9534f)" : "var(--color-accent, #4a90d9)",
+        `${estSommet ? "▲" : "▼"} ${Math.round(r.altitude)} m — ${formatDureeHM(r.tempsCumuleMin)}`
+      );
+    }
 
-  for (const t of timeline) {
-    if (!t.actionNutrition) continue;
-    const ll = latLonADistance(pointsProfil, t.km * 1000);
-    if (ll) marqueur([ll.lat, ll.lon], "var(--color-warning, #e0a800)", t.actionNutrition);
-  }
+    for (const t of timeline) {
+      if (!t.actionNutrition) continue;
+      const ll = latLonADistance(pointsProfil, t.km * 1000);
+      if (ll) marqueur([ll.lon, ll.lat], "var(--color-warning, #e0a800)", t.actionNutrition);
+    }
+  });
 
   mapInstance = map;
   // #pacing-result vient de passer de display:none à block juste avant cet
-  // appel : Leaflet a pu mesurer un conteneur de taille nulle au premier
-  // rendu — un invalidateSize() au tick suivant force un recalcul correct.
-  requestAnimationFrame(() => map.invalidateSize());
+  // appel : MapLibre a pu mesurer un conteneur de taille nulle au premier
+  // rendu — un resize() au tick suivant force un recalcul correct.
+  requestAnimationFrame(() => map.resize());
 }
 
 export async function render(container) {
@@ -222,7 +278,7 @@ export async function render(container) {
       : [];
 
     container.querySelector("#pacing-result").style.display = "block";
-    initierCarte(container, pointsProfil, reperesKm, reperesSignificatifs, timeline);
+    initierCarte(container, pointsProfil, reperesSignificatifs, timeline);
     container.querySelector("#profil-course-chart").innerHTML = ProfilCourseChart(
       pointsProfil,
       reperesKm,

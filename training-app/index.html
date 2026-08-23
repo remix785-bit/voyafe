@@ -11,13 +11,18 @@
   <link rel="apple-touch-icon" href="./icons/icon-180.svg" />
   <link rel="stylesheet" href="./css/tokens.css" />
   <link rel="stylesheet" href="./css/app.css" />
-  <!-- Leaflet (carte du parcours, Jour de course) — chargé en CDN à l'exécution
-       dans le navigateur de l'utilisateur, PAS via npm dans cet environnement
-       de build (aucun accès au registre npm ici, cf. README). jourCourse.js
-       détecte l'absence de `window.L` (hors-ligne, CDN bloqué) et bascule sur
-       une carte schématique 100% locale (RouteMapFallback, components.js). -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin="" defer></script>
+  <!-- MapLibre GL JS (carte 3D du parcours avec relief, Jour de course) —
+       chargé en CDN à l'exécution dans le navigateur de l'utilisateur, PAS
+       via npm dans cet environnement de build (aucun accès au registre npm
+       ici, cf. README). jourCourse.js détecte l'absence de
+       `window.maplibregl` (hors-ligne, CDN bloqué) et bascule sur une carte
+       schématique 100% locale (RouteMapFallback, components.js). Pas de SRI
+       ici (contrairement à Leaflet auparavant) : un hash saisi de mémoire et
+       faux casserait le chargement du script de façon silencieuse et
+       impossible à diagnostiquer à distance — risque jugé pire que
+       l'absence de SRI pour une bibliothèque open source largement utilisée. -->
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" defer></script>
 </head>
 <body>
   <header class="app-topbar">

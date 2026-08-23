@@ -618,22 +618,35 @@ textarea {
   color: var(--paper);
 }
 
-/* ---------- Carte du parcours (Leaflet / RouteMapFallback) ---------- */
+/* ---------- Carte du parcours (MapLibre GL / RouteMapFallback) ---------- */
 
 .route-map {
-  height: 320px;
+  height: 360px;
   border-radius: var(--radius-card);
   overflow: hidden;
   margin-bottom: var(--space-2);
   background: var(--color-bg-elevated);
 }
 
-/* Leaflet applique ses propres styles de contrôles (zoom, attribution) —
-   on ne touche qu'à l'habillage pour rester cohérent avec les cartes de
-   l'appli (rayon, police), sans casser le fonctionnement interne de Leaflet. */
-.route-map .leaflet-control-attribution {
+/* MapLibre applique ses propres styles de contrôles (zoom, boussole,
+   attribution) — on ne touche qu'à l'habillage pour rester cohérent avec
+   les cartes de l'appli (police), sans casser le fonctionnement interne. */
+.route-map .maplibregl-ctrl-attrib {
   font-family: var(--font-body);
   font-size: 0.65rem;
+}
+
+/* Marqueurs custom (départ/arrivée/sommet/creux/ravito) sur la carte
+   MapLibre — un simple disque plutôt que l'épingle par défaut, cohérent
+   avec le langage visuel rond de l'appli (badges de zone, ZoneLegend...). */
+.route-map-marker {
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-pill);
+  background: var(--marker-color, var(--color-accent-strong));
+  border: 2px solid var(--color-surface);
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
 }
 
 /* ---------- PacingTimeline ---------- */

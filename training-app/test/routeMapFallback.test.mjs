@@ -49,16 +49,22 @@ test("RouteMapFallback — ne déforme jamais la forme réelle du tracé (échel
   assert.ok(Math.abs(ratioPx - 2) < 0.05, `le ratio à l'écran (${ratioPx.toFixed(3)}) doit refléter le ratio réel 2:1, pas être déformé`);
 });
 
-test("RouteMapFallback — place les marqueurs sommet/creux et ravitaillement demandés", () => {
+test("RouteMapFallback — place les marqueurs sommet/creux et ravitaillement demandés, sans marqueur par km (carte épurée)", () => {
   const points = pointsRectangle();
   const html = RouteMapFallback(
     points,
-    [{ distanceM: 1000, label: "1" }],
     [{ distanceM: 2000, altitude: 120, type: "sommet" }],
     [{ km: 1.5, actionNutrition: "Ravitaillement : ~20 g glucides" }]
   );
   assert.ok(html.includes("▲ 120m"));
   assert.ok(html.match(/fill="var\(--color-warning/));
+});
+
+test("RouteMapFallback — ne trace aucun marqueur par km (carte épurée, seuls départ/arrivée/sommets/creux/ravito comptent)", () => {
+  const html = RouteMapFallback(pointsRectangle());
+  // Seuls 4 cercles attendus : départ, arrivée (aucun sommet/ravito ici).
+  const nbCercles = (html.match(/<circle/g) ?? []).length;
+  assert.equal(nbCercles, 2, `attendu 2 cercles (départ + arrivée), obtenu ${nbCercles}`);
 });
 
 test("RouteMapFallback — inclut une flèche nord et une barre d'échelle", () => {

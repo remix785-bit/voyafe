@@ -720,24 +720,26 @@ export function ProfilCourseChart(profilPoints, reperesKm, reperesSignificatifs 
 
 /**
  * RouteMapFallback — carte schématique du tracé GPS (forme réelle, nord en
- * haut, échelle) quand Leaflet/les tuiles ne sont pas disponibles (pas de
+ * haut, échelle) quand MapLibre/les tuiles ne sont pas disponibles (pas de
  * connexion, ou usage terrain hors-ligne — cf. jourCourse.js). Pas de fond
  * de carte réel (rues/relief) : uniquement la géométrie exacte du parcours,
  * projetée localement (geoMap.js) — jamais de distorsion de la forme
  * (échelle x et y identique, contrairement à ProfilCourseChart qui étire
- * volontairement l'altitude).
+ * volontairement l'altitude). Volontairement épurée : seuls les points qui
+ * comptent pour se repérer (départ, arrivée, sommets/creux, ravitaillement)
+ * sont affichés — pas un marqueur par km, qui saturerait le tracé sur un
+ * parcours long (le détail km par km reste dans le tableau de pacing).
  * @param {{lat:number, lon:number, distanceCumulee:number}[]} profilPoints
- * @param {{distanceM:number, label:string}[]} reperesKm
  * @param {{distanceM:number, altitude:number, type:"sommet"|"creux"}[]} reperesSignificatifs
  * @param {{km:number, actionNutrition:string|null}[]} ravitosTimeline
  */
-export function RouteMapFallback(profilPoints, reperesKm = [], reperesSignificatifs = [], ravitosTimeline = []) {
+export function RouteMapFallback(profilPoints, reperesSignificatifs = [], ravitosTimeline = []) {
   if (!profilPoints || profilPoints.length < 2 || profilPoints[0].lat == null) {
     return `<p class="muted">Carte indisponible — importe un GPX pour voir le tracé (mode dégradé sans GPX : pas de coordonnées GPS).</p>`;
   }
 
   const w = 800;
-  const h = 600; // ratio plus proche d'une carte mobile typique que 800:440 (moins de bandes vides autour du tracé projeté)
+  const h = 700; // ratio proche du conteneur .route-map (360px) sur mobile — moins de bandes vides autour du tracé projeté
   const pad = 44;
   const plotW = w - pad * 2;
   const plotH = h - pad * 2;
@@ -766,13 +768,6 @@ export function RouteMapFallback(profilPoints, reperesKm = [], reperesSignificat
     const [p] = projeterPlan([ll], reference);
     return { x: screenX(p.x), y: screenY(-p.y) };
   };
-
-  const kmSvg = reperesKm
-    .map((r) => {
-      const { x, y } = projeterDistance(r.distanceM);
-      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2" fill="var(--color-text-muted)" />`;
-    })
-    .join("");
 
   const sigSvg = reperesSignificatifs
     .map((r) => {
@@ -806,7 +801,6 @@ export function RouteMapFallback(profilPoints, reperesKm = [], reperesSignificat
   return `
     <svg viewBox="0 0 ${w} ${h}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Carte schématique du tracé (mode hors-ligne, sans fond de carte)">
       <polyline points="${ligne}" fill="none" stroke="var(--color-accent-strong)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />
-      ${kmSvg}
       ${sigSvg}
       ${ravitoSvg}
       <circle cx="${screenX(depart.x).toFixed(1)}" cy="${screenY(depart.y).toFixed(1)}" r="5" fill="var(--color-structural-strong)" stroke="var(--color-surface)" stroke-width="2" />
