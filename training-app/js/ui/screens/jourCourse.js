@@ -17,20 +17,28 @@ let profilParcoursCourant = null;
 let mapInstance = null;
 
 /**
- * Style MapLibre : fond de carte (OSM clair / CartoDB Dark Matter sombre,
- * cohérence avec le thème de l'appli) + relief 3D. La source "terrain-dem"
- * (tuiles d'altitude Terrarium, jeu de données ouvert hébergé par AWS, sans
- * clé) sert deux fois : géométrie du terrain (propriété `terrain`, avec
- * exagération pour bien lire le relief à l'écran) ET estompage ombré
- * (couche hillshade) pour que les pentes se voient même en vue peu inclinée.
+ * Style MapLibre : fond de carte CartoDB (Positron clair / Dark Matter
+ * sombre, cohérence avec le thème de l'appli) + relief 3D. CartoDB plutôt
+ * que des tuiles OSM brutes pour les DEUX thèmes : ce sont des tuiles
+ * pensées pour un rendu WebGL (MapLibre/Mapbox GL), contrairement aux
+ * tuiles OSM classiques taillées pour un usage Leaflet-style (image plate),
+ * pas garanties aussi fiables une fois consommées par un moteur GL. La
+ * source "terrain-dem" (tuiles d'altitude Terrarium, jeu de données ouvert
+ * hébergé par AWS, sans clé) sert deux fois : géométrie du terrain
+ * (propriété `terrain`, avec exagération pour bien lire le relief à
+ * l'écran) ET estompage ombré (couche hillshade) pour que les pentes se
+ * voient même en vue peu inclinée.
+ * IMPORTANT : `{z}/{x}/{y}` sont les SEULS tokens que le moteur de tuiles
+ * MapLibre substitue dans une URL — pas de `{r}` façon Leaflet (retina),
+ * qui resterait littéralement dans l'URL et ferait échouer toutes les
+ * requêtes de tuiles (bug réel corrigé ici, cause probable d'une carte
+ * restée vide en thème sombre, thème par défaut de l'appli).
  */
 function construireStyleCarte(themeSombre) {
   const tileUrl = themeSombre
-    ? "https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-    : "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
-  const attribution = themeSombre
-    ? '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>'
-    : '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>';
+    ? "https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
+    : "https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png";
+  const attribution = '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>';
   return {
     version: 8,
     sources: {
@@ -62,6 +70,17 @@ function construireStyleCarte(themeSombre) {
  * point par km, qui saturerait le tracé (déjà détaillé km par km dans le
  * tableau de pacing en dessous).
  */
+/** Couleur CSS résolue (pas la chaîne var()) : les propriétés `paint` de
+ * MapLibre sont interprétées par son propre moteur de style, pas par le CSS
+ * du navigateur — un "var(--foo)" littéral y est une valeur de couleur
+ * invalide (contrairement aux composants SVG de l'appli, où le navigateur
+ * résout var() lui-même). Les marqueurs custom échappent à cette règle : ils
+ * passent par un vrai élément DOM + une règle CSS, donc var() y fonctionne. */
+function couleurResolue(nomVariable, secours) {
+  const valeur = getComputedStyle(document.documentElement).getPropertyValue(nomVariable).trim();
+  return valeur || secours;
+}
+
 function initierCarte(container, pointsProfil, reperesSignificatifs, timeline) {
   const mapEl = container.querySelector("#route-map");
   if (mapInstance) {
@@ -75,75 +94,88 @@ function initierCarte(container, pointsProfil, reperesSignificatifs, timeline) {
   }
   mapEl.innerHTML = "";
 
-  const themeSombre = document.documentElement.getAttribute("data-theme") !== "light";
-  const lons = pointsProfil.map((p) => p.lon);
-  const lats = pointsProfil.map((p) => p.lat);
-  const bounds = [
-    [Math.min(...lons), Math.min(...lats)],
-    [Math.max(...lons), Math.max(...lats)],
-  ];
+  // Une carte 3D reste un tiers technique de plus que le reste de l'appli
+  // (CDN, tuiles, relief) : si quoi que ce soit échoue de façon inattendue
+  // à la construction, on retombe sur la carte schématique plutôt que de
+  // laisser toute la fiche de pacing (graphique + tableau, générés juste
+  // après cet appel) plantée par une exception non rattrapée.
+  try {
+    const themeSombre = document.documentElement.getAttribute("data-theme") !== "light";
+    const lons = pointsProfil.map((p) => p.lon);
+    const lats = pointsProfil.map((p) => p.lat);
+    const bounds = [
+      [Math.min(...lons), Math.min(...lats)],
+      [Math.max(...lons), Math.max(...lats)],
+    ];
 
-  const map = new window.maplibregl.Map({
-    container: mapEl,
-    style: construireStyleCarte(themeSombre),
-    bounds,
-    fitBoundsOptions: { padding: 40 },
-    pitch: 55,
-    bearing: -12,
-  });
-  map.addControl(new window.maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
-  map.scrollZoom.disable();
-
-  const marqueur = (lonLat, color, texte) => {
-    const el = document.createElement("div");
-    el.className = "route-map-marker";
-    el.style.setProperty("--marker-color", color);
-    new window.maplibregl.Marker({ element: el })
-      .setLngLat(lonLat)
-      .setPopup(new window.maplibregl.Popup({ offset: 14, closeButton: false }).setText(texte))
-      .addTo(map);
-  };
-
-  map.on("load", () => {
-    map.addSource("route", {
-      type: "geojson",
-      data: { type: "Feature", geometry: { type: "LineString", coordinates: pointsProfil.map((p) => [p.lon, p.lat]) } },
+    const map = new window.maplibregl.Map({
+      container: mapEl,
+      style: construireStyleCarte(themeSombre),
+      pitch: 55,
+      bearing: -12,
     });
-    map.addLayer({
-      id: "route-line",
-      type: "line",
-      source: "route",
-      layout: { "line-join": "round", "line-cap": "round" },
-      paint: { "line-color": "var(--color-accent-strong)", "line-width": 4, "line-opacity": 0.95 },
+    map.addControl(new window.maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
+    map.scrollZoom.disable();
+    map.on("error", (e) => console.warn("Carte du parcours — erreur MapLibre (tuile ou relief indisponible) :", e?.error ?? e));
+
+    const marqueur = (lonLat, color, texte) => {
+      const el = document.createElement("div");
+      el.className = "route-map-marker";
+      el.style.setProperty("--marker-color", color);
+      new window.maplibregl.Marker({ element: el })
+        .setLngLat(lonLat)
+        .setPopup(new window.maplibregl.Popup({ offset: 14, closeButton: false }).setText(texte))
+        .addTo(map);
+    };
+
+    map.on("load", () => {
+      // fitBounds APRÈS le chargement du style (plutôt que bounds+pitch dans
+      // le constructeur) : plus fiable avec une caméra déjà inclinée.
+      map.fitBounds(bounds, { padding: 40, pitch: 55, bearing: -12, duration: 0 });
+
+      map.addSource("route", {
+        type: "geojson",
+        data: { type: "Feature", geometry: { type: "LineString", coordinates: pointsProfil.map((p) => [p.lon, p.lat]) } },
+      });
+      map.addLayer({
+        id: "route-line",
+        type: "line",
+        source: "route",
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": couleurResolue("--color-accent-strong", "#0b7ba6"), "line-width": 4, "line-opacity": 0.95 },
+      });
+
+      marqueur([pointsProfil[0].lon, pointsProfil[0].lat], "var(--color-structural-strong)", "Départ");
+      const dernier = pointsProfil[pointsProfil.length - 1];
+      marqueur([dernier.lon, dernier.lat], "var(--color-functional-strong)", "Arrivée");
+
+      for (const r of reperesSignificatifs) {
+        const ll = latLonADistance(pointsProfil, r.distanceM);
+        if (!ll) continue;
+        const estSommet = r.type === "sommet";
+        marqueur(
+          [ll.lon, ll.lat],
+          estSommet ? "var(--color-danger, #d9534f)" : "var(--color-accent, #4a90d9)",
+          `${estSommet ? "▲" : "▼"} ${Math.round(r.altitude)} m — ${formatDureeHM(r.tempsCumuleMin)}`
+        );
+      }
+
+      for (const t of timeline) {
+        if (!t.actionNutrition) continue;
+        const ll = latLonADistance(pointsProfil, t.km * 1000);
+        if (ll) marqueur([ll.lon, ll.lat], "var(--color-warning, #e0a800)", t.actionNutrition);
+      }
     });
 
-    marqueur([pointsProfil[0].lon, pointsProfil[0].lat], "var(--color-structural-strong)", "Départ");
-    const dernier = pointsProfil[pointsProfil.length - 1];
-    marqueur([dernier.lon, dernier.lat], "var(--color-functional-strong)", "Arrivée");
-
-    for (const r of reperesSignificatifs) {
-      const ll = latLonADistance(pointsProfil, r.distanceM);
-      if (!ll) continue;
-      const estSommet = r.type === "sommet";
-      marqueur(
-        [ll.lon, ll.lat],
-        estSommet ? "var(--color-danger, #d9534f)" : "var(--color-accent, #4a90d9)",
-        `${estSommet ? "▲" : "▼"} ${Math.round(r.altitude)} m — ${formatDureeHM(r.tempsCumuleMin)}`
-      );
-    }
-
-    for (const t of timeline) {
-      if (!t.actionNutrition) continue;
-      const ll = latLonADistance(pointsProfil, t.km * 1000);
-      if (ll) marqueur([ll.lon, ll.lat], "var(--color-warning, #e0a800)", t.actionNutrition);
-    }
-  });
-
-  mapInstance = map;
-  // #pacing-result vient de passer de display:none à block juste avant cet
-  // appel : MapLibre a pu mesurer un conteneur de taille nulle au premier
-  // rendu — un resize() au tick suivant force un recalcul correct.
-  requestAnimationFrame(() => map.resize());
+    mapInstance = map;
+    // #pacing-result vient de passer de display:none à block juste avant cet
+    // appel : MapLibre a pu mesurer un conteneur de taille nulle au premier
+    // rendu — un resize() au tick suivant force un recalcul correct.
+    requestAnimationFrame(() => map.resize());
+  } catch (err) {
+    console.warn("Carte du parcours — échec de l'initialisation MapLibre, repli sur la carte schématique :", err);
+    mapEl.innerHTML = RouteMapFallback(pointsProfil, reperesSignificatifs, timeline);
+  }
 }
 
 export async function render(container) {
