@@ -17,38 +17,39 @@ let profilParcoursCourant = null;
 let mapInstance = null;
 
 /**
- * Style MapLibre : fond de carte CartoDB (Positron clair / Dark Matter
- * sombre, cohérence avec le thème de l'appli), sans dépendance à une
- * source d'altitude externe pour le relief 3D.
- *
- * Historique : une première version ajoutait une vraie géométrie de
- * terrain (source raster-dem sur le jeu de données ouvert "Terrarium"
- * hébergé par AWS, tuiles d'altitude sans clé) + une couche hillshade.
- * Résultat en usage réel : carte vide, seuls les contrôles MapLibire
- * (zoom, boussole) s'affichaient — cohérent avec un rendu 3D qui reste
- * bloqué tant que la géométrie du terrain n'a pas fini de se construire ;
- * si cette source externe (ancien jeu de données public, plus maintenu
- * depuis l'arrêt de Mapzen) est devenue indisponible ou trop lente, plus
- * rien ne se peint, y compris le fond de carte 2D qui n'en dépend pas
- * lui-même. Fiabilité > relief géométrique exact : on garde l'inclinaison
- * de caméra (`pitch`), qui donne déjà une vraie perspective 3D sans
- * dépendre d'aucune donnée d'altitude externe, et on abandonne la
- * géométrie de terrain + le hillshade tant qu'une source fiable et
- * garantie disponible n'est pas identifiée.
+ * Style MapLibre : fond de carte OpenTopoMap — relief (estompage + courbes
+ * de niveau) directement "cuit" dans les tuiles elles-mêmes, à la
+ * différence d'un relief 3D en géométrie réelle (essayé au tour précédent
+ * via une source raster-dem externe qui a laissé la carte entièrement
+ * vide — cf. historique Git). Ici, chaque tuile est une simple image comme
+ * n'importe quel autre fond de carte raster : même mécanisme, même
+ * fiabilité que les tuiles plates utilisées juste avant, mais avec le
+ * relief visible dessus. Pas de variante sombre chez OpenTopoMap (comme
+ * une vraie carte IGN, le style topo reste identique quel que soit le
+ * thème de l'appli) — seul le chrome autour (contrôles, cartes) suit le
+ * thème sombre/clair.
  * IMPORTANT : `{z}/{x}/{y}` sont les SEULS tokens que le moteur de tuiles
  * MapLibre substitue dans une URL — pas de `{r}` façon Leaflet (retina),
  * qui resterait littéralement dans l'URL et ferait échouer toutes les
- * requêtes de tuiles (bug réel du premier essai, corrigé).
+ * requêtes de tuiles (bug réel d'un essai précédent, corrigé).
  */
-function construireStyleCarte(themeSombre) {
-  const tileUrl = themeSombre
-    ? "https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
-    : "https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png";
-  const attribution = '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> © <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>';
+function construireStyleCarte() {
+  const attribution =
+    '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributeurs, SRTM | style : © <a href="https://opentopomap.org" target="_blank" rel="noopener">OpenTopoMap</a> (CC-BY-SA)';
   return {
     version: 8,
     sources: {
-      "base-tiles": { type: "raster", tiles: [tileUrl], tileSize: 256, attribution, maxzoom: 19 },
+      "base-tiles": {
+        type: "raster",
+        tiles: [
+          "https://a.tile.opentopomap.org/{z}/{x}/{y}.png",
+          "https://b.tile.opentopomap.org/{z}/{x}/{y}.png",
+          "https://c.tile.opentopomap.org/{z}/{x}/{y}.png",
+        ],
+        tileSize: 256,
+        attribution,
+        maxzoom: 17,
+      },
     },
     layers: [{ id: "base-tiles-layer", type: "raster", source: "base-tiles" }],
   };
@@ -66,16 +67,18 @@ function couleurResolue(nomVariable, secours) {
 }
 
 /**
- * Carte du parcours : vraie carte (MapLibre GL, tuiles chargées en CDN, cf.
- * index.html), caméra inclinée pour une perspective 3D, sinon repli
- * automatique sur RouteMapFallback (tracé GPS exact, sans fond de carte,
- * 100% local) — pas de connexion, CDN bloqué, ou pas de GPX importé (mode
- * dégradé, pas de coordonnées GPS à afficher). Volontairement épurée :
- * seuls départ/arrivée/sommets/creux/ravitaillement sont marqués — pas un
- * point par km, qui saturerait le tracé (déjà détaillé km par km dans le
- * tableau de pacing en dessous).
+ * Carte du parcours : vraie carte (MapLibre GL, tuiles OpenTopoMap chargées
+ * en CDN, cf. index.html — relief cuit dans les tuiles), caméra inclinée
+ * pour une perspective 3D, sinon repli automatique sur RouteMapFallback
+ * (tracé GPS exact, sans fond de carte, 100% local) — pas de connexion, CDN
+ * bloqué, ou pas de GPX importé (mode dégradé, pas de coordonnées GPS à
+ * afficher). Volontairement épurée : seuls départ/arrivée/ravitaillement
+ * sont marqués — pas de pastille par km ni par sommet/creux (le relief du
+ * fond de carte topo montre déjà où sont les bosses/creux, plus besoin de
+ * le dupliquer en marqueurs ; le détail km par km reste dans le tableau de
+ * pacing en dessous).
  */
-function initierCarte(container, pointsProfil, reperesSignificatifs, timeline) {
+function initierCarte(container, pointsProfil, timeline) {
   const mapEl = container.querySelector("#route-map");
   if (mapInstance) {
     mapInstance.remove();
@@ -83,18 +86,17 @@ function initierCarte(container, pointsProfil, reperesSignificatifs, timeline) {
   }
 
   if (typeof window.maplibregl === "undefined" || pointsProfil[0]?.lat == null) {
-    mapEl.innerHTML = RouteMapFallback(pointsProfil, reperesSignificatifs, timeline);
+    mapEl.innerHTML = RouteMapFallback(pointsProfil, timeline);
     return;
   }
   mapEl.innerHTML = "";
 
-  // Une carte 3D reste un tiers technique de plus que le reste de l'appli
-  // (CDN, tuiles, relief) : si quoi que ce soit échoue de façon inattendue
-  // à la construction, on retombe sur la carte schématique plutôt que de
+  // Une carte reste un tiers technique de plus que le reste de l'appli
+  // (CDN, tuiles) : si quoi que ce soit échoue de façon inattendue à la
+  // construction, on retombe sur la carte schématique plutôt que de
   // laisser toute la fiche de pacing (graphique + tableau, générés juste
   // après cet appel) plantée par une exception non rattrapée.
   try {
-    const themeSombre = document.documentElement.getAttribute("data-theme") !== "light";
     const lons = pointsProfil.map((p) => p.lon);
     const lats = pointsProfil.map((p) => p.lat);
     const bounds = [
@@ -104,7 +106,7 @@ function initierCarte(container, pointsProfil, reperesSignificatifs, timeline) {
 
     const map = new window.maplibregl.Map({
       container: mapEl,
-      style: construireStyleCarte(themeSombre),
+      style: construireStyleCarte(),
       pitch: 55,
       bearing: -12,
     });
@@ -160,17 +162,6 @@ function initierCarte(container, pointsProfil, reperesSignificatifs, timeline) {
       const dernier = pointsProfil[pointsProfil.length - 1];
       marqueur([dernier.lon, dernier.lat], "var(--color-functional-strong)", "Arrivée");
 
-      for (const r of reperesSignificatifs) {
-        const ll = latLonADistance(pointsProfil, r.distanceM);
-        if (!ll) continue;
-        const estSommet = r.type === "sommet";
-        marqueur(
-          [ll.lon, ll.lat],
-          estSommet ? "var(--color-danger, #d9534f)" : "var(--color-accent, #4a90d9)",
-          `${estSommet ? "▲" : "▼"} ${Math.round(r.altitude)} m — ${formatDureeHM(r.tempsCumuleMin)}`
-        );
-      }
-
       for (const t of timeline) {
         if (!t.actionNutrition) continue;
         const ll = latLonADistance(pointsProfil, t.km * 1000);
@@ -185,7 +176,7 @@ function initierCarte(container, pointsProfil, reperesSignificatifs, timeline) {
     requestAnimationFrame(() => map.resize());
   } catch (err) {
     console.warn("Carte du parcours — échec de l'initialisation MapLibre, repli sur la carte schématique :", err);
-    mapEl.innerHTML = RouteMapFallback(pointsProfil, reperesSignificatifs, timeline);
+    mapEl.innerHTML = RouteMapFallback(pointsProfil, timeline);
   }
 }
 
@@ -321,7 +312,7 @@ export async function render(container) {
       : [];
 
     container.querySelector("#pacing-result").style.display = "block";
-    initierCarte(container, pointsProfil, reperesSignificatifs, timeline);
+    initierCarte(container, pointsProfil, timeline);
     container.querySelector("#profil-course-chart").innerHTML = ProfilCourseChart(
       pointsProfil,
       reperesKm,

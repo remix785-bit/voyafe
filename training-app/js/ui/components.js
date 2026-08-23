@@ -725,15 +725,14 @@ export function ProfilCourseChart(profilPoints, reperesKm, reperesSignificatifs 
  * de carte réel (rues/relief) : uniquement la géométrie exacte du parcours,
  * projetée localement (geoMap.js) — jamais de distorsion de la forme
  * (échelle x et y identique, contrairement à ProfilCourseChart qui étire
- * volontairement l'altitude). Volontairement épurée : seuls les points qui
- * comptent pour se repérer (départ, arrivée, sommets/creux, ravitaillement)
- * sont affichés — pas un marqueur par km, qui saturerait le tracé sur un
- * parcours long (le détail km par km reste dans le tableau de pacing).
+ * volontairement l'altitude). Volontairement épurée : seuls départ, arrivée
+ * et ravitaillement sont marqués — ni un point par km, ni un marqueur par
+ * sommet/creux (déjà visibles sur le graphique de relief juste en dessous,
+ * pas besoin de les dupliquer ici).
  * @param {{lat:number, lon:number, distanceCumulee:number}[]} profilPoints
- * @param {{distanceM:number, altitude:number, type:"sommet"|"creux"}[]} reperesSignificatifs
  * @param {{km:number, actionNutrition:string|null}[]} ravitosTimeline
  */
-export function RouteMapFallback(profilPoints, reperesSignificatifs = [], ravitosTimeline = []) {
+export function RouteMapFallback(profilPoints, ravitosTimeline = []) {
   if (!profilPoints || profilPoints.length < 2 || profilPoints[0].lat == null) {
     return `<p class="muted">Carte indisponible — importe un GPX pour voir le tracé (mode dégradé sans GPX : pas de coordonnées GPS).</p>`;
   }
@@ -769,16 +768,6 @@ export function RouteMapFallback(profilPoints, reperesSignificatifs = [], ravito
     return { x: screenX(p.x), y: screenY(-p.y) };
   };
 
-  const sigSvg = reperesSignificatifs
-    .map((r) => {
-      const { x, y } = projeterDistance(r.distanceM);
-      const estSommet = r.type === "sommet";
-      return `
-      <circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="4" fill="${estSommet ? "var(--color-danger, #d9534f)" : "var(--color-accent, #4a90d9)"}" />
-      <text x="${x.toFixed(1)}" y="${(y - 8).toFixed(1)}" font-size="10" text-anchor="middle" fill="var(--color-text)">${estSommet ? "▲" : "▼"} ${Math.round(r.altitude)}m</text>`;
-    })
-    .join("");
-
   const ravitoSvg = ravitosTimeline
     .filter((t) => t.actionNutrition)
     .map((t) => {
@@ -801,7 +790,6 @@ export function RouteMapFallback(profilPoints, reperesSignificatifs = [], ravito
   return `
     <svg viewBox="0 0 ${w} ${h}" width="100%" height="100%" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Carte schématique du tracé (mode hors-ligne, sans fond de carte)">
       <polyline points="${ligne}" fill="none" stroke="var(--color-accent-strong)" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />
-      ${sigSvg}
       ${ravitoSvg}
       <circle cx="${screenX(depart.x).toFixed(1)}" cy="${screenY(depart.y).toFixed(1)}" r="5" fill="var(--color-structural-strong)" stroke="var(--color-surface)" stroke-width="2" />
       <text x="${screenX(depart.x).toFixed(1)}" y="${(screenY(depart.y) + 18).toFixed(1)}" font-size="10" text-anchor="middle" fill="var(--color-text-muted)">Départ</text>
@@ -818,5 +806,5 @@ export function RouteMapFallback(profilPoints, reperesSignificatifs = [], ravito
         <text x="${(echelleX + echelleLongueurPx / 2).toFixed(1)}" y="${echelleY - 8}" font-size="10" text-anchor="middle" fill="var(--color-text-muted)">${echelleLabel}</text>
       </g>
     </svg>
-    <p class="muted" style="margin-top:4px;">Carte schématique (hors-ligne ou fond de carte indisponible) — tracé GPS exact, sans rues ni relief. ▲ sommet · ▼ creux · point orange = ravitaillement.</p>`;
+    <p class="muted" style="margin-top:4px;">Carte schématique (hors-ligne ou fond de carte indisponible) — tracé GPS exact, sans rues ni relief. Point orange = ravitaillement.</p>`;
 }
