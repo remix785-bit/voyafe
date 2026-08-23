@@ -621,6 +621,7 @@ textarea {
 /* ---------- Carte du parcours (MapLibre GL / RouteMapFallback) ---------- */
 
 .route-map {
+  position: relative;
   height: 360px;
   border-radius: var(--radius-card);
   overflow: hidden;

@@ -18,21 +18,27 @@ let mapInstance = null;
 
 /**
  * Style MapLibre : fond de carte CartoDB (Positron clair / Dark Matter
- * sombre, cohérence avec le thème de l'appli) + relief 3D. CartoDB plutôt
- * que des tuiles OSM brutes pour les DEUX thèmes : ce sont des tuiles
- * pensées pour un rendu WebGL (MapLibre/Mapbox GL), contrairement aux
- * tuiles OSM classiques taillées pour un usage Leaflet-style (image plate),
- * pas garanties aussi fiables une fois consommées par un moteur GL. La
- * source "terrain-dem" (tuiles d'altitude Terrarium, jeu de données ouvert
- * hébergé par AWS, sans clé) sert deux fois : géométrie du terrain
- * (propriété `terrain`, avec exagération pour bien lire le relief à
- * l'écran) ET estompage ombré (couche hillshade) pour que les pentes se
- * voient même en vue peu inclinée.
+ * sombre, cohérence avec le thème de l'appli), sans dépendance à une
+ * source d'altitude externe pour le relief 3D.
+ *
+ * Historique : une première version ajoutait une vraie géométrie de
+ * terrain (source raster-dem sur le jeu de données ouvert "Terrarium"
+ * hébergé par AWS, tuiles d'altitude sans clé) + une couche hillshade.
+ * Résultat en usage réel : carte vide, seuls les contrôles MapLibire
+ * (zoom, boussole) s'affichaient — cohérent avec un rendu 3D qui reste
+ * bloqué tant que la géométrie du terrain n'a pas fini de se construire ;
+ * si cette source externe (ancien jeu de données public, plus maintenu
+ * depuis l'arrêt de Mapzen) est devenue indisponible ou trop lente, plus
+ * rien ne se peint, y compris le fond de carte 2D qui n'en dépend pas
+ * lui-même. Fiabilité > relief géométrique exact : on garde l'inclinaison
+ * de caméra (`pitch`), qui donne déjà une vraie perspective 3D sans
+ * dépendre d'aucune donnée d'altitude externe, et on abandonne la
+ * géométrie de terrain + le hillshade tant qu'une source fiable et
+ * garantie disponible n'est pas identifiée.
  * IMPORTANT : `{z}/{x}/{y}` sont les SEULS tokens que le moteur de tuiles
  * MapLibre substitue dans une URL — pas de `{r}` façon Leaflet (retina),
  * qui resterait littéralement dans l'URL et ferait échouer toutes les
- * requêtes de tuiles (bug réel corrigé ici, cause probable d'une carte
- * restée vide en thème sombre, thème par défaut de l'appli).
+ * requêtes de tuiles (bug réel du premier essai, corrigé).
  */
 function construireStyleCarte(themeSombre) {
   const tileUrl = themeSombre
@@ -43,33 +49,11 @@ function construireStyleCarte(themeSombre) {
     version: 8,
     sources: {
       "base-tiles": { type: "raster", tiles: [tileUrl], tileSize: 256, attribution, maxzoom: 19 },
-      "terrain-dem": {
-        type: "raster-dem",
-        tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"],
-        tileSize: 256,
-        encoding: "terrarium",
-        maxzoom: 15,
-      },
     },
-    layers: [
-      { id: "base-tiles-layer", type: "raster", source: "base-tiles" },
-      { id: "hillshade-layer", type: "hillshade", source: "terrain-dem", paint: { "hillshade-exaggeration": 0.6 } },
-      { id: "sky-layer", type: "sky", paint: { "sky-type": "atmosphere", "sky-atmosphere-sun-intensity": 5 } },
-    ],
-    terrain: { source: "terrain-dem", exaggeration: 1.4 },
+    layers: [{ id: "base-tiles-layer", type: "raster", source: "base-tiles" }],
   };
 }
 
-/**
- * Carte du parcours : vraie carte 3D (MapLibre GL, tuiles + relief chargés
- * en CDN, cf. index.html) quand elle est disponible, sinon repli
- * automatique sur RouteMapFallback (tracé GPS exact, sans fond de carte,
- * 100% local) — pas de connexion, CDN bloqué, ou pas de GPX importé (mode
- * dégradé, pas de coordonnées GPS à afficher). Volontairement épurée :
- * seuls départ/arrivée/sommets/creux/ravitaillement sont marqués — pas un
- * point par km, qui saturerait le tracé (déjà détaillé km par km dans le
- * tableau de pacing en dessous).
- */
 /** Couleur CSS résolue (pas la chaîne var()) : les propriétés `paint` de
  * MapLibre sont interprétées par son propre moteur de style, pas par le CSS
  * du navigateur — un "var(--foo)" littéral y est une valeur de couleur
@@ -81,6 +65,16 @@ function couleurResolue(nomVariable, secours) {
   return valeur || secours;
 }
 
+/**
+ * Carte du parcours : vraie carte (MapLibre GL, tuiles chargées en CDN, cf.
+ * index.html), caméra inclinée pour une perspective 3D, sinon repli
+ * automatique sur RouteMapFallback (tracé GPS exact, sans fond de carte,
+ * 100% local) — pas de connexion, CDN bloqué, ou pas de GPX importé (mode
+ * dégradé, pas de coordonnées GPS à afficher). Volontairement épurée :
+ * seuls départ/arrivée/sommets/creux/ravitaillement sont marqués — pas un
+ * point par km, qui saturerait le tracé (déjà détaillé km par km dans le
+ * tableau de pacing en dessous).
+ */
 function initierCarte(container, pointsProfil, reperesSignificatifs, timeline) {
   const mapEl = container.querySelector("#route-map");
   if (mapInstance) {
@@ -116,7 +110,22 @@ function initierCarte(container, pointsProfil, reperesSignificatifs, timeline) {
     });
     map.addControl(new window.maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
     map.scrollZoom.disable();
-    map.on("error", (e) => console.warn("Carte du parcours — erreur MapLibre (tuile ou relief indisponible) :", e?.error ?? e));
+
+    // Diagnostic visible sans les outils dev (utile pour un utilisateur non
+    // technique) : si la carte ne finit jamais de charger (tuiles bloquées,
+    // connexion très lente...), un message apparaît directement dans la
+    // carte plutôt qu'un rectangle vide muet.
+    let carteChargee = false;
+    const diagTimeout = setTimeout(() => {
+      if (!carteChargee) {
+        const msg = document.createElement("p");
+        msg.className = "muted";
+        msg.style.cssText = "position:absolute; left:8px; right:8px; bottom:8px; margin:0; font-size:0.72rem; z-index:5;";
+        msg.textContent = "La carte met du temps à charger (connexion lente, ou fond de carte indisponible) — vérifie ta connexion, ou réessaie.";
+        mapEl.appendChild(msg);
+      }
+    }, 6000);
+    map.on("error", (e) => console.warn("Carte du parcours — erreur MapLibre (tuile indisponible) :", e?.error ?? e));
 
     const marqueur = (lonLat, color, texte) => {
       const el = document.createElement("div");
@@ -129,6 +138,8 @@ function initierCarte(container, pointsProfil, reperesSignificatifs, timeline) {
     };
 
     map.on("load", () => {
+      carteChargee = true;
+      clearTimeout(diagTimeout);
       // fitBounds APRÈS le chargement du style (plutôt que bounds+pitch dans
       // le constructeur) : plus fiable avec une caméra déjà inclinée.
       map.fitBounds(bounds, { padding: 40, pitch: 55, bearing: -12, duration: 0 });
