@@ -6,12 +6,14 @@ import {
   detecterPointsSignificatifs,
   construireTempsCumuleADistance,
   profilParcoursParDefaut,
-  calculerPacingEffortConstant,
+  allurePlatEquivalenteCible,
+  genererPlanPacing,
   agregerPacingParKm,
   fusionnerNutritionPacing,
+  detecterAlertesPlan,
 } from "../../engines/pacing.js";
 import { latLonADistance } from "../../engines/geoMap.js";
-import { parseDureeLabel } from "../../engines/vdot.js";
+import { parseDureeLabel, adjustPaceForAltitude } from "../../engines/vdot.js";
 import { PacingTimeline, ProfilCourseChart, RouteMapFallback, formatDureeHM } from "../components.js";
 
 let profilParcoursCourant = null;
@@ -188,7 +190,7 @@ export async function render(container) {
     <div class="app-main">
       <div class="card">
         <h1>Jour de course</h1>
-        <p class="muted">Stratégie : effort métabolique constant GAP-ajusté (Minetti). Import GPX entièrement côté client.</p>
+        <p class="muted">Stratégie : effort constant, pas allure constante — l'allure fluctue avec la pente (GAP Minetti), bascule en marche active au-delà du seuil réglé, et le rythme se pilote par l'effort, jamais l'inverse. Import GPX entièrement côté client.</p>
         <div class="field">
           <label for="gpx-input">Fichier GPX du parcours (optionnel)</label>
           <input type="file" id="gpx-input" accept=".gpx" />
@@ -206,6 +208,25 @@ export async function render(container) {
             <label for="temps-cible">Temps cible (hh:mm:ss)</label>
             <input type="text" id="temps-cible" value="3:30:00" />
           </div>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="dplus-heure">Capacité D+/heure en marche (m/h)</label>
+            <input type="number" id="dplus-heure" value="550" min="100" />
+          </div>
+          <div class="field">
+            <label for="seuil-marche">Seuil bascule course/marche (%)</label>
+            <input type="number" id="seuil-marche" value="15" min="1" max="60" />
+          </div>
+        </div>
+        <div class="field">
+          <label for="technicite">Technicité du terrain</label>
+          <select id="technicite">
+            <option value="roulant">Chemin roulant / piste large</option>
+            <option value="modere">Sentier technique modéré (racines, cailloux épars)</option>
+            <option value="technique">Sentier très technique (pierrier, passages exposés)</option>
+            <option value="extreme">Terrain extrême (câbles, désescalade)</option>
+          </select>
         </div>
         <div class="field-row">
           <div class="field">
@@ -227,8 +248,8 @@ export async function render(container) {
             <input type="number" id="ravito-glucides" value="60" />
           </div>
           <div class="field">
-            <label for="ravito-freq">Fréquence ravitaillement (min)</label>
-            <input type="number" id="ravito-freq" value="20" />
+            <label for="ravito-freq">Fréquence rappel nutrition (min)</label>
+            <input type="number" id="ravito-freq" value="35" />
           </div>
         </div>
         <button class="btn btn--primary" id="calc-pacing">Générer la fiche de pacing</button>
@@ -239,9 +260,11 @@ export async function render(container) {
           <h2>Fiche de pacing</h2>
           <button class="btn btn--sm" id="print-pacing">Imprimer / exporter</button>
         </div>
+        <p id="pacing-totaux" class="muted"></p>
+        <div id="pacing-alertes"></div>
         <div id="route-map" class="route-map"></div>
         <div id="profil-course-chart"></div>
-        <p id="pacing-plafond-note" class="muted" style="display:none;">Certaines descentes ont été plafonnées à une allure réaliste (jamais plus de ~18% plus rapide que ton allure à plat) — le modèle Minetti pur suggérerait des allures intenables sur ces portions ; le temps a été redistribué sur le reste du parcours pour conserver ton objectif exact.</p>
+        <p class="muted">Reste en zone d'effort Z2 sur l'ensemble des montées en première moitié de course, quelle que soit l'allure GPS qui en résulte — le plan de pacing est un guide d'effort, pas un chrono à respecter au segment près.</p>
         <div id="pacing-table"></div>
       </div>
     </div>`;
@@ -268,6 +291,9 @@ export async function render(container) {
   container.querySelector("#calc-pacing").addEventListener("click", () => {
     const distanceKm = Number(container.querySelector("#distance-course").value);
     const tempsCibleS = parseDureeLabel(container.querySelector("#temps-cible").value);
+    const dplusParHeure = Number(container.querySelector("#dplus-heure").value) || 550;
+    const seuilMarchePct = (Number(container.querySelector("#seuil-marche").value) || 15) / 100;
+    const technicite = container.querySelector("#technicite").value;
     const altitudeM = Number(container.querySelector("#altitude-course").value) || 0;
     const acclimatation = container.querySelector("#acclimatation").value;
     const glucidesGParH = Number(container.querySelector("#ravito-glucides").value);
@@ -276,16 +302,27 @@ export async function render(container) {
     const distanceTotaleM = distanceKm * 1000;
     const profilParcours = profilParcoursCourant ?? profilParcoursParDefaut(distanceTotaleM);
     const facteurGapCalibre = store.planActif()?.profilCourant?.facteurGapCalibre ?? 1;
-    const { segments, plafonnageApplique } = calculerPacingEffortConstant(
+
+    // §13 : allure plat-équivalente cible, calibrée une fois à partir de
+    // l'objectif global (distance + D+/100 en km-équivalent), puis appliquée
+    // segment par segment (§7/§12) — pas une résolution rétroactive forcée
+    // à coller exactement à l'objectif (cf. genererPlanPacing).
+    const dPlusTotal = profilParcours.segments.filter((s) => s.denivele > 0).reduce((a, s) => a + s.denivele, 0);
+    let flatEquivalentPaceMinKm = allurePlatEquivalenteCible(distanceKm, dPlusTotal, tempsCibleS / 60);
+    if (altitudeM > 1500) {
+      flatEquivalentPaceMinKm = adjustPaceForAltitude(flatEquivalentPaceMinKm, altitudeM, acclimatation).paceAjustee;
+    }
+
+    const plan = genererPlanPacing(
       profilParcours.segments,
-      tempsCibleS,
-      altitudeM > 0 ? { altitudeM, acclimatation } : {},
-      facteurGapCalibre
+      { flatEquivalentPaceMinKm, dplusParHeure, seuilMarchePct, technicite, facteurGapCalibre },
+      { tempsCibleSecondes: tempsCibleS }
     );
     // Le pacing est calculé par segment à pente homogène (précision GAP), mais
     // affiché par km — ré-agrégation nécessaire pour une fiche lisible.
-    const segmentsParKm = agregerPacingParKm(segments, distanceTotaleM);
+    const segmentsParKm = agregerPacingParKm(plan.segments, distanceTotaleM);
     const timeline = fusionnerNutritionPacing(segmentsParKm, { glucidesGParH, frequenceMin });
+    const alertes = detecterAlertesPlan(profilParcours.segments, plan, { frequenceMin });
 
     // Modélisation propre à la trace : profil altimétrique réel du GPX importé
     // (ou une ligne plate en mode dégradé), avec temps de passage à chaque km
@@ -294,7 +331,7 @@ export async function render(container) {
       { distanceCumulee: 0, altitude: 0 },
       { distanceCumulee: distanceTotaleM, altitude: 0 },
     ];
-    const tempsADistance = construireTempsCumuleADistance(segments);
+    const tempsADistance = construireTempsCumuleADistance(plan.segments);
     let distCumKm = 0;
     const reperesKm = segmentsParKm.map((s, i) => {
       distCumKm += s.distance;
@@ -321,7 +358,14 @@ export async function render(container) {
       timeline
     );
     container.querySelector("#pacing-table").innerHTML = PacingTimeline(timeline);
-    container.querySelector("#pacing-plafond-note").style.display = plafonnageApplique ? "block" : "none";
+
+    const { predictedTimeMin, targetTimeMin, deltaMin } = plan.totals;
+    const signe = deltaMin >= 0 ? "+" : "−";
+    container.querySelector("#pacing-totaux").textContent =
+      `Temps prédit : ${formatDureeHM(predictedTimeMin)} — Objectif : ${formatDureeHM(targetTimeMin)} (écart : ${signe}${formatDureeHM(Math.abs(deltaMin))})`;
+    container.querySelector("#pacing-alertes").innerHTML = alertes
+      .map((a) => `<p class="muted" style="color:var(--color-warning, #e0a800);">${a}</p>`)
+      .join("");
   });
 
   container.querySelector("#print-pacing").addEventListener("click", () => window.print());

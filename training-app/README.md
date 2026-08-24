@@ -86,7 +86,8 @@ node --test test/*.test.mjs
 26 tests couvrent : VDOT (dont un anchor élite marathon ~VDOT 82, cohérent
 avec la littérature), Riegel, correction d'altitude, Minetti/GAP (coût
 minimal ~-10%, remontée au-delà de -20%), ACWR/EWMA (zones verte/rouge),
-segmentation GPX, pacing à effort constant (conservation du temps total),
+segmentation GPX, pacing à effort constant trail (allure plat-équivalente,
+bascule course/marche, technicité, capacité D+/h),
 boucle adaptative (règle ≥2 marqueurs/3 dégradés), et le pipeline complet de
 génération de plan (reproduit l'exemple chiffré du dossier : 16 semaines,
 charge modérée → taper 2 / base 7 / développement 7).

@@ -557,22 +557,28 @@ export function formatDureeHM(minutes) {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-/** PacingTimeline — timeline unique allure cible + marqueurs nutrition. */
+/**
+ * PacingTimeline — timeline allure cible + mode (course/marche, §4 du
+ * document de stratégie de pacing) + marqueurs nutrition.
+ * @param {{km:number, tempsCumule:number, allureCible:number, mode?:"run"|"hike", actionNutrition:string|null}[]} timeline
+ */
 export function PacingTimeline(timeline) {
   const rows = timeline
     .map((row) => {
+      const modeLabel = row.mode === "hike" ? "Marche" : "Course";
       return `
       <tr class="${row.actionNutrition ? "ravito" : ""}">
         <td class="data">${row.km.toFixed(1)} km</td>
         <td class="data">${formatDureeHM(row.tempsCumule)}</td>
         <td class="data">${formatPace(row.allureCible)}</td>
+        <td class="data">${row.mode ? `<span class="zone-badge zone-badge--${row.mode}">${modeLabel}</span>` : ""}</td>
         <td>${row.actionNutrition ? escapeHtml(row.actionNutrition) : ""}</td>
       </tr>`;
     })
     .join("");
   return `
     <table class="pacing-timeline">
-      <thead><tr><th>Km</th><th>Temps</th><th>Allure</th><th>Nutrition</th></tr></thead>
+      <thead><tr><th>Km</th><th>Temps</th><th>Allure</th><th>Mode</th><th>Nutrition</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
 }

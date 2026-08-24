@@ -364,6 +364,12 @@ textarea {
   background: var(--color-text-muted);
   color: var(--ink);
 }
+.zone-badge--run {
+  background: var(--color-accent-strong);
+}
+.zone-badge--hike {
+  background: var(--color-functional-strong);
+}
 
 /* ---------- Graphiques (BarChart / DonutChart / LineChart) ---------- */
 

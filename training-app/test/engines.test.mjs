@@ -16,16 +16,20 @@ import {
   gapFactor,
   flatEquivalentToRealPace,
   realPaceToFlatEquivalent,
-  facteurGapPlafonne,
-  DOWNHILL_BOOST_FLOOR,
 } from "../js/engines/gap.js";
 import { acwr, ewmaAcwr, acwrZone, loadSummary } from "../js/engines/load.js";
 import {
   decouperSegments,
-  calculerPacingEffortConstant,
-  agregerPacingParKm,
   detecterPointsSignificatifs,
   resoudreDistanceAllureTemps,
+  coutGapDomaine,
+  facteurTechnicite,
+  modeSegment,
+  tempsMinSegmentHike,
+  allurePlatEquivalenteCible,
+  genererPlanPacing,
+  agregerPacingParKm,
+  detecterAlertesPlan,
 } from "../js/engines/pacing.js";
 import { evaluerBoucleAdaptative, detecterRetestImplicite } from "../js/engines/adaptiveLoop.js";
 
@@ -134,57 +138,163 @@ test("GAP — facteur de calibration <1 atténue l'écart au plat, et à pente n
   assert.equal(flatEquivalentToRealPace(flatPace, 0, 1.8).paceMinPerKm, flatPace);
 });
 
-test("facteurGapPlafonne — pente forte en montée n'est jamais plafonnée (le plancher ne concerne que la descente)", () => {
-  const { factor, plafonne } = facteurGapPlafonne(0.15);
-  assert.equal(plafonne, false);
-  assert.equal(factor, gapFactor(0.15));
+test("coutGapDomaine — borne la pente au domaine de validité fiable ±20% avant d'appliquer Minetti (§2.3)", () => {
+  assert.equal(coutGapDomaine(0.25), coutGapDomaine(0.2));
+  assert.equal(coutGapDomaine(-0.3), coutGapDomaine(-0.2));
 });
 
-test("facteurGapPlafonne — descente économique (-8%) : le modèle brut dépasse le plancher, l'allure est plafonnée", () => {
-  const brut = gapFactor(-0.08);
-  assert.ok(brut < DOWNHILL_BOOST_FLOOR, "prérequis du test : -8% doit dépasser le plancher pour être un cas utile");
-  const { factor, plafonne } = facteurGapPlafonne(-0.08);
-  assert.equal(plafonne, true);
-  assert.equal(factor, DOWNHILL_BOOST_FLOOR);
-});
-
-test("facteurGapPlafonne — descente légère qui ne dépasse pas le plancher n'est pas plafonnée", () => {
-  const { factor, plafonne } = facteurGapPlafonne(-0.02);
-  assert.equal(plafonne, false);
-  assert.equal(factor, gapFactor(-0.02));
-});
-
-test("facteurGapPlafonne — le plancher s'applique même avec une calibration qui atténuerait normalement l'écart (sécurité indépendante de la calibration personnelle)", () => {
-  // Pente très raide + calibration à moitié atténuée : même en réduisant
-  // de moitié l'écart au plat, le résultat reste sous le plancher.
-  const brutCalibre = 1 + (gapFactor(-0.25) - 1) * 0.5;
-  assert.ok(brutCalibre < DOWNHILL_BOOST_FLOOR, "prérequis du test : même calibré à 0.5, -25% doit dépasser le plancher");
-  const { factor, plafonne } = facteurGapPlafonne(-0.25, 0.5);
-  assert.equal(plafonne, true);
-  assert.equal(factor, DOWNHILL_BOOST_FLOOR);
-});
-
-test("Pacing — sur une descente économique non plafonnée manuellement, calculerPacingEffortConstant ne prescrit jamais une allure plus de ~11% plus rapide que l'allure plat globale, et le temps total reste exact malgré le plafond", () => {
-  const segments = [
-    { distance: 10000, penteMoyenne: 0 },
-    { distance: 5000, penteMoyenne: -0.1 }, // descente bien au-delà du plancher en brut
+test("coutGapDomaine — reproduit la table de facteurs de coût du §2.2 (tolérance 0.02)", () => {
+  const table = [
+    [0.2, 2.5],
+    [0.15, 2.06],
+    [0.1, 1.66],
+    [0.05, 1.3],
+    [0, 1.0],
+    [-0.05, 0.76],
+    [-0.1, 0.6],
+    [-0.15, 0.51],
+    [-0.2, 0.5],
   ];
-  const tempsCibleSec = 60 * 60; // 1h sur 15km, ~4:00/km moyen
-  const { segments: out, plafonnageApplique, puissanceMetabolique } = calculerPacingEffortConstant(segments, tempsCibleSec);
-  assert.equal(plafonnageApplique, true);
-  // Allure "plat pur" équivalente à la puissance calibrée (pente 0 -> ec = FLAT_ENERGY_COST)
-  const alluresPlat = out[0].allureMinParKm;
-  const alluresDescente = out[1].allureMinParKm;
-  assert.ok(alluresDescente >= alluresPlat * DOWNHILL_BOOST_FLOOR - 1e-9, `allure descente ${alluresDescente} ne doit pas dépasser ${DOWNHILL_BOOST_FLOOR * 100}% de la vitesse plat (allure ${alluresPlat})`);
-  const dernierCumule = out[out.length - 1].tempsCumuleMin;
-  assert.ok(Math.abs(dernierCumule - 60) < 0.01, `temps cumulé final=${dernierCumule}, attendu 60 malgré le plafonnage`);
-  assert.ok(puissanceMetabolique > 0);
+  for (const [penteMoyenne, attendu] of table) {
+    assert.ok(Math.abs(coutGapDomaine(penteMoyenne) - attendu) < 0.02, `pente ${penteMoyenne}: attendu ~${attendu}, obtenu ${coutGapDomaine(penteMoyenne)}`);
+  }
 });
 
-test("Pacing — sans descente marquée, aucun plafonnage n'est signalé", () => {
-  const segments = [{ distance: 5000, penteMoyenne: 0.02 }, { distance: 5000, penteMoyenne: -0.015 }];
-  const { plafonnageApplique } = calculerPacingEffortConstant(segments, 1800);
-  assert.equal(plafonnageApplique, false);
+test("facteurTechnicite — chemin roulant = 1.00, technicité croissante = facteur croissant (§3)", () => {
+  assert.equal(facteurTechnicite("roulant"), 1.0);
+  assert.ok(facteurTechnicite("modere") < facteurTechnicite("technique"));
+  assert.ok(facteurTechnicite("technique") < facteurTechnicite("extreme"));
+});
+
+test("modeSegment — bascule en marche (hike) au seuil de pente, course (run) en-dessous (§4)", () => {
+  assert.equal(modeSegment(0.2, 0.15), "hike");
+  assert.equal(modeSegment(0.1, 0.15), "run");
+  assert.equal(modeSegment(0.15, 0.15), "hike");
+});
+
+test("tempsMinSegmentHike — temps proportionnel au D+ et inversement proportionnel à la capacité D+/h (§5)", () => {
+  assert.equal(tempsMinSegmentHike(600, 600), 60);
+  assert.equal(tempsMinSegmentHike(300, 600), 30);
+  assert.equal(tempsMinSegmentHike(600, 1200), 30);
+});
+
+test("allurePlatEquivalenteCible — exemple appliqué du document (§13, Trail de Volvic 45km/1350m D+, objectif 4h30) : ≈4:37/km", () => {
+  const allure = allurePlatEquivalenteCible(45, 1350, 270);
+  assert.ok(Math.abs(allure - (4 + 37 / 60)) < 0.01, `attendu ~4:37/km (4.6167), obtenu ${allure}`);
+});
+
+test("genererPlanPacing — segment plat (mode course) : temps = distance × allure plat-équivalente (facteur GAP = 1)", () => {
+  const segments = [{ distance: 5000, denivele: 0, penteMoyenne: 0 }];
+  const plan = genererPlanPacing(segments, { flatEquivalentPaceMinKm: 5, dplusParHeure: 600 }, { tempsCibleSecondes: 1500 });
+  assert.equal(plan.segments[0].mode, "run");
+  assert.ok(Math.abs(plan.segments[0].tempsSegmentMin - 25) < 1e-9);
+  assert.ok(Math.abs(plan.totals.predictedTimeMin - 25) < 1e-9);
+});
+
+test("genererPlanPacing — pente ≥ seuil de marche bascule en mode hike, calculé via la capacité D+/h et non l'allure plat-équivalente (§4/§5)", () => {
+  const segments = [{ distance: 1000, denivele: 200, penteMoyenne: 0.2 }];
+  const plan = genererPlanPacing(segments, { flatEquivalentPaceMinKm: 5, dplusParHeure: 600, seuilMarchePct: 0.15 }, { tempsCibleSecondes: 99999 });
+  assert.equal(plan.segments[0].mode, "hike");
+  assert.ok(Math.abs(plan.segments[0].tempsSegmentMin - 20) < 1e-9); // 200/600*60=20min
+});
+
+test("genererPlanPacing — montée en mode course (sous le seuil) : allure plus lente que le plat, descente économique plus rapide (§2)", () => {
+  const segments = [
+    { distance: 1000, denivele: 0, penteMoyenne: 0 },
+    { distance: 1000, denivele: 80, penteMoyenne: 0.08 },
+    { distance: 1000, denivele: -80, penteMoyenne: -0.08 },
+  ];
+  const plan = genererPlanPacing(segments, { flatEquivalentPaceMinKm: 5, dplusParHeure: 600 }, { tempsCibleSecondes: 900 });
+  assert.ok(plan.segments[1].allureMinParKm > plan.segments[0].allureMinParKm, "montée plus lente que le plat");
+  assert.ok(plan.segments[2].allureMinParKm < plan.segments[0].allureMinParKm, "descente économique plus rapide que le plat");
+});
+
+test("genererPlanPacing — le facteur de technicité multiplie le temps final du segment (§3)", () => {
+  const segments = [{ distance: 1000, denivele: 0, penteMoyenne: 0 }];
+  const roulant = genererPlanPacing(segments, { flatEquivalentPaceMinKm: 5, dplusParHeure: 600, technicite: "roulant" }, { tempsCibleSecondes: 300 });
+  const technique = genererPlanPacing(segments, { flatEquivalentPaceMinKm: 5, dplusParHeure: 600, technicite: "technique" }, { tempsCibleSecondes: 300 });
+  assert.ok(technique.segments[0].tempsSegmentMin > roulant.segments[0].tempsSegmentMin);
+});
+
+test("genererPlanPacing — totals.deltaMin reflète l'écart réel entre temps prédit et objectif (pas de recalage forcé, §10/§11)", () => {
+  const segments = [{ distance: 10000, denivele: 0, penteMoyenne: 0 }];
+  const plan = genererPlanPacing(segments, { flatEquivalentPaceMinKm: 6, dplusParHeure: 600 }, { tempsCibleSecondes: 1800 }); // objectif 30min, prédit 60min
+  assert.ok(Math.abs(plan.totals.predictedTimeMin - 60) < 1e-9);
+  assert.ok(Math.abs(plan.totals.deltaMin - 30) < 1e-9);
+});
+
+test("agregerPacingParKm — un parcours vallonné avec segments fins (150-300m) donne une ligne par km complet", () => {
+  const segmentsFins = [
+    { distance: 200, denivele: 6, penteMoyenne: 0.03 },
+    { distance: 180, denivele: -3.6, penteMoyenne: -0.02 },
+    { distance: 300, denivele: 3, penteMoyenne: 0.01 },
+    { distance: 220, denivele: 8.8, penteMoyenne: 0.04 },
+    { distance: 250, denivele: -2.5, penteMoyenne: -0.01 },
+    { distance: 350, denivele: 0, penteMoyenne: 0 },
+    { distance: 1000, denivele: 20, penteMoyenne: 0.02 },
+    { distance: 1500, denivele: -30, penteMoyenne: -0.02 },
+  ]; // total = 4000m
+  const plan = genererPlanPacing(segmentsFins, { flatEquivalentPaceMinKm: 5, dplusParHeure: 600 }, { tempsCibleSecondes: 1200 });
+  const parKm = agregerPacingParKm(plan.segments, 4000);
+  assert.equal(parKm.length, 4, "4 lignes attendues pour 4000m (une par km complet)");
+  for (const ligne of parKm) {
+    assert.ok(Math.abs(ligne.distance - 1000) < 0.01, `chaque ligne doit couvrir exactement 1km, obtenu ${ligne.distance}`);
+  }
+  const dernierCumule = parKm[parKm.length - 1].tempsCumuleMin;
+  assert.ok(Math.abs(dernierCumule - plan.totals.predictedTimeMin) < 0.01, "le cumul de la dernière ligne doit correspondre au temps total prédit");
+});
+
+test("agregerPacingParKm — distance non multiple de 1000m ajoute un dernier segment partiel", () => {
+  const segments = [
+    { distance: 1000, denivele: 0, penteMoyenne: 0 },
+    { distance: 1000, denivele: 0, penteMoyenne: 0 },
+    { distance: 195, denivele: 0, penteMoyenne: 0 },
+  ];
+  const plan = genererPlanPacing(segments, { flatEquivalentPaceMinKm: 5, dplusParHeure: 600 }, { tempsCibleSecondes: 600 });
+  const parKm = agregerPacingParKm(plan.segments, 2195);
+  assert.equal(parKm.length, 3, "2 km complets + 1 segment partiel de 195m");
+  assert.ok(Math.abs(parKm[0].distance - 1000) < 0.01);
+  assert.ok(Math.abs(parKm[1].distance - 1000) < 0.01);
+  assert.ok(Math.abs(parKm[2].distance - 195) < 0.01);
+});
+
+test("agregerPacingParKm — le mode retenu par ligne km reflète le mode (course/marche) du segment d'origine couvrant le milieu de l'intervalle", () => {
+  const segments = [
+    { distance: 1000, denivele: 0, penteMoyenne: 0 },
+    { distance: 1000, denivele: 200, penteMoyenne: 0.2 },
+  ];
+  const plan = genererPlanPacing(segments, { flatEquivalentPaceMinKm: 5, dplusParHeure: 600, seuilMarchePct: 0.15 }, { tempsCibleSecondes: 99999 });
+  const parKm = agregerPacingParKm(plan.segments, 2000);
+  assert.equal(parKm[0].mode, "run");
+  assert.equal(parKm[1].mode, "hike");
+});
+
+test("detecterAlertesPlan — signale les pentes hors domaine de validité ±20% (§2.3/§14)", () => {
+  const segments = [{ distance: 500, denivele: 150, penteMoyenne: 0.3 }];
+  const plan = genererPlanPacing(segments, { flatEquivalentPaceMinKm: 5, dplusParHeure: 600 }, { tempsCibleSecondes: 600 });
+  const alertes = detecterAlertesPlan(segments, plan, {});
+  assert.ok(alertes.some((a) => a.includes("domaine de validité")));
+});
+
+test("detecterAlertesPlan — signale un écart nutrition >45min entre rappels (§9/§14)", () => {
+  const segments = [{ distance: 1000, denivele: 0, penteMoyenne: 0 }];
+  const plan = genererPlanPacing(segments, { flatEquivalentPaceMinKm: 5, dplusParHeure: 600 }, { tempsCibleSecondes: 300 });
+  const alertes = detecterAlertesPlan(segments, plan, { frequenceMin: 50 });
+  assert.ok(alertes.some((a) => a.includes("nutrition")));
+});
+
+test("detecterAlertesPlan — signale un écart important entre temps prédit et objectif (§10/§11)", () => {
+  const segments = [{ distance: 10000, denivele: 0, penteMoyenne: 0 }];
+  const plan = genererPlanPacing(segments, { flatEquivalentPaceMinKm: 6, dplusParHeure: 600 }, { tempsCibleSecondes: 1800 });
+  const alertes = detecterAlertesPlan(segments, plan, {});
+  assert.ok(alertes.some((a) => a.includes("objectif")));
+});
+
+test("detecterAlertesPlan — aucune alerte si tout est dans les clous", () => {
+  const segments = [{ distance: 5000, denivele: 0, penteMoyenne: 0 }];
+  const plan = genererPlanPacing(segments, { flatEquivalentPaceMinKm: 5, dplusParHeure: 600 }, { tempsCibleSecondes: 1500 });
+  const alertes = detecterAlertesPlan(segments, plan, { frequenceMin: 30 });
+  assert.equal(alertes.length, 0);
 });
 
 test("ACWR — zone verte entre 0.8 et 1.3", () => {
@@ -217,61 +327,6 @@ test("Pacing — découpage en segments respecte la longueur min/max", () => {
   for (const s of segments) {
     assert.ok(s.distance <= 1200 + 20, `segment trop long: ${s.distance}`);
   }
-});
-
-test("Pacing — effort constant: temps total des segments = temps cible", () => {
-  const segments = [
-    { distance: 5000, penteMoyenne: 0 },
-    { distance: 2000, penteMoyenne: 0.08 },
-    { distance: 3000, penteMoyenne: -0.08 },
-  ];
-  const tempsCibleSec = 3600; // 1h
-  const { segments: out } = calculerPacingEffortConstant(segments, tempsCibleSec);
-  const dernierCumule = out[out.length - 1].tempsCumuleMin;
-  assert.ok(Math.abs(dernierCumule - 60) < 0.01, `temps cumulé final=${dernierCumule}, attendu 60`);
-  // segment en montée doit être parcouru plus lentement (allure min/km plus grande) que le plat
-  assert.ok(out[1].allureMinParKm > out[0].allureMinParKm);
-  // segment en descente légère doit être plus rapide que le plat (jusqu'à -10%, zone économique)
-  assert.ok(out[2].allureMinParKm < out[0].allureMinParKm);
-});
-
-test("Pacing — agrégation par km: un parcours vallonné avec des segments de 150-200m donne une ligne par km complet", () => {
-  // Simule ce que produit decouperSegments sur un GPX vallonné réel : beaucoup
-  // de petits segments (150-300m) sur les 3 premiers km, un segment plus long ensuite.
-  const segmentsFins = [
-    { distance: 200, penteMoyenne: 0.03 },
-    { distance: 180, penteMoyenne: -0.02 },
-    { distance: 300, penteMoyenne: 0.01 },
-    { distance: 220, penteMoyenne: 0.04 },
-    { distance: 250, penteMoyenne: -0.01 },
-    { distance: 350, penteMoyenne: 0 },
-    { distance: 1000, penteMoyenne: 0.02 },
-    { distance: 1500, penteMoyenne: -0.02 },
-  ]; // total = 4000m
-  const tempsCibleSec = 1200; // 20 min
-  const { segments } = calculerPacingEffortConstant(segmentsFins, tempsCibleSec);
-
-  const parKm = agregerPacingParKm(segments, 4000);
-  assert.equal(parKm.length, 4, "4 lignes attendues pour 4000m (une par km complet)");
-  for (const ligne of parKm) {
-    assert.ok(Math.abs(ligne.distance - 1000) < 0.01, `chaque ligne doit couvrir exactement 1km, obtenu ${ligne.distance}`);
-  }
-  const tempsTotal = parKm[parKm.length - 1].tempsCumuleMin;
-  assert.ok(Math.abs(tempsTotal - 20) < 0.01, `temps cumulé final=${tempsTotal}, attendu 20min`);
-});
-
-test("Pacing — agrégation par km: distance non multiple de 1000m ajoute un dernier segment partiel", () => {
-  const segmentsFins = [
-    { distance: 1000, penteMoyenne: 0 },
-    { distance: 1000, penteMoyenne: 0 },
-    { distance: 195, penteMoyenne: 0 }, // ex. marathon 2195m après les 2 premiers km (simplifié)
-  ];
-  const { segments } = calculerPacingEffortConstant(segmentsFins, 600); // 10 min
-  const parKm = agregerPacingParKm(segments, 2195);
-  assert.equal(parKm.length, 3, "2 km complets + 1 segment partiel de 195m");
-  assert.ok(Math.abs(parKm[0].distance - 1000) < 0.01);
-  assert.ok(Math.abs(parKm[1].distance - 1000) < 0.01);
-  assert.ok(Math.abs(parKm[2].distance - 195) < 0.01);
 });
 
 test("Pacing — détection des points significatifs: une vraie bosse (50m sur 1km) est détectée comme sommet", () => {
