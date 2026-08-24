@@ -30,7 +30,7 @@ export async function render(container) {
           <label for="calc-distance">Distance (m)</label>
           <input type="number" id="calc-distance" min="1" placeholder="ex : 400" />
         </div>
-        <div class="field-row" id="calc-distances-rapides">
+        <div class="btn-group" id="calc-distances-rapides">
           ${DISTANCES_RAPIDES.map((d) => `<button type="button" class="btn btn--sm" data-distance="${d}">${d} m</button>`).join("")}
         </div>
 
@@ -40,7 +40,7 @@ export async function render(container) {
         </div>
         ${
           zones
-            ? `<div class="field-row" id="calc-zones-rapides">
+            ? `<div class="btn-group" id="calc-zones-rapides">
                 ${Object.entries(zones)
                   .map(([zone, z]) => `<button type="button" class="btn btn--sm" data-allure="${z.targetLabel}">${zone} · ${z.targetLabel}</button>`)
                   .join("")}
