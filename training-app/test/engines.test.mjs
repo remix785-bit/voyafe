@@ -7,6 +7,9 @@ import {
   altitudeDeltaVo2max,
   adjustPaceForAltitude,
   formatPace,
+  parsePaceLabel,
+  parseDureeLabel,
+  formatDureeCompacte,
 } from "../js/engines/vdot.js";
 import {
   minettiEnergyCost,
@@ -22,6 +25,7 @@ import {
   calculerPacingEffortConstant,
   agregerPacingParKm,
   detecterPointsSignificatifs,
+  resoudreDistanceAllureTemps,
 } from "../js/engines/pacing.js";
 import { evaluerBoucleAdaptative, detecterRetestImplicite } from "../js/engines/adaptiveLoop.js";
 
@@ -321,4 +325,50 @@ test("Retest implicite — proposé si écart VDOT observé > seuil", () => {
   assert.equal(r.proposer, true);
   const r2 = detecterRetestImplicite(50, 50.5);
   assert.equal(r2.proposer, false);
+});
+
+test("parsePaceLabel — parse « m:ss » (avec ou sans /km) en allure décimale, inverse de formatPace", () => {
+  assert.equal(parsePaceLabel("4:00"), 4);
+  assert.equal(parsePaceLabel("4:00/km"), 4);
+  assert.ok(Math.abs(parsePaceLabel("3:45") - 3.75) < 1e-9);
+  assert.equal(parsePaceLabel(""), null);
+  assert.equal(parsePaceLabel("pas une allure"), null);
+});
+
+test("formatPace / parsePaceLabel — round-trip cohérent", () => {
+  const allure = 4.5;
+  assert.equal(parsePaceLabel(formatPace(allure)), allure);
+});
+
+test("parseDureeLabel — parse « m:ss » et « h:mm:ss » en secondes", () => {
+  assert.equal(parseDureeLabel("1:36"), 96);
+  assert.equal(parseDureeLabel("3:30:00"), 3.5 * 3600);
+  assert.equal(parseDureeLabel(""), 0);
+});
+
+test("formatDureeCompacte / parseDureeLabel — round-trip cohérent, bascule en h:mm:ss au-delà d'une heure", () => {
+  assert.equal(formatDureeCompacte(96), "1:36");
+  assert.equal(formatDureeCompacte(3.5 * 3600), "3:30:00");
+  assert.equal(parseDureeLabel(formatDureeCompacte(5025)), 5025);
+});
+
+test("resoudreDistanceAllureTemps — distance + allure connues -> résout le temps (cas d'usage principal : piste/ligne droite)", () => {
+  const r = resoudreDistanceAllureTemps({ distanceM: 400, allureMinParKm: 4 });
+  assert.equal(r.tempsS, 96); // 0.4km * 4min/km = 1.6min = 96s
+});
+
+test("resoudreDistanceAllureTemps — distance + temps connus -> résout l'allure", () => {
+  const r = resoudreDistanceAllureTemps({ distanceM: 400, tempsS: 96 });
+  assert.ok(Math.abs(r.allureMinParKm - 4) < 1e-9);
+});
+
+test("resoudreDistanceAllureTemps — allure + temps connus -> résout la distance", () => {
+  const r = resoudreDistanceAllureTemps({ allureMinParKm: 4, tempsS: 96 });
+  assert.ok(Math.abs(r.distanceM - 400) < 1e-9);
+});
+
+test("resoudreDistanceAllureTemps — moins de deux valeurs connues -> null (rien à résoudre)", () => {
+  assert.equal(resoudreDistanceAllureTemps({ distanceM: 400 }), null);
+  assert.equal(resoudreDistanceAllureTemps({}), null);
+  assert.equal(resoudreDistanceAllureTemps(), null);
 });

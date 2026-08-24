@@ -4,6 +4,7 @@
 
 const ENTREES = [
   { route: "renfo", icon: "▲", label: "Renfo", description: "Séances de renforcement musculaire de la semaine." },
+  { route: "calculateur", icon: "÷", label: "Calculateur", description: "Distance / allure / temps — utile sur piste ou en ligne droite." },
   { route: "nutrition", icon: "●", label: "Nutrition", description: "Besoins glucidiques/hydriques du jour et de la course." },
   { route: "jour-course", icon: "⟿", label: "Jour de course", description: "Fiche de pacing GAP-ajustée à partir d'un GPX." },
   { route: "profil", icon: "○", label: "Profil", description: "Performance de référence, poids, disponibilité hebdo." },

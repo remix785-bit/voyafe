@@ -354,3 +354,28 @@ export function fusionnerNutritionPacing(segmentsPacing, ravito) {
   }
   return timeline;
 }
+
+/**
+ * Calculateur distance / allure / temps — utile sur piste ou une ligne
+ * droite chronométrée (répétitions, fractionné) : connaissant deux des
+ * trois valeurs, résout la troisième (relation simple temps = distance ×
+ * allure, mais fastidieuse à faire de tête sous forme min:s en plein
+ * effort). Ne dépend d'aucun GPX/segment — juste la relation elle-même.
+ * @param {{distanceM?:number|null, allureMinParKm?:number|null, tempsS?:number|null}} valeurs
+ *   exactement les valeurs connues ; laisser à null/undefined celle à calculer.
+ * @returns {{distanceM:number, allureMinParKm:number, tempsS:number}|null}
+ *   null si moins de deux valeurs sont renseignées (rien à résoudre).
+ */
+export function resoudreDistanceAllureTemps({ distanceM, allureMinParKm, tempsS } = {}) {
+  const connues = [distanceM, allureMinParKm, tempsS].filter((v) => v != null && v > 0).length;
+  if (connues < 2) return null;
+
+  if (distanceM != null && allureMinParKm != null) {
+    return { distanceM, allureMinParKm, tempsS: (distanceM / 1000) * allureMinParKm * 60 };
+  }
+  if (distanceM != null && tempsS != null) {
+    return { distanceM, allureMinParKm: tempsS / 60 / (distanceM / 1000), tempsS };
+  }
+  // allureMinParKm et tempsS connus (distance à déduire)
+  return { distanceM: (tempsS / 60 / allureMinParKm) * 1000, allureMinParKm, tempsS };
+}

@@ -11,6 +11,7 @@ import {
   fusionnerNutritionPacing,
 } from "../../engines/pacing.js";
 import { latLonADistance } from "../../engines/geoMap.js";
+import { parseDureeLabel } from "../../engines/vdot.js";
 import { PacingTimeline, ProfilCourseChart, RouteMapFallback, formatDureeHM } from "../components.js";
 
 let profilParcoursCourant = null;
@@ -266,7 +267,7 @@ export async function render(container) {
 
   container.querySelector("#calc-pacing").addEventListener("click", () => {
     const distanceKm = Number(container.querySelector("#distance-course").value);
-    const tempsCibleS = labelVersSecondes(container.querySelector("#temps-cible").value);
+    const tempsCibleS = parseDureeLabel(container.querySelector("#temps-cible").value);
     const altitudeM = Number(container.querySelector("#altitude-course").value) || 0;
     const acclimatation = container.querySelector("#acclimatation").value;
     const glucidesGParH = Number(container.querySelector("#ravito-glucides").value);
@@ -324,11 +325,4 @@ export async function render(container) {
   });
 
   container.querySelector("#print-pacing").addEventListener("click", () => window.print());
-}
-
-function labelVersSecondes(label) {
-  const parts = label.split(":").map(Number);
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  return Number(label) || 0;
 }

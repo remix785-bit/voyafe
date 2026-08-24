@@ -121,6 +121,45 @@ export function formatPace(paceMinPerKm) {
 }
 
 /**
+ * Parse une allure saisie en "m:ss" (avec ou sans le "/km" de formatPace())
+ * en allure décimale (min/km) — inverse de formatPace().
+ * @param {string} label
+ * @returns {number|null} null si non parsable
+ */
+export function parsePaceLabel(label) {
+  const match = String(label ?? "").trim().match(/^(\d+):([0-5]?\d)/);
+  if (!match) return null;
+  return Number(match[1]) + Number(match[2]) / 60;
+}
+
+/**
+ * Parse une durée saisie en "m:ss" ou "h:mm:ss" en secondes totales.
+ * @param {string} label
+ */
+export function parseDureeLabel(label) {
+  const parts = String(label ?? "").trim().split(":").map(Number);
+  if (parts.some((p) => Number.isNaN(p))) return 0;
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return Number(label) || 0;
+}
+
+/**
+ * Formate une durée en secondes en "m:ss" (ou "h:mm:ss" au-delà d'une
+ * heure) — inverse de parseDureeLabel().
+ * @param {number} totalSecondes
+ */
+export function formatDureeCompacte(totalSecondes) {
+  const s = Math.round(totalSecondes);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`
+    : `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+/**
  * Calcule les allures cibles (bornes rapide/lente + valeur représentative)
  * pour chaque zone E/M/T/I/R à partir d'un VDOT donné.
  * @param {number} vdot

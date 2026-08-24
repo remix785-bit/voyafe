@@ -13,6 +13,7 @@ import * as historique from "./ui/screens/historique.js";
 import * as journal from "./ui/screens/journal.js";
 import * as reglages from "./ui/screens/reglages.js";
 import * as menu from "./ui/screens/menu.js";
+import * as calculateur from "./ui/screens/calculateur.js";
 
 async function boot() {
   await store.init();
@@ -42,6 +43,7 @@ async function boot() {
   registerRoute("journal", journal.render);
   registerRoute("reglages", reglages.render);
   registerRoute("menu", menu.render);
+  registerRoute("calculateur", calculateur.render);
 
   const appMain = document.getElementById("app-view");
   const nav = document.getElementById("app-nav");
