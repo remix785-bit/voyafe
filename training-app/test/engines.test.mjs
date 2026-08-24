@@ -269,11 +269,21 @@ test("agregerPacingParKm — le mode retenu par ligne km reflète le mode (cours
   assert.equal(parKm[1].mode, "hike");
 });
 
-test("detecterAlertesPlan — signale les pentes hors domaine de validité ±20% (§2.3/§14)", () => {
+test("detecterAlertesPlan — signale les pentes hors domaine de validité ±20% quand une portion significative du parcours (>3%) est concernée (§2.3/§14)", () => {
   const segments = [{ distance: 500, denivele: 150, penteMoyenne: 0.3 }];
   const plan = genererPlanPacing(segments, { flatEquivalentPaceMinKm: 5, dplusParHeure: 600 }, { tempsCibleSecondes: 600 });
   const alertes = detecterAlertesPlan(segments, plan, {});
   assert.ok(alertes.some((a) => a.includes("domaine de validité")));
+});
+
+test("detecterAlertesPlan — un segment isolé et bref hors domaine (<3% du parcours) ne déclenche PAS l'alerte (bruit GPS/pointe technique courante sur un GPX réel)", () => {
+  const segments = [
+    { distance: 9900, denivele: 0, penteMoyenne: 0 },
+    { distance: 100, denivele: 30, penteMoyenne: 0.3 }, // 1% de la distance totale, hors domaine
+  ];
+  const plan = genererPlanPacing(segments, { flatEquivalentPaceMinKm: 5, dplusParHeure: 600 }, { tempsCibleSecondes: 3000 });
+  const alertes = detecterAlertesPlan(segments, plan, {});
+  assert.ok(!alertes.some((a) => a.includes("domaine de validité")), "un segment isolé hors domaine ne doit pas déclencher l'alerte globale");
 });
 
 test("detecterAlertesPlan — signale un écart nutrition >45min entre rappels (§9/§14)", () => {

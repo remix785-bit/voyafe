@@ -499,15 +499,25 @@ export function fusionnerNutritionPacing(segmentsPacing, ravito) {
  * @param {{frequenceMin?:number}} options
  * @returns {string[]}
  */
+/** Part minimale du parcours hors domaine de validité fiable (§2.3) avant de
+ * signaler l'alerte correspondante — un segment isolé et bref (150m-1.2km,
+ * granularité de decouperSegments) au-delà de ±20%, courant sur un profil
+ * altimétrique GPX réel (pointe technique, bruit GPS résiduel), ne doit pas
+ * déclencher un avertissement global sur toute la fiche de pacing ; seule
+ * une portion significative du parcours (plusieurs centaines de mètres
+ * cumulés) le justifie. */
+const SEUIL_SIGNALEMENT_HORS_DOMAINE_PCT = 0.03;
+
 export function detecterAlertesPlan(segments, plan, options = {}) {
   const alertes = [];
 
-  const horsDomaine = segments.some(
-    (s) => s.penteMoyenne < DOMAINE_PENTE_FIABLE.min || s.penteMoyenne > DOMAINE_PENTE_FIABLE.max
-  );
-  if (horsDomaine) {
+  const distanceTotale = segments.reduce((a, s) => a + s.distance, 0);
+  const distanceHorsDomaine = segments
+    .filter((s) => s.penteMoyenne < DOMAINE_PENTE_FIABLE.min || s.penteMoyenne > DOMAINE_PENTE_FIABLE.max)
+    .reduce((a, s) => a + s.distance, 0);
+  if (distanceTotale > 0 && distanceHorsDomaine / distanceTotale > SEUIL_SIGNALEMENT_HORS_DOMAINE_PCT) {
     alertes.push(
-      "Certaines portions dépassent ±20% de pente — hors du domaine de validité fiable du modèle de coût énergétique (§2.3) : la prudence sur la technicité et le freinage prime sur le chiffre d'allure affiché."
+      "Une portion significative du parcours dépasse ±20% de pente — hors du domaine de validité fiable du modèle de coût énergétique (§2.3) : la prudence sur la technicité et le freinage prime sur le chiffre d'allure affiché."
     );
   }
 
