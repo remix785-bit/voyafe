@@ -1,17 +1,19 @@
 /* Système de tokens — identité visuelle "terminal analytique" (Coach Running
    pour Rémi). Rupture volontaire avec la précédente DA "sport énergique"
-   (fonds gradient, boutons pilule, ombres marquées) : fond quasi noir plat,
-   bordures fines, zéro ombre, zéro dégradé, typographie monospace dominante
-   — inspiré des terminaux de marché (Bloomberg) plutôt que d'une appli
-   sport grand public. Densité assumée, lisibilité au scan plutôt
-   qu'impact visuel. Thème sombre par défaut, thème clair disponible via
-   [data-theme="light"] sur <html> (Réglages). */
+   (fonds gradient, boutons pilule, ombres marquées) : fond quasi noir,
+   bordures fines, zéro ombre, zéro dégradé décoratif, typographie monospace
+   dominante — inspiré des terminaux de marché (Bloomberg) avec une touche
+   de lueur néon assumée sur les points d'attention (titres, valeurs clé,
+   focus) pour que le changement se voie au premier coup d'œil, pas
+   seulement au détail. Coins des cartes marqués par des équerres façon
+   viseur/HUD plutôt qu'un simple cadre. Thème sombre par défaut, thème
+   clair disponible via [data-theme="light"] sur <html> (Réglages). */
 
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
 
 :root {
   /* Palette brute */
-  --ink: #05070a;
+  --ink: #020304;
   --paper: #eef1f0;
 
   /* Typographie — mono en dominante (labels, titres, nav), Inter réservé au
@@ -34,20 +36,27 @@
 
   /* Rôles sémantiques — thème sombre (défaut) */
   --color-bg: var(--ink);
-  --color-bg-elevated: #0a0d11;
-  --color-surface: #0d1116;
+  --color-bg-elevated: #08090c;
+  --color-surface: #0a0c0f;
   --color-surface-strong: var(--paper);
   --color-text: var(--paper);
   --color-text-on-strong: var(--ink);
-  --color-text-muted: #67707c;
-  --color-border: #1c222b;
+  --color-text-muted: #5c6672;
+  --color-border: #1a2027;
 
-  --color-accent: #29e0ff; /* cyan signal — lecture de données, liens, focus */
-  --color-accent-strong: #0092ad;
-  --color-structural: #29f2b0; /* vert terminal — positif/sain */
-  --color-structural-strong: #00b881;
+  --color-accent: #00f0ff; /* cyan électrique — lecture de données, liens, focus, glow */
+  --color-accent-strong: #00a6bd;
+  --color-structural: #21ffb0; /* vert terminal — positif/sain */
+  --color-structural-strong: #00c98a;
   --color-functional: #ffb020; /* ambre — attention/fonctionnel */
   --color-functional-strong: #e08600;
+
+  /* Lueur néon appliquée avec parcimonie (titres, valeurs clé, focus) — pas
+     partout : la densité "terminal" doit rester lisible, la lueur marque
+     juste les points d'attention. */
+  --glow-accent: 0 0 10px color-mix(in srgb, var(--color-accent) 65%, transparent);
+  --glow-structural: 0 0 10px color-mix(in srgb, var(--color-structural) 55%, transparent);
+  --glow-danger: 0 0 10px color-mix(in srgb, var(--color-danger) 55%, transparent);
 
   /* Zones Daniels E/M/T/I/R — palette catégorielle validée (5 teintes du set
      de référence dataviz), non retouchée par la refonte : recréer cette
@@ -105,6 +114,11 @@
   --color-danger: #c22f4a;
 
   --shadow-card: none;
+  /* La lueur néon (pensée pour un fond quasi noir) devient juste un flou
+     disgracieux sur fond clair — désactivée en thème clair. */
+  --glow-accent: none;
+  --glow-structural: none;
+  --glow-danger: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
