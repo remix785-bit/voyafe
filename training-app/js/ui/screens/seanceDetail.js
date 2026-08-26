@@ -5,6 +5,8 @@ import { ECHAUFFEMENT_INTENSITE, RETOUR_AU_CALME } from "../../catalog/protocols
 
 let timer = null;
 
+const STATUT_LABELS = { a_venir: "À venir", realisee: "Réalisée", manquee: "Manquée" };
+
 export async function render(container, params) {
   const plan = store.getState().plans.find((p) => p.id === params.plan) ?? store.planActif();
   const semaine = plan?.semaines.find((s) => s.numero === Number(params.semaine));
@@ -53,27 +55,38 @@ export async function render(container, params) {
 
       <div class="card">
         <h2>Séance réalisée</h2>
+        <p class="muted">Statut actuel : <strong>${STATUT_LABELS[seance.statut] ?? STATUT_LABELS.a_venir}</strong></p>
         <div class="field">
           <label for="note-libre">Note libre (ressenti, conditions)</label>
           <textarea id="note-libre" rows="3">${escapeAttr(seance.note ?? "")}</textarea>
         </div>
         <div class="row">
-          <button class="btn btn--primary" id="mark-realisee">Marquer réalisée</button>
-          <button class="btn btn--danger" id="mark-manquee">Marquer manquée</button>
+          <button class="btn ${seance.statut === "realisee" ? "btn--primary" : ""}" id="mark-realisee">Marquer réalisée</button>
+          <button class="btn ${seance.statut === "manquee" ? "btn--danger" : ""}" id="mark-manquee">Marquer manquée</button>
+          ${
+            seance.statut && seance.statut !== "a_venir"
+              ? `<button class="btn btn--sm" id="mark-annuler">Annuler — remettre « à venir »</button>`
+              : ""
+          }
         </div>
       </div>
     </div>`;
 
   wireTimer(container, seance);
 
-  container.querySelector("#mark-realisee")?.addEventListener("click", async () => {
-    await store.marquerSeanceStatut(plan.id, semaine.numero, Number(params.idx), "realisee", container.querySelector("#note-libre").value);
-    location.hash = "#/plan?semaine=" + semaine.numero;
-  });
-  container.querySelector("#mark-manquee")?.addEventListener("click", async () => {
-    await store.marquerSeanceStatut(plan.id, semaine.numero, Number(params.idx), "manquee", container.querySelector("#note-libre").value);
-    location.hash = "#/plan?semaine=" + semaine.numero;
-  });
+  // Ré-affiche l'écran sur place après chaque changement de statut (au lieu
+  // de renvoyer vers le plan) : permet de voir immédiatement le nouveau
+  // statut et de le corriger sans re-naviguer si le clic était une erreur
+  // (ex. sur une séance pas encore à faire) — c'est précisément ce que le
+  // bouton "Annuler" ci-dessus permet de faire ensuite.
+  const marquer = async (statut) => {
+    await store.marquerSeanceStatut(plan.id, semaine.numero, Number(params.idx), statut, container.querySelector("#note-libre").value);
+    render(container, params);
+  };
+
+  container.querySelector("#mark-realisee")?.addEventListener("click", () => marquer("realisee"));
+  container.querySelector("#mark-manquee")?.addEventListener("click", () => marquer("manquee"));
+  container.querySelector("#mark-annuler")?.addEventListener("click", () => marquer("a_venir"));
 }
 
 function wireTimer(container, seance) {
