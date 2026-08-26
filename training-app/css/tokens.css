@@ -1,25 +1,29 @@
-/* Système de tokens — identité visuelle "sport énergique" (Coach Running
-   pour Rémi). Fond quasi noir, accents cyan électrique / orange vif,
-   typographie bold impactante. Thème sombre par défaut (usage terrain/
-   matin), thème clair disponible via [data-theme="light"] sur <html>
-   (Réglages). */
+/* Système de tokens — identité visuelle "terminal analytique" (Coach Running
+   pour Rémi). Rupture volontaire avec la précédente DA "sport énergique"
+   (fonds gradient, boutons pilule, ombres marquées) : fond quasi noir plat,
+   bordures fines, zéro ombre, zéro dégradé, typographie monospace dominante
+   — inspiré des terminaux de marché (Bloomberg) plutôt que d'une appli
+   sport grand public. Densité assumée, lisibilité au scan plutôt
+   qu'impact visuel. Thème sombre par défaut, thème clair disponible via
+   [data-theme="light"] sur <html> (Réglages). */
 
-@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
 
 :root {
   /* Palette brute */
-  --ink: #0a0b10;
-  --paper: #f5f6fa;
+  --ink: #05070a;
+  --paper: #eef1f0;
 
-  /* Typographie */
-  --font-display: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
+  /* Typographie — mono en dominante (labels, titres, nav), Inter réservé au
+     texte de prose (descriptions longues) pour rester lisible. */
+  --font-display: "JetBrains Mono", ui-monospace, monospace;
   --font-body: "Inter", system-ui, sans-serif;
   --font-data: "JetBrains Mono", ui-monospace, monospace;
 
-  /* Rayons / rythme — coins bien plus arrondis qu'avant pour un rendu plus
-     graphique et dynamique. */
-  --radius-card: 18px;
-  --radius-pill: 999px;
+  /* Rayons quasi nuls (coins francs, pas de pilules) + zéro ombre : les
+     zones sont délimitées par des bordures fines, pas par du relief. */
+  --radius-card: 3px;
+  --radius-pill: 2px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -30,60 +34,61 @@
 
   /* Rôles sémantiques — thème sombre (défaut) */
   --color-bg: var(--ink);
-  --color-bg-elevated: #12141f;
-  --color-surface: #171a26;
+  --color-bg-elevated: #0a0d11;
+  --color-surface: #0d1116;
   --color-surface-strong: var(--paper);
   --color-text: var(--paper);
   --color-text-on-strong: var(--ink);
-  --color-text-muted: #8a8fa6;
-  --color-border: #262a38;
+  --color-text-muted: #67707c;
+  --color-border: #1c222b;
 
-  --color-accent: #4fe8ff; /* cyan éclairci pour contraste sur fond sombre */
-  --color-accent-strong: #0b7ba6; /* cyan profond — texte blanc lisible dessus (≥4.5:1) */
-  --color-structural: #4ce0ac; /* mint éclairci */
-  --color-structural-strong: #12b886;
-  --color-functional: #ff8552; /* orange éclairci */
-  --color-functional-strong: #ff5a1f;
+  --color-accent: #29e0ff; /* cyan signal — lecture de données, liens, focus */
+  --color-accent-strong: #0092ad;
+  --color-structural: #29f2b0; /* vert terminal — positif/sain */
+  --color-structural-strong: #00b881;
+  --color-functional: #ffb020; /* ambre — attention/fonctionnel */
+  --color-functional-strong: #e08600;
 
   /* Zones Daniels E/M/T/I/R — palette catégorielle validée (5 teintes du set
-     de référence dataviz : aqua/orange/bleu/magenta/or), non retouchée par
-     la refonte visuelle : recréer cette validation CVD (vérifiée hors
-     indiscernabilité E/M) sort du cadre d'un rafraîchissement graphique. */
+     de référence dataviz), non retouchée par la refonte : recréer cette
+     validation CVD (vérifiée hors indiscernabilité E/M) sort du cadre d'un
+     changement de direction artistique. */
   --zone-e: #199e70;
   --zone-m: #d95926;
   --zone-t: #3987e5;
   --zone-i: #d55181;
   --zone-r: #c98500;
 
-  /* Phases macrocycle (CountdownRing) — idem, non retouchées (distinctes du
-     Dashboard, validées séparément des zones). */
+  /* Phases macrocycle (CountdownRing) — idem, non retouchées. */
   --phase-base: #008300;
   --phase-developpement: #9085e9;
   --phase-taper: #e66767;
 
   --color-success: var(--color-structural);
-  --color-warning: #ffc93d;
-  --color-danger: var(--color-functional-strong);
+  --color-warning: #ffb020;
+  --color-danger: #ff4d6a;
 
-  --shadow-card: 0 2px 6px rgba(0, 0, 0, 0.45), 0 14px 32px rgba(0, 0, 0, 0.3);
+  /* Zéro ombre assumé (terminal plat) — la variable reste définie pour ne
+     pas casser les box-shadow: var(--shadow-card) existants dans app.css. */
+  --shadow-card: none;
 }
 
 :root[data-theme="light"] {
-  --color-bg: #f0f1f6;
-  --color-bg-elevated: #e6e8f0;
+  --color-bg: #f4f5f3;
+  --color-bg-elevated: #eaece9;
   --color-surface: #ffffff;
   --color-surface-strong: var(--ink);
   --color-text: var(--ink);
   --color-text-on-strong: var(--paper);
-  --color-text-muted: #666b80;
-  --color-border: #dbdee8;
+  --color-text-muted: #5b6470;
+  --color-border: #d7dad6;
 
-  --color-accent: #0b7ba6;
-  --color-accent-strong: #086478;
-  --color-structural: #0fa574;
-  --color-structural-strong: #0a8563;
-  --color-functional: #e8460c;
-  --color-functional-strong: #c2410c;
+  --color-accent: #0092ad;
+  --color-accent-strong: #00707f;
+  --color-structural: #00996b;
+  --color-structural-strong: #007a54;
+  --color-functional: #b06400;
+  --color-functional-strong: #8f5000;
 
   --zone-e: #1baf7a;
   --zone-m: #eb6834;
@@ -96,10 +101,10 @@
   --phase-taper: #e34948;
 
   --color-success: var(--color-structural);
-  --color-warning: #a66a00;
-  --color-danger: var(--color-functional-strong);
+  --color-warning: #915a00;
+  --color-danger: #c22f4a;
 
-  --shadow-card: 0 1px 2px rgba(10, 11, 16, 0.05), 0 10px 24px rgba(10, 11, 16, 0.08);
+  --shadow-card: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

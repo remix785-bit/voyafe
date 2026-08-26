@@ -15,6 +15,26 @@ export function escapeHtml(str) {
   })[c]);
 }
 
+/**
+ * StatStrip — ligne de tickers compacts façon terminal (valeur mise en
+ * avant + label + sous-texte optionnel), pour un coup d'œil sur les
+ * métriques clé avant le détail des cartes en dessous. Défile
+ * horizontalement plutôt que de se tasser verticalement sur mobile.
+ * @param {{label:string, value:string, sub?:string, tone?:"accent"|"good"|"warn"|"bad"}[]} tiles
+ */
+export function StatStrip(tiles) {
+  return `<div class="stat-strip">${tiles.map(StatTile).join("")}</div>`;
+}
+
+function StatTile({ label, value, sub, tone }) {
+  return `
+    <div class="stat-tile${tone ? ` stat-tile--${tone}` : ""}">
+      <div class="stat-tile__value data">${escapeHtml(value)}</div>
+      <div class="stat-tile__label">${escapeHtml(label)}</div>
+      ${sub ? `<div class="stat-tile__sub">${escapeHtml(sub)}</div>` : ""}
+    </div>`;
+}
+
 /** ZoneBadge — étiquette couleur E/M/T/I/R (Section 2, palette). Le titre au
  * survol rappelle le nom complet de la zone (rappel pour les lettres). */
 export function ZoneBadge(zone) {

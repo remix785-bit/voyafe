@@ -9,6 +9,7 @@ import {
   BarChart,
   DonutChart,
   LineChart,
+  StatStrip,
   attachChartInteractions,
 } from "../components.js";
 import { formatPace, ZONES } from "../../engines/vdot.js";
@@ -108,8 +109,22 @@ export async function render(container) {
 
   const autresPlans = plans.filter((p) => p.id !== plan.id);
 
+  const zoneVersTonalite = { verte: "good", orange: "warn", rouge: "bad" };
+  const statTiles = [
+    { label: "VDOT", value: vdotActuel.toFixed(1), tone: "accent" },
+    {
+      label: "Charge EWMA",
+      value: chargeSummary ? chargeSummary.acwrEwma.toFixed(2) : "—",
+      sub: chargeSummary?.zone,
+      tone: chargeSummary ? zoneVersTonalite[chargeSummary.zone] : undefined,
+    },
+    { label: "Jours restants", value: `${jours}` },
+    { label: "Semaine", value: `${stats.realisees}/${stats.total}`, sub: "réalisées" },
+  ];
+
   container.innerHTML = `
     <div class="app-main">
+      ${StatStrip(statTiles)}
       <div class="card card--action">
         <div class="card__header">
           <h1>Séance du jour</h1>

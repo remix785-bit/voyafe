@@ -192,8 +192,9 @@ export async function render(container) {
         <h1>Jour de course</h1>
         <p class="muted">Stratégie : effort constant, pas allure constante — l'allure fluctue avec la pente (GAP Minetti), bascule en marche active au-delà du seuil réglé, et le rythme se pilote par l'effort, jamais l'inverse. Import GPX entièrement côté client.</p>
         <div class="field">
-          <label for="gpx-input">Fichier GPX du parcours (optionnel)</label>
-          <input type="file" id="gpx-input" accept=".gpx" />
+          <label>Fichier GPX du parcours (optionnel)</label>
+          <label class="btn" for="gpx-input" style="cursor:pointer; display:inline-flex;">Choisir un fichier GPX</label>
+          <input type="file" id="gpx-input" accept=".gpx" style="display:none;" />
         </div>
         <p id="gpx-status" class="muted">Aucun GPX importé — profil plat par défaut utilisé (mode dégradé).</p>
       </div>
