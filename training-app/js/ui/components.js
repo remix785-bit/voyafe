@@ -17,22 +17,136 @@ export function escapeHtml(str) {
 
 /**
  * StatStrip — ligne de tickers compacts façon terminal (valeur mise en
- * avant + label + sous-texte optionnel), pour un coup d'œil sur les
- * métriques clé avant le détail des cartes en dessous. Défile
- * horizontalement plutôt que de se tasser verticalement sur mobile.
- * @param {{label:string, value:string, sub?:string, tone?:"accent"|"good"|"warn"|"bad"}[]} tiles
+ * avant + label + micro-courbe d'historique optionnelle), pour un coup
+ * d'œil sur les métriques clé avant le détail des cartes en dessous.
+ * Défile horizontalement plutôt que de se tasser verticalement sur mobile.
+ * @param {{label:string, value:string, sub?:string, tone?:"accent"|"good"|"warn"|"bad", history?:number[]}[]} tiles
  */
 export function StatStrip(tiles) {
   return `<div class="stat-strip">${tiles.map(StatTile).join("")}</div>`;
 }
 
-function StatTile({ label, value, sub, tone }) {
+function StatTile({ label, value, sub, tone, history }) {
   return `
     <div class="stat-tile${tone ? ` stat-tile--${tone}` : ""}">
       <div class="stat-tile__value data">${escapeHtml(value)}</div>
       <div class="stat-tile__label">${escapeHtml(label)}</div>
       ${sub ? `<div class="stat-tile__sub">${escapeHtml(sub)}</div>` : ""}
+      ${history?.length > 1 ? miniSparkline(history, tone) : ""}
     </div>`;
+}
+
+/** Micro-courbe sans axe ni légende, pensée pour tenir dans un StatTile
+ * (ticker façon Bloomberg : la valeur ET sa tendance récente, d'un coup
+ * d'œil, pas seulement le chiffre brut). */
+function miniSparkline(values, tone) {
+  const w = 72;
+  const h = 22;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const points = values
+    .map((v, i) => `${((i / (values.length - 1)) * w).toFixed(1)},${(h - ((v - min) / range) * (h - 4) - 2).toFixed(1)}`)
+    .join(" ");
+  const couleur =
+    tone === "good"
+      ? "var(--color-structural)"
+      : tone === "warn"
+        ? "var(--color-warning)"
+        : tone === "bad"
+          ? "var(--color-danger)"
+          : "var(--color-accent)";
+  return `
+    <svg class="stat-tile__spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" preserveAspectRatio="none" aria-hidden="true">
+      <polyline points="${points}" fill="none" stroke="${couleur}" stroke-width="1.4" />
+    </svg>`;
+}
+
+/**
+ * ActivityHeatmap — calendrier d'activité façon "graphe de contributions"
+ * (semaines en colonnes, jours en lignes, intensité = volume brut du jour).
+ * Type de visualisation inédit dans l'appli : donne en un coup d'œil la
+ * régularité d'entraînement sur plusieurs mois, ce qu'aucun graphique
+ * existant (barres, donut, courbe) ne montre directement.
+ * @param {{date:string, volumeKm:number}[]} joursValeurs trié du plus ancien au plus récent, dates ISO (YYYY-MM-DD)
+ * @param {{semaines?:number}} [options]
+ */
+export function ActivityHeatmap(joursValeurs, options = {}) {
+  const nbSemaines = options.semaines ?? 16;
+  const parDate = new Map(joursValeurs.map((j) => [j.date, j.volumeKm]));
+
+  const aujourdhui = new Date();
+  const jours = [];
+  for (let i = nbSemaines * 7 - 1; i >= 0; i--) {
+    const d = new Date(aujourdhui);
+    d.setDate(d.getDate() - i);
+    const iso = d.toISOString().slice(0, 10);
+    jours.push({ date: iso, volumeKm: parDate.get(iso) ?? 0, jourSemaine: (d.getDay() + 6) % 7 }); // 0 = lundi
+  }
+  // Cale la première colonne sur un lundi (grille régulière 7 lignes).
+  const decalage = jours[0].jourSemaine;
+  for (let i = 0; i < decalage; i++) jours.unshift({ date: null, volumeKm: 0, vide: true });
+
+  const max = Math.max(...jours.map((j) => j.volumeKm), 1);
+  const cell = 11;
+  const gap = 3;
+  const nbColonnes = Math.ceil(jours.length / 7);
+  const w = nbColonnes * (cell + gap) - gap;
+  const h = 7 * (cell + gap) - gap;
+
+  const rects = jours
+    .map((j, i) => {
+      const col = Math.floor(i / 7);
+      const row = i % 7;
+      const x = col * (cell + gap);
+      const y = row * (cell + gap);
+      if (j.vide) return `<rect x="${x}" y="${y}" width="${cell}" height="${cell}" fill="none" />`;
+      const intensite = j.volumeKm > 0 ? 0.15 + (j.volumeKm / max) * 0.85 : 0;
+      const fill =
+        j.volumeKm > 0
+          ? `color-mix(in srgb, var(--color-accent) ${Math.round(intensite * 100)}%, var(--color-bg-elevated))`
+          : "var(--color-bg-elevated)";
+      return `<rect x="${x}" y="${y}" width="${cell}" height="${cell}" fill="${fill}" stroke="var(--color-border)" stroke-width="0.5"><title>${j.date} — ${j.volumeKm.toFixed(1)} km</title></rect>`;
+    })
+    .join("");
+
+  return `
+    <svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="xMinYMid meet" role="img" aria-label="Calendrier d'activité — volume quotidien">
+      ${rects}
+    </svg>
+    <p class="muted" style="margin-top:4px; font-size:0.68rem;">${nbSemaines} dernières semaines — intensité = volume (km) du jour</p>`;
+}
+
+/**
+ * WeekTable — vue tabulaire dense des séances de la semaine (jour, zone,
+ * nom, distance, durée, statut), en remplacement d'une liste de cartes
+ * répétées : plus dense, plus rapide à scanner, cohérent avec la
+ * PacingTimeline déjà utilisée ailleurs dans l'appli.
+ * @param {Array} seances
+ * @param {(index:number) => string} hrefBuilder
+ */
+export function WeekTable(seances, hrefBuilder) {
+  const rows = seances
+    .map((s, i) => {
+      const jourLabel = s.date ? new Date(s.date).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric" }) : "—";
+      const statutClass = s.statut === "realisee" ? "realisee" : s.statut === "manquee" ? "manquee" : "";
+      const statutLabel = { a_venir: "à venir", realisee: "réalisée", manquee: "manquée" }[s.statut] ?? s.statut;
+      return `
+      <tr class="week-table__row week-table__row--${statutClass}" data-href="${hrefBuilder(i)}">
+        <td class="muted">${jourLabel}</td>
+        <td>${ZoneBadge(s.zoneDaniels)}</td>
+        <td>${escapeHtml(s.nom)}</td>
+        <td class="data">${s.distanceKm ? `${s.distanceKm.toFixed(1)} km` : "—"}</td>
+        <td class="data">${Math.round(s.volumeSeanceMin)} min</td>
+        <td><span class="session-card__status session-card__status--${statutClass}">${statutLabel}</span></td>
+      </tr>`;
+    })
+    .join("");
+  return `
+    <table class="week-table">
+      <thead><tr><th>Jour</th><th>Zone</th><th>Séance</th><th>Dist.</th><th>Durée</th><th>Statut</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
 }
 
 /** ZoneBadge — étiquette couleur E/M/T/I/R (Section 2, palette). Le titre au

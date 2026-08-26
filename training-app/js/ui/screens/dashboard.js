@@ -10,6 +10,8 @@ import {
   DonutChart,
   LineChart,
   StatStrip,
+  ActivityHeatmap,
+  WeekTable,
   attachChartInteractions,
 } from "../components.js";
 import { formatPace, ZONES } from "../../engines/vdot.js";
@@ -110,21 +112,30 @@ export async function render(container) {
   const autresPlans = plans.filter((p) => p.id !== plan.id);
 
   const zoneVersTonalite = { verte: "good", orange: "warn", rouge: "bad" };
+  const loadsRecents = store.chargeHebdoDepuisLogs();
   const statTiles = [
-    { label: "VDOT", value: vdotActuel.toFixed(1), tone: "accent" },
+    { label: "VDOT", value: vdotActuel.toFixed(1), tone: "accent", history: profil?.historiqueVdot?.map((h) => h.vdot) },
     {
       label: "Charge EWMA",
       value: chargeSummary ? chargeSummary.acwrEwma.toFixed(2) : "—",
       sub: chargeSummary?.zone,
       tone: chargeSummary ? zoneVersTonalite[chargeSummary.zone] : undefined,
+      history: courbeEwmaRecente(loadsRecents),
     },
     { label: "Jours restants", value: `${jours}` },
     { label: "Semaine", value: `${stats.realisees}/${stats.total}`, sub: "réalisées" },
   ];
+  const volumesRecents = store.volumeParJourAvecDates();
 
   container.innerHTML = `
     <div class="app-main">
       ${StatStrip(statTiles)}
+
+      <div class="card">
+        <h2>Régularité (16 dernières semaines)</h2>
+        ${ActivityHeatmap(volumesRecents)}
+      </div>
+
       <div class="card card--action">
         <div class="card__header">
           <h1>Séance du jour</h1>
@@ -155,8 +166,8 @@ export async function render(container) {
           <div><span class="muted">Durée planifiée</span><br /><span class="data" style="font-size:1.3rem;">${Math.round(stats.totalDuree)} min</span></div>
         </div>
         <p class="muted">${stats.realisees}/${stats.total} réalisée${stats.realisees > 1 ? "s" : ""}${stats.manquees ? ` · ${stats.manquees} manquée${stats.manquees > 1 ? "s" : ""}` : ""}</p>
-        <div class="stack" style="gap:8px; margin-top:8px;">
-          ${semaineActuelle.seances.map((s, i) => SessionCard(s, `#/seance?semaine=${semaineActuelle.numero}&idx=${i}&plan=${plan.id}`)).join("")}
+        <div style="margin-top:8px; overflow-x:auto;">
+          ${WeekTable(semaineActuelle.seances, (i) => `#/seance?semaine=${semaineActuelle.numero}&idx=${i}&plan=${plan.id}`)}
         </div>
       </div>
 
@@ -253,7 +264,29 @@ export async function render(container) {
     });
   });
 
+  // WeekTable rend des <tr> cliquables plutôt que des <a> (invalide en HTML
+  // dans un <table>) — navigation gérée ici via l'attribut data-href.
+  container.querySelectorAll(".week-table__row[data-href]").forEach((row) => {
+    row.addEventListener("click", () => {
+      location.hash = row.dataset.href;
+    });
+  });
+
   attachChartInteractions(container);
+}
+
+/**
+ * Dernières valeurs (jusqu'à nbPoints) de la tendance EWMA de charge,
+ * recalculée sur des fenêtres croissantes — même principe que
+ * renderCourbeCharge, réutilisé ici pour la micro-courbe du StatTile
+ * "Charge EWMA" (ticker avec tendance, pas juste une valeur brute).
+ */
+function courbeEwmaRecente(loads, nbPoints = 10) {
+  if (loads.length < 2) return [];
+  const debut = Math.max(1, loads.length - nbPoints);
+  const points = [];
+  for (let i = debut; i <= loads.length; i++) points.push(ewmaAcwr(loads.slice(0, i)));
+  return points;
 }
 
 /** Segments E/M/T/I/R (volume de la semaine) pour le DonutChart — mêmes données que ZoneRepartition. */

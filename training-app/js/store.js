@@ -415,6 +415,16 @@ export function volumeHebdoDepuisLogs() {
 }
 
 /**
+ * Volume brut journalier (km), avec sa date — pour le calendrier d'activité
+ * (ActivityHeatmap, components.js), qui a besoin d'aligner chaque valeur
+ * sur le bon jour de la grille plutôt qu'une simple série ordonnée.
+ * @returns {{date:string, volumeKm:number}[]}
+ */
+export function volumeParJourAvecDates() {
+  return collecterChargeEtVolumeParJour().map(([date, v]) => ({ date, volumeKm: v.volumeKm }));
+}
+
+/**
  * Cherche, dans le plan donné, la première séance encore "à venir" datée
  * exactement sur le jour indiqué — pour rapprocher une activité Strava
  * synchronisée de la séance planifiée correspondante.

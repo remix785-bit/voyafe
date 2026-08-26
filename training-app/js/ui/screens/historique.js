@@ -1,7 +1,7 @@
 import * as store from "../../store.js";
 import { ewmaAcwr, acwr } from "../../engines/load.js";
 import { barresDPlusMensuel } from "../../engines/performance.js";
-import { Sparkline, ZoneRepartition, BarChart, attachChartInteractions } from "../components.js";
+import { Sparkline, ZoneRepartition, BarChart, ActivityHeatmap, attachChartInteractions } from "../components.js";
 import { formatPace } from "../../engines/vdot.js";
 
 export async function render(container) {
@@ -22,6 +22,11 @@ export async function render(container) {
       <div class="card">
         <h2>ACWR / EWMA dans le temps</h2>
         ${renderLoadHistory(store.chargeHebdoDepuisLogs())}
+      </div>
+
+      <div class="card">
+        <h2>Régularité (26 dernières semaines)</h2>
+        ${ActivityHeatmap(store.volumeParJourAvecDates(), { semaines: 26 })}
       </div>
 
       <div class="card">

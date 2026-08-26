@@ -259,6 +259,11 @@ textarea {
   margin-top: 1px;
 }
 
+.stat-tile__spark {
+  display: block;
+  margin-top: 5px;
+}
+
 .stat-tile--accent .stat-tile__value {
   color: var(--color-accent);
   text-shadow: var(--glow-accent);
@@ -857,6 +862,48 @@ textarea {
 
 .pacing-timeline tr.ravito td {
   background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+/* ---------- WeekTable (liste de séances dense, dashboard) ---------- */
+
+.week-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.week-table th {
+  text-align: left;
+  padding: 6px 6px;
+  border-bottom: 1px solid var(--color-border);
+  font-family: var(--font-data);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.week-table td {
+  padding: 7px 6px;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.week-table__row {
+  cursor: pointer;
+}
+
+.week-table__row:hover td {
+  background: color-mix(in srgb, var(--color-accent) 6%, transparent);
+}
+
+.week-table__row--realisee td:first-child {
+  box-shadow: inset 2px 0 0 var(--color-structural);
+}
+
+.week-table__row--manquee td:first-child {
+  box-shadow: inset 2px 0 0 var(--color-danger);
 }
 
 /* ---------- Divers ---------- */
