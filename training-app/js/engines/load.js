@@ -100,12 +100,21 @@ export function loadSummary(dailyLoads, dailyVolumes = null) {
   const robust = ewmaAcwr(dailyLoads);
   const zoneIntensite = acwrZone(robust);
 
+  // Calculé dès qu'il y a au moins un jour de volume connu (pas d'attente
+  // de 7 jours pleins) — sur demande explicite, la tendance doit être
+  // visible dès le début du programme plutôt que masquée pendant la
+  // première semaine. `donneesLimitees` signale que c'est encore provisoire.
   let acwrVolumeEwma = null;
   let zoneVolume = null;
-  if (dailyVolumes && dailyVolumes.length >= 7) {
+  if (dailyVolumes && dailyVolumes.length) {
     acwrVolumeEwma = ewmaAcwr(dailyVolumes);
     zoneVolume = acwrZone(acwrVolumeEwma);
   }
+
+  const donneesLimitees = dailyLoads.length < 7;
+  const noteDonneesLimitees = donneesLimitees
+    ? "Tendance encore provisoire (moins de 7 jours d'historique) — se fiabilise au fil des jours. "
+    : "";
 
   return {
     acwrSimple: simple,
@@ -114,7 +123,8 @@ export function loadSummary(dailyLoads, dailyVolumes = null) {
     zoneIntensite,
     zoneVolume,
     zone: zonePlusPrudente(zoneIntensite, zoneVolume),
+    donneesLimitees,
     disclaimer:
-      "Indicateur de tendance, pas un prédicteur causal fiable isolément (couplage mathématique documenté par Wang et al., 2020) — à croiser avec le ressenti et les autres marqueurs. Le volume brut (km) pèse au moins autant que l'intensité perçue : la zone retenue est la plus prudente des deux axes.",
+      `${noteDonneesLimitees}Indicateur de tendance, pas un prédicteur causal fiable isolément (couplage mathématique documenté par Wang et al., 2020) — à croiser avec le ressenti et les autres marqueurs. Le volume brut (km) pèse au moins autant que l'intensité perçue : la zone retenue est la plus prudente des deux axes.`,
   };
 }

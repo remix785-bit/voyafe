@@ -86,6 +86,13 @@ export async function render(container) {
           <input type="file" id="import-json-input" accept="application/json" style="display:none;" />
         </div>
       </div>
+
+      <div class="card">
+        <h2>Version de l'appli</h2>
+        <p class="muted">Utile pour vérifier que l'appli a bien reçu une mise à jour — une PWA installée peut mettre du temps à détecter un nouveau déploiement.</p>
+        <p id="version-status" class="muted">Vérification…</p>
+        <button class="btn" id="version-check">Forcer la vérification de mise à jour</button>
+      </div>
     </div>`;
 
   container.querySelectorAll("[data-theme-btn]").forEach((btn) => {
@@ -221,6 +228,45 @@ export async function render(container) {
     await importerJson(text);
     location.reload();
   });
+
+  afficherVersionServiceWorker(container);
+  container.querySelector("#version-check").addEventListener("click", async () => {
+    const statusEl = container.querySelector("#version-status");
+    statusEl.textContent = "Vérification en cours…";
+    const registration = await navigator.serviceWorker?.getRegistration();
+    await registration?.update();
+    afficherVersionServiceWorker(container);
+  });
+}
+
+/**
+ * Interroge directement le service worker qui contrôle CETTE page (pas
+ * seulement le JS déjà chargé en mémoire, qui peut être périmé) pour
+ * afficher sa version réelle — utile pour confirmer qu'une mise à jour a
+ * bien été reçue, en particulier sur une PWA installée où le cache du
+ * navigateur peut retarder la détection d'un nouveau déploiement.
+ */
+async function afficherVersionServiceWorker(container) {
+  const statusEl = container.querySelector("#version-status");
+  if (!statusEl) return;
+  if (!("serviceWorker" in navigator) || !navigator.serviceWorker.controller) {
+    statusEl.textContent = "Aucun service worker actif (hors-ligne au premier chargement, ou navigateur non compatible).";
+    return;
+  }
+  try {
+    const version = await new Promise((resolve, reject) => {
+      const channel = new MessageChannel();
+      const timeout = setTimeout(() => reject(new Error("délai dépassé")), 3000);
+      channel.port1.onmessage = (e) => {
+        clearTimeout(timeout);
+        resolve(e.data?.version);
+      };
+      navigator.serviceWorker.controller.postMessage({ type: "GET_VERSION" }, [channel.port2]);
+    });
+    statusEl.textContent = version ? `Version active : ${version}.` : "Version inconnue.";
+  } catch {
+    statusEl.textContent = "Impossible de vérifier la version (le service worker n'a pas répondu).";
+  }
 }
 
 function escapeAttr(str) {

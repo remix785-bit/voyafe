@@ -350,6 +350,21 @@ test("loadSummary — quand les deux axes sont alignés, la zone est simplement 
   assert.equal(summary.zone, "verte");
 });
 
+test("loadSummary — donneesLimitees est vrai en dessous de 7 jours d'historique, et le disclaimer le mentionne", () => {
+  const debutant = loadSummary([40, 42, 38], [5, 6, 4]);
+  assert.equal(debutant.donneesLimitees, true);
+  assert.ok(debutant.disclaimer.includes("provisoire"));
+  const confirme = loadSummary(Array(10).fill(40), Array(10).fill(5));
+  assert.equal(confirme.donneesLimitees, false);
+  assert.ok(!confirme.disclaimer.includes("provisoire"));
+});
+
+test("loadSummary — calculable dès le premier jour de données (pas d'attente de 7 jours), sur demande explicite", () => {
+  const summary = loadSummary([40], [8]);
+  assert.equal(summary.acwrVolumeEwma, 1); // un seul point -> ratio trivial mais non nul, pas de crash
+  assert.ok(summary.zone);
+});
+
 test("Pacing — découpage en segments respecte la longueur min/max", () => {
   const points = [];
   let dist = 0;

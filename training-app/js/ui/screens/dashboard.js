@@ -186,7 +186,7 @@ export async function render(container) {
 
       <div class="card">
         <div class="card__header"><h2>Charge (ACWR/EWMA)</h2></div>
-        ${chargeSummary ? LoadGauge(chargeSummary) : `<p class="muted">Pas encore assez de données (journal quotidien, min. 7 jours) pour calculer la tendance de charge.</p>`}
+        ${chargeSummary ? LoadGauge(chargeSummary) : `<p class="muted">Pas encore de données — log ta première journée (journal quotidien ou synchro Strava) pour voir la tendance de charge démarrer.</p>`}
         ${renderCourbeCharge()}
       </div>
 
@@ -252,12 +252,19 @@ function segmentsZones(semaine) {
     .map((z) => ({ label: `${z} — ${ZONES[z]?.label ?? z}`, value: parZone[z], colorVar: `--zone-${z.toLowerCase()}` }));
 }
 
-/** Courbe ACWR/EWMA — même calcul que l'écran Historique, ici pour donner une tendance directement sur le Dashboard. */
+/**
+ * Courbe ACWR/EWMA — même calcul que l'écran Historique, ici pour donner une
+ * tendance directement sur le Dashboard. Tracée dès 2 jours de données
+ * (plutôt que d'attendre 7 jours pleins) : avec moins de points, la courbe
+ * est encore instable (la formule EWMA n'a pas fini de "monter en charge"
+ * sur son historique), mais elle donne déjà un signal utile dès la première
+ * semaine plutôt que de rester invisible.
+ */
 function renderCourbeCharge() {
   const loads = store.chargeHebdoDepuisLogs();
-  if (loads.length < 7) return "";
+  if (loads.length < 2) return "";
   const points = [];
-  for (let i = 6; i < loads.length; i++) {
+  for (let i = 0; i < loads.length; i++) {
     const fenetre = loads.slice(0, i + 1);
     const joursAvantAujourdhui = loads.length - 1 - i;
     points.push({

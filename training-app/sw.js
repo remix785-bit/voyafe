@@ -2,7 +2,7 @@
 // sur le terrain (Partie III §6). Pas de dépendance Workbox (pas d'accès au
 // registre npm dans l'environnement de build) — implémentation manuelle minimale.
 
-const CACHE_VERSION = "v16";
+const CACHE_VERSION = "v17";
 const CACHE_NAME = `voyafe-training-${CACHE_VERSION}`;
 
 const APP_SHELL = [
@@ -78,8 +78,19 @@ self.addEventListener("fetch", (event) => {
   // (Partie III §6) reste couvert : le cache sert dès que le réseau échoue.
   const url = new URL(request.url);
   if (url.origin === self.location.origin) {
+    // cache:"no-store" sur la requête réseau elle-même (pas seulement sur la
+    // stratégie ci-dessus) : sans ça, ce fetch() peut être silencieusement
+    // satisfait par le cache HTTP du navigateur (en-têtes de cache de GitHub
+    // Pages, non configurables ici) SANS jamais toucher le réseau — un vrai
+    // déploiement peut alors rester invisible indéfiniment côté client, même
+    // avec skipWaiting()/clients.claim() actifs côté service worker (bug
+    // réel constaté : appli figée sur une ancienne version malgré plusieurs
+    // rechargements complets). new Request(request, {cache:"no-store"})
+    // force systématiquement un aller-retour réseau réel ; caches.put/match
+    // ci-dessous continuent d'utiliser la requête originale comme clé.
+    const requeteReseau = new Request(request, { cache: "no-store" });
     event.respondWith(
-      fetch(request)
+      fetch(requeteReseau)
         .then((response) => {
           if (response.ok) {
             const clone = response.clone();
@@ -94,6 +105,15 @@ self.addEventListener("fetch", (event) => {
 
   // Ressources externes (fonts, API) : réseau d'abord, pas de cache offline garanti.
   event.respondWith(fetch(request).catch(() => caches.match(request)));
+});
+
+// Répond à la version active (CACHE_VERSION) demandée par ui/screens/reglages.js
+// — permet de vérifier depuis l'appli quel service worker contrôle réellement
+// la page, indépendamment du JS déjà chargé en mémoire (potentiellement périmé).
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "GET_VERSION") {
+    event.ports[0]?.postMessage({ version: CACHE_VERSION });
+  }
 });
 
 // Clic sur le rappel de séance du jour (js/notifications.js) : ramène au

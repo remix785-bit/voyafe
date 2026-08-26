@@ -545,8 +545,14 @@ export async function synchroniserStrava(joursHistorique = 14) {
 }
 
 export function resumeCharge() {
+  // Affiché dès le premier jour de données (plutôt qu'en attendant 7 jours
+  // pleins) : sur demande explicite, un coureur qui démarre le programme
+  // doit voir la tendance se construire dès le début plutôt que de faire
+  // face à un écran vide toute sa première semaine. loadSummary()
+  // signale via `donneesLimitees` que la tendance est encore provisoire
+  // tant qu'il y a moins de 7 jours d'historique.
   const loads = chargeHebdoDepuisLogs();
-  if (loads.length < 7) return null;
+  if (loads.length < 1) return null;
   return loadSummary(loads, volumeHebdoDepuisLogs());
 }
 
