@@ -375,16 +375,28 @@ function collecterChargeEtVolumeParJour() {
   // le RPE déclaré ce jour-là si connu, sinon un RPE par défaut) quand elle
   // existe — sinon repli sur l'approximation RPE déclaré × 30 (faute de mieux
   // sans données objectives ce jour-là ; volume brut inconnu ce jour-là -> 0).
-  const parJour = new Map(); // date -> { charge, volumeKm }
+  // Une journée à deux séances (double journée) additionne la charge ET le
+  // volume des deux, plutôt que d'écraser la première par la seconde —
+  // sinon une séance réelle synchronisée peut disparaître silencieusement
+  // du calcul si une autre a eu lieu le même jour.
+  const parJour = new Map(); // date -> { charge, volumeKm, contientSeanceReelle }
   for (const log of state.logsQuotidiens) {
-    parJour.set(log.date, { charge: (log.rpe ?? 0) * 30, volumeKm: 0 });
+    parJour.set(log.date, { charge: (log.rpe ?? 0) * 30, volumeKm: 0, contientSeanceReelle: false });
   }
   for (const seance of state.seancesRealisees) {
     const jour = seance.date.slice(0, 10);
     const logDuJour = state.logsQuotidiens.find((l) => l.date === jour);
-    const charge = estimerChargeJournaliere({ moving_time: seance.dureeMin * 60 }, logDuJour?.rpe ?? 5);
+    const chargeSeance = estimerChargeJournaliere({ moving_time: seance.dureeMin * 60 }, logDuJour?.rpe ?? 5);
     const existant = parJour.get(jour);
-    parJour.set(jour, { charge, volumeKm: (existant?.volumeKm ?? 0) + (seance.distanceKm ?? 0) });
+    // Le repli "log seul" (RPE × 30, sans séance réelle) est remplacé par la
+    // première séance réelle du jour, pas additionné à elle — seules deux
+    // séances réelles du même jour s'additionnent entre elles.
+    const chargeCumulee = existant?.contientSeanceReelle ? existant.charge + chargeSeance : chargeSeance;
+    parJour.set(jour, {
+      charge: chargeCumulee,
+      volumeKm: (existant?.volumeKm ?? 0) + (seance.distanceKm ?? 0),
+      contientSeanceReelle: true,
+    });
   }
   return Array.from(parJour.entries()).sort(([a], [b]) => a.localeCompare(b));
 }
@@ -495,9 +507,13 @@ function persistReglages() {
  * planifiée du même jour quand il y en a une (marquée "réalisée"
  * automatiquement — c'est un fait, pas une proposition de la boucle
  * adaptative), et alimente le moteur de charge via chargeHebdoDepuisLogs.
+ * Fenêtre par défaut alignée sur la charge chronique (28 jours, load.js) :
+ * une fenêtre plus courte (l'ancien défaut, 14 jours) laissait la moitié de
+ * la période chronique sans aucune donnée réelle, sous-estimant la charge
+ * chronique et donc faussant l'ACWR.
  * @param {number} joursHistorique fenêtre de récupération (jours)
  */
-export async function synchroniserStrava(joursHistorique = 14) {
+export async function synchroniserStrava(joursHistorique = 28) {
   const token = await tokenStravaValide();
 
   const after = Math.floor((Date.now() - joursHistorique * 24 * 60 * 60 * 1000) / 1000);
