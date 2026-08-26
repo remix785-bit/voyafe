@@ -412,17 +412,38 @@ export function CountdownRing(macrocycle, pctProgression, options = {}) {
     </svg>`;
 }
 
-/** LoadGauge — jauge ACWR/EWMA avec zone verte/orange/rouge (Partie I §10). */
+/**
+ * LoadGauge — jauge ACWR/EWMA avec zone verte/orange/rouge (Partie I §10).
+ * Le repère plein est l'intensité perçue (sRPE) ; quand un volume brut (km)
+ * est disponible, un second repère (creux) montre sa propre tendance
+ * ACWR/EWMA sur la même échelle — les deux pèsent également dans la zone
+ * finale (loadSummary), donc les deux doivent rester visibles, pas juste le
+ * premier.
+ */
 export function LoadGauge(loadSummary) {
   const value = loadSummary.acwrEwma;
   const pct = Math.max(0, Math.min(100, (value / 2) * 100)); // échelle 0-2.0
+  const volumeValue = loadSummary.acwrVolumeEwma;
+  const volumePct = volumeValue != null ? Math.max(0, Math.min(100, (volumeValue / 2) * 100)) : null;
+  const zoneDivergente = loadSummary.zoneVolume && loadSummary.zoneVolume !== loadSummary.zoneIntensite;
+
   return `
     <div class="load-gauge">
       <div class="load-gauge__track">
-        <div class="load-gauge__marker" style="left:${pct}%"></div>
+        <div class="load-gauge__marker" style="left:${pct}%" title="Intensité perçue (sRPE) : ${value.toFixed(2)}"></div>
+        ${
+          volumePct != null
+            ? `<div class="load-gauge__marker load-gauge__marker--volume" style="left:${volumePct}%" title="Volume brut (km) : ${volumeValue.toFixed(2)}"></div>`
+            : ""
+        }
       </div>
       <div class="load-gauge__value data">${value.toFixed(2)}</div>
     </div>
+    ${
+      zoneDivergente
+        ? `<p class="muted" style="margin:4px 0 0;">Zone retenue (${loadSummary.zone}) déterminée par le volume brut (${volumeValue.toFixed(2)}), plus prudent que l'intensité perçue seule (${value.toFixed(2)}).</p>`
+        : ""
+    }
     <div class="load-gauge__disclaimer">${escapeHtml(loadSummary.disclaimer)}</div>`;
 }
 

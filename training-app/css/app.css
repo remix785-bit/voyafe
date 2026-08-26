@@ -454,6 +454,15 @@ textarea {
   transform: translateX(-50%);
 }
 
+.load-gauge__marker--volume {
+  top: 0;
+  width: 10px;
+  height: 10px;
+  background: transparent;
+  border: 2px solid var(--color-functional-strong);
+  border-radius: 50%;
+}
+
 .load-gauge__value {
   font-family: var(--font-data);
   font-weight: 600;

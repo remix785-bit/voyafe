@@ -53,9 +53,16 @@ export function evaluerBoucleAdaptative(logs, chargeActuelle) {
   }
 
   if (chargeActuelle && chargeActuelle.zone === "rouge") {
+    // Le volume brut (km) pèse au moins autant que l'intensité perçue dans
+    // la zone retenue (loadSummary) — la justification nomme l'axe qui a
+    // effectivement déclenché le rouge, pas systématiquement l'intensité.
+    const volumeSeulDeclencheur = chargeActuelle.zoneVolume === "rouge" && chargeActuelle.zoneIntensite !== "rouge";
+    const axe = volumeSeulDeclencheur
+      ? `volume brut (${chargeActuelle.acwrVolumeEwma.toFixed(2)} > 1.5)`
+      : `intensité perçue/ACWR (${chargeActuelle.acwrEwma.toFixed(2)} > 1.5)`;
     propositions.push({
       type: "decharge_anticipee",
-      justification: `ACWR/EWMA en zone rouge (${chargeActuelle.acwrEwma.toFixed(2)} > 1.5) — tendance de charge à risque élevé.`,
+      justification: `Zone rouge sur le ${axe} — tendance de charge à risque élevé.`,
       alternatives: ["Insérer une semaine de décharge anticipée"],
     });
   }

@@ -71,19 +71,50 @@ export function ewmaAcwr(dailyLoads) {
   return ewma(dailyLoads, 7) / chronic;
 }
 
+const ORDRE_PRUDENCE = { verte: 0, orange: 1, rouge: 2 };
+
+/** Retient la zone la plus prudente entre deux zones (verte < orange < rouge). */
+function zonePlusPrudente(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  return ORDRE_PRUDENCE[a] >= ORDRE_PRUDENCE[b] ? a : b;
+}
+
 /**
- * Vue combinée pour le dashboard : ACWR simple + EWMA + zone + avertissement
- * méthodologique à afficher systématiquement à l'utilisateur.
- * @param {number[]} dailyLoads plus récent en dernier
+ * Vue combinée pour le dashboard : ACWR simple + EWMA (intensité perçue,
+ * sRPE = durée × RPE) + zone + avertissement méthodologique à afficher
+ * systématiquement à l'utilisateur.
+ *
+ * Le volume brut journalier (ex: km, dailyVolumes) est intégré comme second
+ * axe à poids au moins égal, sur demande explicite : un gros volume répété
+ * peut représenter un risque même à intensité perçue modérée, ce que le
+ * sRPE seul peut sous-pondérer. Sa propre tendance ACWR/EWMA est calculée
+ * avec exactement la même mécanique (moyenne mobile 7j/28j, EWMA) que
+ * l'intensité perçue — la zone finale retenue est la plus prudente des deux
+ * axes, pas seulement celle de l'intensité perçue.
+ * @param {number[]} dailyLoads charges journalières sRPE (durée × RPE), plus récent en dernier
+ * @param {number[]|null} dailyVolumes volumes bruts journaliers (ex: km), même ordre que dailyLoads ; optionnel
  */
-export function loadSummary(dailyLoads) {
+export function loadSummary(dailyLoads, dailyVolumes = null) {
   const simple = acwr(dailyLoads);
   const robust = ewmaAcwr(dailyLoads);
+  const zoneIntensite = acwrZone(robust);
+
+  let acwrVolumeEwma = null;
+  let zoneVolume = null;
+  if (dailyVolumes && dailyVolumes.length >= 7) {
+    acwrVolumeEwma = ewmaAcwr(dailyVolumes);
+    zoneVolume = acwrZone(acwrVolumeEwma);
+  }
+
   return {
     acwrSimple: simple,
     acwrEwma: robust,
-    zone: acwrZone(robust),
+    acwrVolumeEwma,
+    zoneIntensite,
+    zoneVolume,
+    zone: zonePlusPrudente(zoneIntensite, zoneVolume),
     disclaimer:
-      "Indicateur de tendance, pas un prédicteur causal fiable isolément (couplage mathématique documenté par Wang et al., 2020) — à croiser avec le ressenti et les autres marqueurs.",
+      "Indicateur de tendance, pas un prédicteur causal fiable isolément (couplage mathématique documenté par Wang et al., 2020) — à croiser avec le ressenti et les autres marqueurs. Le volume brut (km) pèse au moins autant que l'intensité perçue : la zone retenue est la plus prudente des deux axes.",
   };
 }

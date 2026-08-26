@@ -365,24 +365,41 @@ export async function ajouterLogQuotidien(log) {
   return record;
 }
 
-export function chargeHebdoDepuisLogs() {
+/**
+ * Charge (sRPE) ET volume brut (km) journaliers, jour par jour, dans le
+ * même ordre — nécessaire pour que loadSummary() puisse calculer les deux
+ * tendances ACWR/EWMA sur des séries alignées sur les mêmes jours.
+ */
+function collecterChargeEtVolumeParJour() {
   // Charge journalière : durée RÉELLE de l'activité Strava synchronisée (×
   // le RPE déclaré ce jour-là si connu, sinon un RPE par défaut) quand elle
   // existe — sinon repli sur l'approximation RPE déclaré × 30 (faute de mieux
-  // sans données objectives ce jour-là).
-  const parJour = new Map();
+  // sans données objectives ce jour-là ; volume brut inconnu ce jour-là -> 0).
+  const parJour = new Map(); // date -> { charge, volumeKm }
   for (const log of state.logsQuotidiens) {
-    parJour.set(log.date, (log.rpe ?? 0) * 30);
+    parJour.set(log.date, { charge: (log.rpe ?? 0) * 30, volumeKm: 0 });
   }
   for (const seance of state.seancesRealisees) {
     const jour = seance.date.slice(0, 10);
     const logDuJour = state.logsQuotidiens.find((l) => l.date === jour);
     const charge = estimerChargeJournaliere({ moving_time: seance.dureeMin * 60 }, logDuJour?.rpe ?? 5);
-    parJour.set(jour, charge);
+    const existant = parJour.get(jour);
+    parJour.set(jour, { charge, volumeKm: (existant?.volumeKm ?? 0) + (seance.distanceKm ?? 0) });
   }
-  return Array.from(parJour.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([, charge]) => charge);
+  return Array.from(parJour.entries()).sort(([a], [b]) => a.localeCompare(b));
+}
+
+export function chargeHebdoDepuisLogs() {
+  return collecterChargeEtVolumeParJour().map(([, v]) => v.charge);
+}
+
+/**
+ * Volume brut journalier (km parcourus) — distinct de la charge sRPE
+ * (durée × RPE), pèse au moins autant qu'elle dans la zone finale
+ * (cf. loadSummary, engines/load.js).
+ */
+export function volumeHebdoDepuisLogs() {
+  return collecterChargeEtVolumeParJour().map(([, v]) => v.volumeKm);
 }
 
 /**
@@ -530,7 +547,7 @@ export async function synchroniserStrava(joursHistorique = 14) {
 export function resumeCharge() {
   const loads = chargeHebdoDepuisLogs();
   if (loads.length < 7) return null;
-  return loadSummary(loads);
+  return loadSummary(loads, volumeHebdoDepuisLogs());
 }
 
 export function evaluerAdaptation() {

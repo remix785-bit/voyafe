@@ -324,6 +324,32 @@ test("loadSummary inclut toujours l'avertissement méthodologique", () => {
   assert.ok(summary.disclaimer.length > 0);
 });
 
+test("loadSummary — sans dailyVolumes fourni, se comporte comme avant (zone = zone d'intensité seule)", () => {
+  const summary = loadSummary(Array(28).fill(40));
+  assert.equal(summary.acwrVolumeEwma, null);
+  assert.equal(summary.zoneVolume, null);
+  assert.equal(summary.zone, summary.zoneIntensite);
+});
+
+test("loadSummary — le volume brut pèse au moins autant que l'intensité perçue : un pic de volume seul suffit à faire passer la zone en rouge", () => {
+  // Intensité perçue (sRPE) stable -> zone verte sur cet axe seul.
+  const chargesIntensite = Array(28).fill(50);
+  // Volume brut (km) : pic aigu sur les 7 derniers jours après une base stable -> zone rouge sur cet axe.
+  const volumes = [...Array(21).fill(30), ...Array(7).fill(90)];
+  const summary = loadSummary(chargesIntensite, volumes);
+  assert.equal(summary.zoneIntensite, "verte");
+  assert.equal(summary.zoneVolume, "rouge");
+  assert.equal(summary.zone, "rouge", "la zone finale doit retenir la plus prudente des deux axes, pas seulement l'intensité");
+});
+
+test("loadSummary — quand les deux axes sont alignés, la zone est simplement celle des deux", () => {
+  const stable = Array(28).fill(50);
+  const summary = loadSummary(stable, stable);
+  assert.equal(summary.zoneIntensite, "verte");
+  assert.equal(summary.zoneVolume, "verte");
+  assert.equal(summary.zone, "verte");
+});
+
 test("Pacing — découpage en segments respecte la longueur min/max", () => {
   const points = [];
   let dist = 0;
@@ -373,6 +399,14 @@ test("Boucle adaptative — propose une conversion si 2 marqueurs sur 3 dégrad�
   assert.equal(result.marqueursDegrades.length, 2);
   assert.equal(result.propositions.length, 1);
   assert.equal(result.modeAutomatique, false);
+});
+
+test("Boucle adaptative — zone rouge déclenchée par le seul volume brut : la justification nomme le volume, pas l'intensité perçue", () => {
+  const logs = { rmssd: [], fcRepos: [], bienEtre: [] };
+  const chargeActuelle = { acwrEwma: 1.0, zoneIntensite: "verte", acwrVolumeEwma: 1.8, zoneVolume: "rouge", zone: "rouge" };
+  const result = evaluerBoucleAdaptative(logs, chargeActuelle);
+  assert.equal(result.propositions.length, 1);
+  assert.ok(result.propositions[0].justification.includes("volume brut"));
 });
 
 test("Boucle adaptative — ne propose rien si les marqueurs sont stables", () => {
