@@ -1,5 +1,6 @@
 import * as store from "../../store.js";
 import { dailyMacros, preRaceCarbLoad, raceFuelingTargets } from "../../engines/nutrition.js";
+import { StatStrip } from "../components.js";
 
 export async function render(container) {
   const { profil } = store.getState();
@@ -7,6 +8,8 @@ export async function render(container) {
 
   container.innerHTML = `
     <div class="app-main">
+      <div id="stat-strip"></div>
+
       <div class="card">
         <h1>Nutrition</h1>
         <div class="field">
@@ -66,12 +69,32 @@ export async function render(container) {
       <h2>Charge glucidique pré-course</h2>
       <p>Courses &gt;90 min : <span class="data">${preload.glucidesGParJourMin}-${preload.glucidesGParJourMax} g/j</span> sur les ${preload.dureeHeures.join("-")}h précédentes.</p>
       <p class="muted">${preload.consigne}</p>`;
+
+    updateStatStrip();
+  };
+
+  const updateStatStrip = () => {
+    const p = Number(container.querySelector("#poids-nutrition").value) || 70;
+    const charge = container.querySelector("#charge-nutrition").value;
+    const macros = dailyMacros(p, charge);
+    const duree = Number(container.querySelector("#duree-course").value) || 0;
+    const type = container.querySelector("#type-course").value;
+    const targets = raceFuelingTargets(duree, type);
+    container.querySelector("#stat-strip").innerHTML = StatStrip([
+      { label: "Glucides/j", value: `${macros.glucidesG} g`, tone: "accent" },
+      { label: "Protéines/j", value: `${macros.proteinesG} g` },
+      { label: "Lipides/j", value: `${macros.lipidesG} g` },
+      targets.applicable
+        ? { label: "Glucides/h course", value: `${targets.glucidesGParH.join("-")} g` }
+        : { label: "Glucides/h course", value: "—" },
+    ]);
   };
 
   const updateFueling = () => {
     const duree = Number(container.querySelector("#duree-course").value) || 0;
     const type = container.querySelector("#type-course").value;
     const targets = raceFuelingTargets(duree, type);
+    updateStatStrip();
     const el = container.querySelector("#fueling-card");
     if (!targets.applicable) {
       el.innerHTML = `<p class="muted">${targets.note}</p>`;

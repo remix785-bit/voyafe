@@ -1,5 +1,5 @@
 import * as store from "../../store.js";
-import { WeekStrip, SessionCard, ZoneLegend } from "../components.js";
+import { WeekStrip, StatStrip, WeekTable, ZoneLegend } from "../components.js";
 import { formatPace } from "../../engines/vdot.js";
 import { genererIcs, telechargerIcs } from "../../data/icsExport.js";
 
@@ -13,9 +13,17 @@ export async function render(container, params) {
   const semaineNumero = Number(params.semaine) || semaineParDefaut(plan);
   const semaine = plan.semaines.find((s) => s.numero === semaineNumero) ?? plan.semaines[0];
   const idx = plan.semaines.indexOf(semaine);
+  const stats = statsSemaine(semaine);
 
   container.innerHTML = `
     <div class="app-main">
+      ${StatStrip([
+        { label: "Distance", value: `${stats.totalDistance.toFixed(1)} km` },
+        { label: "Durée", value: `${Math.round(stats.totalDuree)} min` },
+        { label: "Séances", value: `${stats.realisees}/${stats.total}`, sub: "réalisées" },
+        { label: "Phase", value: semaine.phase, sub: semaine.statut === "decharge" ? "décharge" : undefined },
+      ])}
+
       <div class="card">
         <div class="card__header">
           <h1>Plan — ${escapeAttr(plan.discipline)}</h1>
@@ -35,12 +43,8 @@ export async function render(container, params) {
           <h2>Semaine ${semaine.numero} — ${semaine.phase}${semaine.statut === "decharge" ? " · décharge" : ""}</h2>
           <button class="btn btn--sm" id="week-next" ${idx === plan.semaines.length - 1 ? "disabled" : ""}>Semaine suiv. &rarr;</button>
         </div>
-        <div class="stack">
-          ${semaine.seances
-            .map(
-              (s, i) => SessionCard(s, `#/seance?semaine=${semaine.numero}&idx=${i}&plan=${plan.id}`)
-            )
-            .join("")}
+        <div style="overflow-x:auto;">
+          ${WeekTable(semaine.seances, (i) => `#/seance?semaine=${semaine.numero}&idx=${i}&plan=${plan.id}`)}
         </div>
         ${semaine.renfoRecommande?.length ? renderRenfo(semaine.renfoRecommande) : ""}
       </div>
@@ -68,6 +72,21 @@ export async function render(container, params) {
   container.querySelector("#week-next")?.addEventListener("click", () => {
     location.hash = `#/plan?semaine=${plan.semaines[idx + 1].numero}`;
   });
+
+  // WeekTable rend des <tr> cliquables plutôt que des <a> (invalide en HTML
+  // dans un <table>) — navigation gérée ici via l'attribut data-href.
+  container.querySelectorAll(".week-table__row[data-href]").forEach((row) => {
+    row.addEventListener("click", () => {
+      location.hash = row.dataset.href;
+    });
+  });
+}
+
+function statsSemaine(semaine) {
+  const totalDistance = semaine.seances.reduce((a, s) => a + (s.distanceKm ?? 0), 0);
+  const totalDuree = semaine.seances.reduce((a, s) => a + s.volumeSeanceMin, 0);
+  const realisees = semaine.seances.filter((s) => s.statut === "realisee").length;
+  return { totalDistance, totalDuree, realisees, total: semaine.seances.length };
 }
 
 function semaineParDefaut(plan) {
