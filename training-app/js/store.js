@@ -83,8 +83,13 @@ async function chargerEtatDepuisDb() {
 export async function init() {
   await chargerEtatDepuisDb();
 
-  const savedTheme = localStorage.getItem("voyafe-theme");
-  if (savedTheme) state.reglages.theme = savedTheme;
+  // "voyafe-settings" (blob complet, écrit par sauvegarderReglages) contient
+  // lui aussi un champ theme — potentiellement périmé s'il a été enregistré
+  // avant le dernier changement de thème (setTheme() ne touche que la clé
+  // dédiée "voyafe-theme", pas ce blob). Appliquer le blob EN PREMIER, puis
+  // la clé dédiée en dernier, garantit que le dernier thème choisi
+  // explicitement l'emporte toujours, plutôt que d'être écrasé par une
+  // valeur périmée du blob général.
   const savedSettings = localStorage.getItem("voyafe-settings");
   if (savedSettings) {
     try {
@@ -93,6 +98,8 @@ export async function init() {
       /* ignore corrupted local settings */
     }
   }
+  const savedTheme = localStorage.getItem("voyafe-theme");
+  if (savedTheme) state.reglages.theme = savedTheme;
   applyTheme();
 
   // Pull au démarrage (Partie III §4) — uniquement pour amorcer un appareil
