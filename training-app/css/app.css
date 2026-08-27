@@ -152,6 +152,28 @@ textarea {
      cette marge, le bas de la dernière carte (ex. les boutons Strava) se
      retrouve caché derrière la barre de navigation. */
   padding-bottom: calc(56px + env(safe-area-inset-bottom) + var(--space-5));
+  /* Fondu d'entrée à chaque changement d'écran (le routeur remplace le DOM
+     entièrement, pas de transition possible sur une propriété — une
+     animation se déclenche elle à l'insertion) : rend la navigation moins
+     abrupte, sans latence perceptible. */
+  animation: app-main-in 0.22s ease both;
+}
+
+@keyframes app-main-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-main {
+    animation: none;
+  }
 }
 
 .app-bottomnav {
@@ -173,18 +195,21 @@ textarea {
   position: relative;
   flex: 1 0 auto;
   min-width: 60px;
+  min-height: 48px;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 3px;
   padding: 10px var(--space-1) 8px;
-  font-family: var(--font-data);
-  font-size: 0.6rem;
-  font-weight: 500;
+  font-family: var(--font-display);
+  font-size: 0.66rem;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   text-decoration: none;
   color: var(--color-text-muted);
+  transition: color 0.15s ease;
 }
 
 /* Barre témoin en haut de l'onglet actif — pas de fond arrondi derrière
@@ -246,15 +271,16 @@ textarea {
 }
 
 .stat-tile__label {
-  font-size: 0.6rem;
+  font-size: 0.66rem;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   color: var(--color-text-muted);
   margin-top: 3px;
 }
 
 .stat-tile__sub {
-  font-size: 0.65rem;
+  font-size: 0.7rem;
   color: var(--color-text-muted);
   margin-top: 1px;
 }
@@ -290,6 +316,16 @@ textarea {
   padding: var(--space-3) var(--space-4);
   margin-bottom: var(--space-3);
   box-shadow: var(--shadow-card);
+}
+
+/* Cartes cliquables (ex. SessionCard, un <a class="card ...">) : retour
+   visuel au survol/focus — affordance d'interactivité, pas seulement au clic. */
+a.card {
+  text-decoration: none;
+  transition: border-color 0.15s ease;
+}
+a.card:hover {
+  border-color: var(--color-accent);
 }
 
 /* Équerres de coin façon viseur/HUD — signature visuelle la plus visible de
@@ -346,14 +382,20 @@ textarea {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  min-height: 44px;
   padding: var(--space-4);
   border-bottom: 1px solid var(--color-border);
   color: var(--color-text);
   text-decoration: none;
+  transition: background 0.15s ease;
 }
 
 .menu-entry:last-child {
   border-bottom: none;
+}
+
+.menu-entry:hover {
+  background: color-mix(in srgb, var(--color-accent) 6%, transparent);
 }
 
 .menu-entry__icon {
@@ -386,23 +428,37 @@ textarea {
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
+  min-height: 44px;
   border: 1px solid var(--color-border);
   background: var(--color-bg-elevated);
   color: var(--color-text);
   border-radius: var(--radius-pill);
-  padding: 9px 16px;
-  font-family: var(--font-data);
-  font-size: 0.78rem;
-  font-weight: 600;
+  padding: 9px 18px;
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.02em;
   cursor: pointer;
   text-decoration: none;
-  transition: border-color 0.1s ease, background 0.1s ease;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
 }
 
 .btn:hover {
   border-color: var(--color-text-muted);
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn {
+    transition: none;
+  }
+  .btn:active {
+    transform: none;
+  }
 }
 
 .btn--primary {
@@ -423,8 +479,9 @@ textarea {
 }
 
 .btn--sm {
-  padding: 5px 10px;
-  font-size: 0.68rem;
+  min-height: 36px;
+  padding: 5px 12px;
+  font-size: 0.72rem;
 }
 
 .btn:disabled {
@@ -449,12 +506,14 @@ textarea {
 .field select,
 .field textarea {
   width: 100%;
+  min-height: 44px;
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
-  padding: 9px 11px;
-  font-family: var(--font-data);
-  font-size: 0.9rem;
+  padding: 11px 12px;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  transition: border-color 0.15s ease;
 }
 
 .field input:focus-visible,
@@ -842,12 +901,12 @@ textarea {
   text-align: left;
   padding: 6px 8px;
   border-bottom: 1px solid var(--color-border);
-  font-family: var(--font-data);
-  font-size: 0.65rem;
+  font-family: var(--font-display);
+  font-size: 0.68rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   color: var(--color-text-muted);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .pacing-timeline td {
@@ -876,12 +935,12 @@ textarea {
   text-align: left;
   padding: 6px 6px;
   border-bottom: 1px solid var(--color-border);
-  font-family: var(--font-data);
-  font-size: 0.6rem;
+  font-family: var(--font-display);
+  font-size: 0.66rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   color: var(--color-text-muted);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .week-table td {

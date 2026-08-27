@@ -1,25 +1,31 @@
 /* Système de tokens — identité visuelle "terminal analytique" (Coach Running
    pour Rémi). Rupture volontaire avec la précédente DA "sport énergique"
    (fonds gradient, boutons pilule, ombres marquées) : fond quasi noir,
-   bordures fines, zéro ombre, zéro dégradé décoratif, typographie monospace
-   dominante — inspiré des terminaux de marché (Bloomberg) avec une touche
-   de lueur néon assumée sur les points d'attention (titres, valeurs clé,
-   focus) pour que le changement se voie au premier coup d'œil, pas
-   seulement au détail. Coins des cartes marqués par des équerres façon
-   viseur/HUD plutôt qu'un simple cadre. Thème sombre par défaut, thème
-   clair disponible via [data-theme="light"] sur <html> (Réglages). */
+   bordures fines, zéro ombre, zéro dégradé décoratif — inspiré des
+   terminaux de marché (Bloomberg) avec une touche de lueur néon assumée sur
+   les points d'attention (titres, valeurs clé, focus). Coins des cartes
+   marqués par des équerres façon viseur/HUD plutôt qu'un simple cadre.
+   Typographie Atkinson Hyperlegible (conçue par le Braille Institute pour
+   la lisibilité — formes de lettres très distinctes, I/l/1 et O/0 non
+   ambigus) sur tout le texte lu (titres, labels, boutons, formulaires) ;
+   le monospace (JetBrains Mono) reste réservé aux VALEURS numériques
+   tabulaires (allures, distances, tickers) où l'alignement des chiffres
+   apporte un vrai bénéfice de lecture — plus aux mots, où il nuit à la
+   reconnaissance de forme. Thème sombre par défaut, thème clair disponible
+   via [data-theme="light"] sur <html> (Réglages). */
 
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
 
 :root {
   /* Palette brute */
   --ink: #020304;
   --paper: #eef1f0;
 
-  /* Typographie — mono en dominante (labels, titres, nav), Inter réservé au
-     texte de prose (descriptions longues) pour rester lisible. */
-  --font-display: "JetBrains Mono", ui-monospace, monospace;
-  --font-body: "Inter", system-ui, sans-serif;
+  /* Typographie — Atkinson Hyperlegible partout où il y a des mots à lire
+     (accessibilité avant tout) ; JetBrains Mono réservé aux valeurs
+     numériques (cf. note ci-dessus). */
+  --font-display: "Atkinson Hyperlegible", system-ui, sans-serif;
+  --font-body: "Atkinson Hyperlegible", system-ui, sans-serif;
   --font-data: "JetBrains Mono", ui-monospace, monospace;
 
   /* Rayons quasi nuls (coins francs, pas de pilules) + zéro ombre : les
@@ -41,8 +47,10 @@
   --color-surface-strong: var(--paper);
   --color-text: var(--paper);
   --color-text-on-strong: var(--ink);
-  --color-text-muted: #5c6672;
-  --color-border: #1a2027;
+  /* #5c6672 (round précédent) ne passait pas le contraste WCAG AA texte
+     normal sur ce fond (~3.6:1, sous le seuil 4.5:1) — éclairci à ~6:1. */
+  --color-text-muted: #8994a1;
+  --color-border: #232a33;
 
   --color-accent: #00f0ff; /* cyan électrique — lecture de données, liens, focus, glow */
   --color-accent-strong: #00a6bd;
