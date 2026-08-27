@@ -249,6 +249,50 @@ textarea {
   height: 100%;
 }
 
+/* ---------- SegmentedControl (navigation en onglets intra-écran) ---------- */
+
+.segmented-control {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  margin-bottom: var(--space-3);
+}
+
+.segmented-control__btn {
+  flex: 1;
+  min-height: 40px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  padding: 8px 10px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.segmented-control__btn.active {
+  background: var(--color-accent-strong);
+  color: var(--paper);
+  box-shadow: var(--glow-accent);
+}
+
+.screen-segment {
+  display: none;
+}
+
+.screen-segment.active {
+  display: block;
+  animation: app-main-in 0.18s ease both;
+}
+
 /* ---------- StatStrip / StatTile ---------- */
 
 .stat-strip {

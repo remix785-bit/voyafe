@@ -63,6 +63,41 @@ function miniSparkline(values, tone) {
 }
 
 /**
+ * SegmentedControl — bascule entre plusieurs vues d'un même écran sans
+ * rechargement (ex. Dashboard : Aujourd'hui / Semaine / Progression), pour
+ * remplacer un long scroll unique par une navigation en onglets — chaque
+ * bouton porte data-segment-btn, chaque panneau correspondant doit porter
+ * data-segment-panel avec le même id ; le rendu HTML lui-même ne fait rien
+ * sans le petit script de bascule côté écran (cf. dashboard.js).
+ * @param {{id:string, label:string}[]} segments
+ * @param {string} activeId
+ */
+export function SegmentedControl(segments, activeId) {
+  return `
+    <div class="segmented-control" role="tablist">
+      ${segments
+        .map(
+          (s) =>
+            `<button type="button" class="segmented-control__btn${s.id === activeId ? " active" : ""}" data-segment-btn="${s.id}" role="tab" aria-selected="${s.id === activeId}">${escapeHtml(s.label)}</button>`
+        )
+        .join("")}
+    </div>`;
+}
+
+/** Câble le clic des boutons d'un SegmentedControl rendu dans `container`
+ * pour basculer les panneaux [data-segment-panel] correspondants —
+ * factorisé ici car identique sur chaque écran qui utilise ce composant. */
+export function attachSegmentedControl(container) {
+  container.querySelectorAll("[data-segment-btn]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.segmentBtn;
+      container.querySelectorAll("[data-segment-btn]").forEach((b) => b.classList.toggle("active", b === btn));
+      container.querySelectorAll("[data-segment-panel]").forEach((p) => p.classList.toggle("active", p.dataset.segmentPanel === id));
+    });
+  });
+}
+
+/**
  * ActivityHeatmap — calendrier d'activité façon "graphe de contributions"
  * (semaines en colonnes, jours en lignes, intensité = volume brut du jour).
  * Type de visualisation inédit dans l'appli : donne en un coup d'œil la

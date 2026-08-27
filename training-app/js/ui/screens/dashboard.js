@@ -12,6 +12,8 @@ import {
   StatStrip,
   ActivityHeatmap,
   WeekTable,
+  SegmentedControl,
+  attachSegmentedControl,
   attachChartInteractions,
 } from "../components.js";
 import { formatPace, ZONES } from "../../engines/vdot.js";
@@ -131,129 +133,146 @@ export async function render(container) {
     <div class="app-main">
       ${StatStrip(statTiles)}
 
-      <div class="card">
-        <h2>Régularité (16 dernières semaines)</h2>
-        ${ActivityHeatmap(volumesRecents)}
-      </div>
-
-      <div class="card card--action">
-        <div class="card__header">
-          <h1>Séance du jour</h1>
-          <span class="badge-warning" style="border-color: var(--color-accent); color: var(--color-accent);">${escapeAttr(plan.objectif ?? "")}</span>
-        </div>
-        ${seance ? SessionCard(seance, `#/seance?semaine=${semaineSeanceDuJour.numero}&idx=${semaineSeanceDuJour.seances.indexOf(seance)}&plan=${plan.id}`) : `<p class="muted">Aucune séance programmée aujourd'hui.</p>`}
-      </div>
-
-      <div class="card">
-        <h2>Échéance</h2>
-        ${CountdownRing(plan.macrocycle, pctProgression, {
-          centreValeur: `${jours}`,
-          centreLabel: jours > 1 ? "jours restants" : "jour restant",
-          centreSous: new Date(plan.dateEcheance).toLocaleDateString("fr-FR", { day: "numeric", month: "short" }),
-        })}
-        <p class="muted" style="text-align:center; margin-top:4px;">Semaine ${semaineActuelle.numero}/${semainesTotal} — phase ${semaineActuelle.phase}${semaineActuelle.statut === "decharge" ? " (décharge)" : ""}</p>
-        ${plan.distanceObjectifM && plan.tempsObjectifS ? `<p class="row" style="justify-content:center; margin-top:8px;"><span class="data">${(plan.distanceObjectifM / 1000).toFixed(1)} km</span><span class="muted">en</span><span class="data">${secondesVersLabel(plan.tempsObjectifS)}</span><span class="muted">— allure objectif</span><span class="data">${formatPace(plan.objectifPaceMinParKm)}</span></p>` : ""}
-        <div style="margin-top:16px;">${WeekStrip(plan.semaines, semaineActuelle.numero)}</div>
-      </div>
-
-      <div class="card">
-        <div class="card__header">
-          <h2>Cette semaine</h2>
-          <a class="btn btn--sm" href="#/plan?semaine=${semaineActuelle.numero}">Voir le plan</a>
-        </div>
-        <div class="card-grid card-grid--2" style="margin-bottom:12px;">
-          <div><span class="muted">Distance planifiée</span><br /><span class="data" style="font-size:1.3rem;">${stats.totalDistance.toFixed(1)} km</span></div>
-          <div><span class="muted">Durée planifiée</span><br /><span class="data" style="font-size:1.3rem;">${Math.round(stats.totalDuree)} min</span></div>
-        </div>
-        <p class="muted">${stats.realisees}/${stats.total} réalisée${stats.realisees > 1 ? "s" : ""}${stats.manquees ? ` · ${stats.manquees} manquée${stats.manquees > 1 ? "s" : ""}` : ""}</p>
-        <div style="margin-top:8px; overflow-x:auto;">
-          ${WeekTable(semaineActuelle.seances, (i) => `#/seance?semaine=${semaineActuelle.numero}&idx=${i}&plan=${plan.id}`)}
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card__header"><h2>Performance réelle</h2><a class="btn btn--sm" href="#/historique">Historique complet</a></div>
-        ${renderPerformanceReelle(perf, barresHebdo, barresMensuel, barresDPlus)}
-      </div>
-
-      <div class="card">
-        <h2>Répartition des zones (semaine)</h2>
-        ${DonutChart(segmentsZones(semaineActuelle), {
-          centreValeur: `${Math.round(semaineActuelle.seances.reduce((a, s) => a + s.volumeSeanceMin, 0))}`,
-          centreLabel: "min",
-        })}
-        <div style="margin-top:12px;">${ZoneRepartition(semaineActuelle)}</div>
-      </div>
-
-      <div class="card">
-        <div class="card__header"><h2>VDOT actuel</h2><span class="data" style="font-size:1.3rem;">${vdotActuel.toFixed(1)}</span></div>
-        ${
-          Math.abs(vdotActuel - plan.profilCourant.vdot) >= 0.1
-            ? `<p class="muted">Le plan utilise encore ${plan.profilCourant.vdot.toFixed(1)} (dernier retest non encore appliqué) — <a href="#/profil">mets à jour le plan</a> pour recalculer les allures.</p>`
-            : ""
-        }
-        ${
-          profil?.historiqueVdot?.length > 1
-            ? LineChart(
-                profil.historiqueVdot.map((h) => ({ label: new Date(h.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }), value: h.vdot })),
-                { formatValue: (v) => v.toFixed(1) }
-              )
-            : `<p class="muted">Pas encore d'historique — un deuxième point apparaîtra après ton prochain retest.</p>`
-        }
-        <p class="muted" style="margin-top:8px;">${
-          semainesRetest == null
-            ? "Pas encore de retest enregistré."
-            : semainesRetest >= 4
-              ? `Retest recommandé — dernier test il y a ${semainesRetest} semaines.`
-              : `Prochain retest recommandé dans ${4 - semainesRetest} semaine${4 - semainesRetest > 1 ? "s" : ""}.`
-        }</p>
-        <a class="btn btn--sm" href="#/profil" style="margin-top:8px;">Voir le détail des zones</a>
-      </div>
-
-      <div class="card">
-        <div class="card__header"><h2>Charge (ACWR/EWMA)</h2></div>
-        ${chargeSummary ? LoadGauge(chargeSummary) : `<p class="muted">Pas encore de données — log ta première journée (journal quotidien ou synchro Strava) pour voir la tendance de charge démarrer.</p>`}
-        ${renderCourbeCharge()}
-      </div>
-
-      <div class="card">
-        <div class="card__header">
-          <h2>Journal quotidien</h2>
-          ${!logDuJour ? `<a class="btn btn--primary btn--sm" href="#/journal">Log du jour</a>` : `<span class="muted">Déjà loggé aujourd'hui</span>`}
-        </div>
-        ${
-          dernierLog
-            ? `<p class="muted">Dernier log (${new Date(dernierLog.date).toLocaleDateString("fr-FR")}) :</p>
-               <div class="row">
-                 ${dernierLog.fcRepos != null ? `<span class="data">FC repos ${dernierLog.fcRepos}</span>` : ""}
-                 ${dernierLog.rmssd != null ? `<span class="data">RMSSD ${dernierLog.rmssd}</span>` : ""}
-                 ${dernierLog.bienEtre != null ? `<span class="data">Bien-être ${dernierLog.bienEtre}/10</span>` : ""}
-                 ${dernierLog.rpe != null ? `<span class="data">RPE ${dernierLog.rpe}/10</span>` : ""}
-               </div>`
-            : `<p class="muted">Pas encore de log enregistré.</p>`
-        }
-      </div>
-
       ${adaptation.propositions.length ? renderPropositions(adaptation) : ""}
 
-      ${
-        autresPlans.length
-          ? `<div class="card">
-              <h2>Autres plans</h2>
-              <div class="stack">
-                ${autresPlans
-                  .map((p) => `<div class="row" style="justify-content:space-between;"><span>${escapeAttr(p.objectif ?? p.discipline)}</span><span class="muted">${p.statut}</span></div>`)
-                  .join("")}
-              </div>
-            </div>`
-          : ""
-      }
+      ${SegmentedControl(
+        [
+          { id: "aujourdhui", label: "Aujourd'hui" },
+          { id: "semaine", label: "Semaine" },
+          { id: "progression", label: "Progression" },
+        ],
+        "aujourdhui"
+      )}
 
-      <div class="card">
-        <h2>Zones d'entraînement</h2>
-        ${ZoneLegend(vdotActuel)}
+      <div class="screen-segment active" data-segment-panel="aujourdhui">
+        <div class="card card--action">
+          <div class="card__header">
+            <h1>Séance du jour</h1>
+            <span class="badge-warning" style="border-color: var(--color-accent); color: var(--color-accent);">${escapeAttr(plan.objectif ?? "")}</span>
+          </div>
+          ${seance ? SessionCard(seance, `#/seance?semaine=${semaineSeanceDuJour.numero}&idx=${semaineSeanceDuJour.seances.indexOf(seance)}&plan=${plan.id}`) : `<p class="muted">Aucune séance programmée aujourd'hui.</p>`}
+        </div>
+
+        <div class="card">
+          <div class="card__header">
+            <h2>Journal quotidien</h2>
+            ${!logDuJour ? `<a class="btn btn--primary btn--sm" href="#/journal">Log du jour</a>` : `<span class="muted">Déjà loggé aujourd'hui</span>`}
+          </div>
+          ${
+            dernierLog
+              ? `<p class="muted">Dernier log (${new Date(dernierLog.date).toLocaleDateString("fr-FR")}) :</p>
+                 <div class="row">
+                   ${dernierLog.fcRepos != null ? `<span class="data">FC repos ${dernierLog.fcRepos}</span>` : ""}
+                   ${dernierLog.rmssd != null ? `<span class="data">RMSSD ${dernierLog.rmssd}</span>` : ""}
+                   ${dernierLog.bienEtre != null ? `<span class="data">Bien-être ${dernierLog.bienEtre}/10</span>` : ""}
+                   ${dernierLog.rpe != null ? `<span class="data">RPE ${dernierLog.rpe}/10</span>` : ""}
+                 </div>`
+              : `<p class="muted">Pas encore de log enregistré.</p>`
+          }
+        </div>
+      </div>
+
+      <div class="screen-segment" data-segment-panel="semaine">
+        <div class="card">
+          <h2>Échéance</h2>
+          ${CountdownRing(plan.macrocycle, pctProgression, {
+            centreValeur: `${jours}`,
+            centreLabel: jours > 1 ? "jours restants" : "jour restant",
+            centreSous: new Date(plan.dateEcheance).toLocaleDateString("fr-FR", { day: "numeric", month: "short" }),
+          })}
+          <p class="muted" style="text-align:center; margin-top:4px;">Semaine ${semaineActuelle.numero}/${semainesTotal} — phase ${semaineActuelle.phase}${semaineActuelle.statut === "decharge" ? " (décharge)" : ""}</p>
+          ${plan.distanceObjectifM && plan.tempsObjectifS ? `<p class="row" style="justify-content:center; margin-top:8px;"><span class="data">${(plan.distanceObjectifM / 1000).toFixed(1)} km</span><span class="muted">en</span><span class="data">${secondesVersLabel(plan.tempsObjectifS)}</span><span class="muted">— allure objectif</span><span class="data">${formatPace(plan.objectifPaceMinParKm)}</span></p>` : ""}
+          <div style="margin-top:16px;">${WeekStrip(plan.semaines, semaineActuelle.numero)}</div>
+        </div>
+
+        <div class="card">
+          <div class="card__header">
+            <h2>Cette semaine</h2>
+            <a class="btn btn--sm" href="#/plan?semaine=${semaineActuelle.numero}">Voir le plan</a>
+          </div>
+          <div class="card-grid card-grid--2" style="margin-bottom:12px;">
+            <div><span class="muted">Distance planifiée</span><br /><span class="data" style="font-size:1.3rem;">${stats.totalDistance.toFixed(1)} km</span></div>
+            <div><span class="muted">Durée planifiée</span><br /><span class="data" style="font-size:1.3rem;">${Math.round(stats.totalDuree)} min</span></div>
+          </div>
+          <p class="muted">${stats.realisees}/${stats.total} réalisée${stats.realisees > 1 ? "s" : ""}${stats.manquees ? ` · ${stats.manquees} manquée${stats.manquees > 1 ? "s" : ""}` : ""}</p>
+          <div style="margin-top:8px; overflow-x:auto;">
+            ${WeekTable(semaineActuelle.seances, (i) => `#/seance?semaine=${semaineActuelle.numero}&idx=${i}&plan=${plan.id}`)}
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Répartition des zones (semaine)</h2>
+          ${DonutChart(segmentsZones(semaineActuelle), {
+            centreValeur: `${Math.round(semaineActuelle.seances.reduce((a, s) => a + s.volumeSeanceMin, 0))}`,
+            centreLabel: "min",
+          })}
+          <div style="margin-top:12px;">${ZoneRepartition(semaineActuelle)}</div>
+        </div>
+
+        ${
+          autresPlans.length
+            ? `<div class="card">
+                <h2>Autres plans</h2>
+                <div class="stack">
+                  ${autresPlans
+                    .map((p) => `<div class="row" style="justify-content:space-between;"><span>${escapeAttr(p.objectif ?? p.discipline)}</span><span class="muted">${p.statut}</span></div>`)
+                    .join("")}
+                </div>
+              </div>`
+            : ""
+        }
+      </div>
+
+      <div class="screen-segment" data-segment-panel="progression">
+        <div class="card">
+          <h2>Régularité (16 dernières semaines)</h2>
+          ${ActivityHeatmap(volumesRecents)}
+        </div>
+
+        <div class="card">
+          <div class="card__header"><h2>Performance réelle</h2><a class="btn btn--sm" href="#/historique">Historique complet</a></div>
+          ${renderPerformanceReelle(perf, barresHebdo, barresMensuel, barresDPlus)}
+        </div>
+
+        <div class="card">
+          <div class="card__header"><h2>VDOT actuel</h2><span class="data" style="font-size:1.3rem;">${vdotActuel.toFixed(1)}</span></div>
+          ${
+            Math.abs(vdotActuel - plan.profilCourant.vdot) >= 0.1
+              ? `<p class="muted">Le plan utilise encore ${plan.profilCourant.vdot.toFixed(1)} (dernier retest non encore appliqué) — <a href="#/profil">mets à jour le plan</a> pour recalculer les allures.</p>`
+              : ""
+          }
+          ${
+            profil?.historiqueVdot?.length > 1
+              ? LineChart(
+                  profil.historiqueVdot.map((h) => ({ label: new Date(h.date).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }), value: h.vdot })),
+                  { formatValue: (v) => v.toFixed(1) }
+                )
+              : `<p class="muted">Pas encore d'historique — un deuxième point apparaîtra après ton prochain retest.</p>`
+          }
+          <p class="muted" style="margin-top:8px;">${
+            semainesRetest == null
+              ? "Pas encore de retest enregistré."
+              : semainesRetest >= 4
+                ? `Retest recommandé — dernier test il y a ${semainesRetest} semaines.`
+                : `Prochain retest recommandé dans ${4 - semainesRetest} semaine${4 - semainesRetest > 1 ? "s" : ""}.`
+          }</p>
+          <a class="btn btn--sm" href="#/profil" style="margin-top:8px;">Voir le détail des zones</a>
+        </div>
+
+        <div class="card">
+          <div class="card__header"><h2>Charge (ACWR/EWMA)</h2></div>
+          ${chargeSummary ? LoadGauge(chargeSummary) : `<p class="muted">Pas encore de données — log ta première journée (journal quotidien ou synchro Strava) pour voir la tendance de charge démarrer.</p>`}
+          ${renderCourbeCharge()}
+        </div>
+
+        <div class="card">
+          <h2>Zones d'entraînement</h2>
+          ${ZoneLegend(vdotActuel)}
+        </div>
       </div>
     </div>`;
+
+  attachSegmentedControl(container);
 
   container.querySelectorAll("[data-proposition-action]").forEach((btn) => {
     btn.addEventListener("click", async () => {

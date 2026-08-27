@@ -1,7 +1,7 @@
 import * as store from "../../store.js";
 import { ewmaAcwr, acwr } from "../../engines/load.js";
 import { barresDPlusMensuel } from "../../engines/performance.js";
-import { Sparkline, ZoneRepartition, BarChart, ActivityHeatmap, attachChartInteractions } from "../components.js";
+import { Sparkline, ZoneRepartition, BarChart, ActivityHeatmap, SegmentedControl, attachSegmentedControl, attachChartInteractions } from "../components.js";
 import { formatPace } from "../../engines/vdot.js";
 
 export async function render(container) {
@@ -14,40 +14,53 @@ export async function render(container) {
         <h1>Historique &amp; Stats</h1>
       </div>
 
-      <div class="card">
-        <h2>VDOT dans le temps</h2>
-        ${profil?.historiqueVdot?.length ? Sparkline(profil.historiqueVdot.map((h) => h.vdot)) : `<p class="muted">Pas encore d'historique.</p>`}
-      </div>
+      ${SegmentedControl(
+        [
+          { id: "tendances", label: "Tendances" },
+          { id: "detail", label: "Détail" },
+        ],
+        "tendances"
+      )}
 
-      <div class="card">
-        <h2>ACWR / EWMA dans le temps</h2>
-        ${renderLoadHistory(store.chargeHebdoDepuisLogs())}
-      </div>
-
-      <div class="card">
-        <h2>Régularité (26 dernières semaines)</h2>
-        ${ActivityHeatmap(store.volumeParJourAvecDates(), { semaines: 26 })}
-      </div>
-
-      <div class="card">
-        <h2>Respect des zones hebdo (semaine en cours)</h2>
-        ${plan ? ZoneRepartition(semaineActuelle(plan)) : `<p class="muted">Aucun plan.</p>`}
-      </div>
-
-      <div class="card">
-        <div class="card__header">
-          <h2>Activités Strava récentes</h2>
-          <a class="btn btn--sm" href="#/reglages">Synchroniser</a>
+      <div class="screen-segment active" data-segment-panel="tendances">
+        <div class="card">
+          <h2>VDOT dans le temps</h2>
+          ${profil?.historiqueVdot?.length ? Sparkline(profil.historiqueVdot.map((h) => h.vdot)) : `<p class="muted">Pas encore d'historique.</p>`}
         </div>
-        ${renderActivitesRecentes(seancesRealisees)}
+
+        <div class="card">
+          <h2>ACWR / EWMA dans le temps</h2>
+          ${renderLoadHistory(store.chargeHebdoDepuisLogs())}
+        </div>
+
+        <div class="card">
+          <h2>Régularité (26 dernières semaines)</h2>
+          ${ActivityHeatmap(store.volumeParJourAvecDates(), { semaines: 26 })}
+        </div>
       </div>
 
-      <div class="card">
-        <h2>D+ cumulé mensuel</h2>
-        ${renderDPlusMensuel(seancesRealisees)}
+      <div class="screen-segment" data-segment-panel="detail">
+        <div class="card">
+          <h2>Respect des zones hebdo (semaine en cours)</h2>
+          ${plan ? ZoneRepartition(semaineActuelle(plan)) : `<p class="muted">Aucun plan.</p>`}
+        </div>
+
+        <div class="card">
+          <div class="card__header">
+            <h2>Activités Strava récentes</h2>
+            <a class="btn btn--sm" href="#/reglages">Synchroniser</a>
+          </div>
+          ${renderActivitesRecentes(seancesRealisees)}
+        </div>
+
+        <div class="card">
+          <h2>D+ cumulé mensuel</h2>
+          ${renderDPlusMensuel(seancesRealisees)}
+        </div>
       </div>
     </div>`;
 
+  attachSegmentedControl(container);
   attachChartInteractions(container);
 }
 
