@@ -236,12 +236,17 @@ textarea {
 }
 
 .app-bottomnav .icon {
-  font-size: 1rem;
-  width: 20px;
-  height: 20px;
+  width: 21px;
+  height: 21px;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.app-bottomnav .icon svg,
+.menu-entry__icon svg {
+  width: 100%;
+  height: 100%;
 }
 
 /* ---------- StatStrip / StatTile ---------- */
@@ -328,36 +333,21 @@ a.card:hover {
   border-color: var(--color-accent);
 }
 
-/* Équerres de coin façon viseur/HUD — signature visuelle la plus visible de
-   la DA "terminal analytique" : chaque carte se lit comme un cadre de visée
-   plutôt qu'une simple boîte à bords arrondis. */
-.card::before,
-.card::after {
-  content: "";
-  position: absolute;
-  width: 9px;
-  height: 9px;
-  pointer-events: none;
-}
-.card::before {
-  top: -1px;
-  left: -1px;
-  border-top: 2px solid var(--color-accent);
-  border-left: 2px solid var(--color-accent);
-}
-.card::after {
-  bottom: -1px;
-  right: -1px;
-  border-bottom: 2px solid var(--color-accent);
-  border-right: 2px solid var(--color-accent);
-}
-
+/* La carte d'action principale de l'écran (ex. "Séance du jour") se
+   distingue par un bord dégradé cyan → violet et une lueur douce plutôt que
+   les équerres façon viseur/HUD des rounds précédents (peu compatibles
+   avec des coins largement arrondis) — un signal chaleureux plutôt que
+   tactique, réservé à LA carte la plus importante de l'écran, pas à
+   toutes : garde son statut spécial. */
 .card--action {
   position: relative;
   padding: var(--space-4) var(--space-4) var(--space-5);
   overflow: hidden;
-  border-left: 2px solid var(--color-accent);
-  box-shadow: inset 3px 0 12px -6px color-mix(in srgb, var(--color-accent) 60%, transparent);
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--color-surface), var(--color-surface)) padding-box,
+    linear-gradient(135deg, var(--color-accent), var(--color-accent-2)) border-box;
+  box-shadow: var(--shadow-card), 0 0 24px -12px color-mix(in srgb, var(--color-accent) 50%, transparent);
 }
 
 .card__header {
@@ -399,10 +389,13 @@ a.card:hover {
 }
 
 .menu-entry__icon {
-  font-size: 1.2rem;
-  width: 28px;
-  text-align: center;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  color: var(--color-accent);
 }
 
 .menu-entry__text {

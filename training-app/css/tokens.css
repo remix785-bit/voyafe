@@ -1,18 +1,18 @@
-/* Système de tokens — identité visuelle "terminal analytique" (Coach Running
-   pour Rémi). Rupture volontaire avec la précédente DA "sport énergique"
-   (fonds gradient, boutons pilule, ombres marquées) : fond quasi noir,
-   bordures fines, zéro ombre, zéro dégradé décoratif — inspiré des
-   terminaux de marché (Bloomberg) avec une touche de lueur néon assumée sur
-   les points d'attention (titres, valeurs clé, focus). Coins des cartes
-   marqués par des équerres façon viseur/HUD plutôt qu'un simple cadre.
-   Typographie Atkinson Hyperlegible (conçue par le Braille Institute pour
-   la lisibilité — formes de lettres très distinctes, I/l/1 et O/0 non
-   ambigus) sur tout le texte lu (titres, labels, boutons, formulaires) ;
-   le monospace (JetBrains Mono) reste réservé aux VALEURS numériques
-   tabulaires (allures, distances, tickers) où l'alignement des chiffres
-   apporte un vrai bénéfice de lecture — plus aux mots, où il nuit à la
-   reconnaissance de forme. Thème sombre par défaut, thème clair disponible
-   via [data-theme="light"] sur <html> (Réglages). */
+/* Système de tokens — identité visuelle "terminal analytique, adouci"
+   (Coach Running pour Rémi). Toujours dense, sombre et orienté données
+   (hérité des rounds "Bloomberg terminal"), mais avec les arêtes limées :
+   coins largement arrondis (cartes ET boutons/badges de nouveau en pilule,
+   sans les dégradés glossy de l'ancienne DA "sport énergique" — fonds
+   plats), une ombre douce redonnant un peu de profondeur (le tout plat
+   pouvait paraître froid), une seconde teinte d'accent (violet doux) pour
+   de la variété sans perdre la cohérence cyan dominante. Les équerres
+   HUD ne marquent plus que la carte d'action principale de chaque écran
+   (pas toutes les cartes) pour rester un signal, pas du bruit visuel.
+   Typographie Atkinson Hyperlegible (Braille Institute — lisibilité,
+   formes de lettres non ambiguës) sur tout le texte lu ; JetBrains Mono
+   réservé aux valeurs numériques tabulaires (allures, distances, tickers).
+   Thème sombre par défaut, thème clair disponible via [data-theme="light"]
+   sur <html> (Réglages). */
 
 @import url("https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
 
@@ -28,10 +28,9 @@
   --font-body: "Atkinson Hyperlegible", system-ui, sans-serif;
   --font-data: "JetBrains Mono", ui-monospace, monospace;
 
-  /* Rayons quasi nuls (coins francs, pas de pilules) + zéro ombre : les
-     zones sont délimitées par des bordures fines, pas par du relief. */
-  --radius-card: 3px;
-  --radius-pill: 2px;
+  /* Coins largement arrondis (cartes ET pilules) — cf. note d'en-tête. */
+  --radius-card: 16px;
+  --radius-pill: 999px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -54,6 +53,7 @@
 
   --color-accent: #00f0ff; /* cyan électrique — lecture de données, liens, focus, glow */
   --color-accent-strong: #00a6bd;
+  --color-accent-2: #b586ff; /* violet doux — variété/chaleur, touches ponctuelles seulement */
   --color-structural: #21ffb0; /* vert terminal — positif/sain */
   --color-structural-strong: #00c98a;
   --color-functional: #ffb020; /* ambre — attention/fonctionnel */
@@ -85,9 +85,10 @@
   --color-warning: #ffb020;
   --color-danger: #ff4d6a;
 
-  /* Zéro ombre assumé (terminal plat) — la variable reste définie pour ne
-     pas casser les box-shadow: var(--shadow-card) existants dans app.css. */
-  --shadow-card: none;
+  /* Ombre douce plutôt que le "zéro ombre" strict des rounds précédents —
+     redonne un peu de profondeur/légèreté aux cartes sur fond quasi noir,
+     où le tout plat pouvait paraître froid. */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 28px -10px rgba(0, 0, 0, 0.55);
 }
 
 :root[data-theme="light"] {
@@ -102,6 +103,7 @@
 
   --color-accent: #0092ad;
   --color-accent-strong: #00707f;
+  --color-accent-2: #7c4fd6;
   --color-structural: #00996b;
   --color-structural-strong: #007a54;
   --color-functional: #b06400;
@@ -121,7 +123,7 @@
   --color-warning: #915a00;
   --color-danger: #c22f4a;
 
-  --shadow-card: none;
+  --shadow-card: 0 1px 2px rgba(10, 11, 16, 0.04), 0 10px 24px -10px rgba(10, 11, 16, 0.12);
   /* La lueur néon (pensée pour un fond quasi noir) devient juste un flou
      disgracieux sur fond clair — désactivée en thème clair. */
   --glow-accent: none;

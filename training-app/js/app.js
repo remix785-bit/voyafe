@@ -14,6 +14,7 @@ import * as journal from "./ui/screens/journal.js";
 import * as reglages from "./ui/screens/reglages.js";
 import * as menu from "./ui/screens/menu.js";
 import * as calculateur from "./ui/screens/calculateur.js";
+import { Icon } from "./ui/icons.js";
 
 async function boot() {
   await store.init();
@@ -47,6 +48,17 @@ async function boot() {
 
   const appMain = document.getElementById("app-view");
   const nav = document.getElementById("app-nav");
+
+  // Icônes ligne (icons.js) plutôt que les glyphes Unicode de index.html
+  // (◆▤✎∿⋯) : injectées ici plutôt que codées en dur dans le HTML statique,
+  // pour rester la seule source de vérité partagée avec menu.js.
+  const NAV_ICONS = { dashboard: "home", plan: "calendar", journal: "pencil", historique: "chart", menu: "grid" };
+  nav.querySelectorAll("[data-route]").forEach((a) => {
+    const iconEl = a.querySelector(".icon");
+    const name = NAV_ICONS[a.dataset.route];
+    if (iconEl && name) iconEl.innerHTML = Icon(name);
+  });
+
   initRouter(appMain, nav);
 
   // Rappel de séance du jour : au démarrage, puis à chaque retour au
