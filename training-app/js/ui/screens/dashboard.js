@@ -14,9 +14,11 @@ import {
   WeekTable,
   SegmentedControl,
   attachSegmentedControl,
+  RecoveryTrend,
+  ProgressBar,
   attachChartInteractions,
 } from "../components.js";
-import { formatPace, ZONES } from "../../engines/vdot.js";
+import { formatPace, formatDureeCompacte, riegelPredict, ZONES } from "../../engines/vdot.js";
 import { statsPerformance, barresDistanceHebdo, barresDistanceMensuelle, barresDPlusMensuel, variationPct } from "../../engines/performance.js";
 import { ewmaAcwr } from "../../engines/load.js";
 
@@ -128,6 +130,8 @@ export async function render(container) {
     { label: "Semaine", value: `${stats.realisees}/${stats.total}`, sub: "réalisées" },
   ];
   const volumesRecents = store.volumeParJourAvecDates();
+  const progressionPlan = progressionCumuleePlan(plan);
+  const tempsPredits = profil?.performanceRef ? predireTempsAutresDistances(profil.performanceRef) : null;
 
   container.innerHTML = `
     <div class="app-main">
@@ -225,6 +229,11 @@ export async function render(container) {
 
       <div class="screen-segment" data-segment-panel="progression">
         <div class="card">
+          <div class="card__header"><h2>Progression du plan</h2><span class="data" style="font-size:1.3rem;">${Math.round(progressionPlan.pct)}%</span></div>
+          ${ProgressBar(progressionPlan.pct, { label: `${progressionPlan.seancesRealisees}/${progressionPlan.seancesPrevues} séances réalisées depuis le début du plan` })}
+        </div>
+
+        <div class="card">
           <h2>Régularité (16 dernières semaines)</h2>
           ${ActivityHeatmap(volumesRecents)}
         </div>
@@ -259,10 +268,28 @@ export async function render(container) {
           <a class="btn btn--sm" href="#/profil" style="margin-top:8px;">Voir le détail des zones</a>
         </div>
 
+        ${
+          tempsPredits
+            ? `<div class="card">
+                <h2>Temps prédits (Riegel)</h2>
+                <p class="muted">À partir de ta performance de référence actuelle — cross-check indépendant du modèle VDOT.</p>
+                <div class="card-grid card-grid--2">
+                  ${tempsPredits.map((t) => `<div><span class="muted">${escapeAttr(t.label)}</span><br /><span class="data" style="font-size:1.15rem;">${formatDureeCompacte(t.tempsS)}</span></div>`).join("")}
+                </div>
+              </div>`
+            : ""
+        }
+
         <div class="card">
           <div class="card__header"><h2>Charge (ACWR/EWMA)</h2></div>
           ${chargeSummary ? LoadGauge(chargeSummary) : `<p class="muted">Pas encore de données — log ta première journée (journal quotidien ou synchro Strava) pour voir la tendance de charge démarrer.</p>`}
           ${renderCourbeCharge()}
+        </div>
+
+        <div class="card">
+          <h2>Récupération</h2>
+          <p class="muted">Ce que la boucle adaptative surveille déjà en coulisses pour proposer une décharge.</p>
+          ${RecoveryTrend(logsQuotidiens)}
         </div>
 
         <div class="card">
@@ -306,6 +333,56 @@ function courbeEwmaRecente(loads, nbPoints = 10) {
   const points = [];
   for (let i = debut; i <= loads.length; i++) points.push(ewmaAcwr(loads.slice(0, i)));
   return points;
+}
+
+/**
+ * Progression cumulée du plan : volume (min) prévu vs réalisé sur toutes
+ * les semaines déjà entamées (dateDebut <= aujourd'hui) — pas seulement la
+ * semaine en cours (déjà couverte ailleurs sur le Dashboard), pour donner
+ * une vue d'ensemble "suis-je dans les clous depuis le début ?".
+ * @param {ReturnType<typeof store.planActif>} plan
+ */
+function progressionCumuleePlan(plan) {
+  const maintenant = new Date();
+  let volumePrevu = 0;
+  let volumeRealise = 0;
+  let seancesPrevues = 0;
+  let seancesRealisees = 0;
+  for (const semaine of plan.semaines) {
+    if (new Date(semaine.dateDebut) > maintenant) continue;
+    for (const seance of semaine.seances) {
+      volumePrevu += seance.volumeSeanceMin;
+      seancesPrevues++;
+      if (seance.statut === "realisee") {
+        volumeRealise += seance.volumeSeanceMin;
+        seancesRealisees++;
+      }
+    }
+  }
+  return {
+    pct: volumePrevu > 0 ? (volumeRealise / volumePrevu) * 100 : 0,
+    seancesPrevues,
+    seancesRealisees,
+  };
+}
+
+/**
+ * Temps prédits aux distances standard (5K/10K/semi/marathon) à partir de la
+ * performance de référence actuelle — formule de Riegel (déjà utilisée pour
+ * la comparaison indépendante du modèle VDOT, jamais exposée en UI jusqu'ici).
+ * @param {{distanceM:number, tempsS:number}} performanceRef
+ */
+function predireTempsAutresDistances(performanceRef) {
+  const distances = [
+    { label: "5 km", m: 5000 },
+    { label: "10 km", m: 10000 },
+    { label: "Semi", m: 21097.5 },
+    { label: "Marathon", m: 42195 },
+  ];
+  return distances.map((d) => ({
+    label: d.label,
+    tempsS: riegelPredict(performanceRef.tempsS, performanceRef.distanceM, d.m),
+  }));
 }
 
 /** Segments E/M/T/I/R (volume de la semaine) pour le DonutChart — mêmes données que ZoneRepartition. */

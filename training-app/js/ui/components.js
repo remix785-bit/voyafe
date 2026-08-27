@@ -237,6 +237,52 @@ export function Sparkline(values, { height = 60 } = {}) {
 }
 
 /**
+ * RecoveryTrend — tendance RMSSD / FC repos / bien-être à partir du journal
+ * quotidien : rend visible ce que la boucle adaptative (adaptiveLoop.js)
+ * utilise déjà en coulisses pour détecter une dégradation et proposer une
+ * décharge — jusqu'ici un signal caché, jamais affiché en tendance.
+ * @param {{rmssd?:number, fcRepos?:number, bienEtre?:number}[]} logsQuotidiens trié du plus ancien au plus récent
+ */
+export function RecoveryTrend(logsQuotidiens) {
+  const metriques = [
+    { cle: "rmssd", label: "RMSSD (ms)" },
+    { cle: "fcRepos", label: "FC repos (bpm)" },
+    { cle: "bienEtre", label: "Bien-être (/10)" },
+  ];
+  return metriques
+    .map(({ cle, label }) => {
+      const valeurs = logsQuotidiens.map((l) => l[cle]).filter((v) => v != null);
+      if (valeurs.length < 2) {
+        return `<div style="margin-bottom:14px;"><span class="muted">${label}</span><p class="muted">Pas encore assez de données (min. 2 jours renseignés).</p></div>`;
+      }
+      return `
+        <div style="margin-bottom:14px;">
+          <div class="row" style="justify-content:space-between;">
+            <span class="muted">${label}</span>
+            <span class="data">${valeurs[valeurs.length - 1]}</span>
+          </div>
+          ${Sparkline(valeurs, { height: 36 })}
+        </div>`;
+    })
+    .join("");
+}
+
+/**
+ * ProgressBar — barre de progression linéaire simple (ex. volume du plan
+ * réalisé depuis le début vs prévu).
+ * @param {number} pct 0-100
+ * @param {{label?:string}} [options]
+ */
+export function ProgressBar(pct, { label } = {}) {
+  const clamped = Math.max(0, Math.min(100, pct));
+  return `
+    <div class="progress-bar">
+      <div class="progress-bar__track"><div class="progress-bar__fill" style="width:${clamped}%"></div></div>
+    </div>
+    ${label ? `<p class="muted" style="margin-top:6px;">${escapeHtml(label)}</p>` : ""}`;
+}
+
+/**
  * ZoneRepartition — répartition du volume hebdo par zone E/M/T/I/R, en %.
  * @param {{seances: Array<{zoneDaniels:string, volumeSeanceMin:number}>}} semaine
  */

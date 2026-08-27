@@ -293,6 +293,23 @@ textarea {
   animation: app-main-in 0.18s ease both;
 }
 
+/* ---------- ProgressBar ---------- */
+
+.progress-bar__track {
+  height: 10px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+.progress-bar__fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-accent), var(--color-accent-2));
+  border-radius: var(--radius-pill);
+  transition: width 0.3s ease;
+}
+
 /* ---------- StatStrip / StatTile ---------- */
 
 .stat-strip {
