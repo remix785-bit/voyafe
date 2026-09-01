@@ -219,7 +219,12 @@ export async function render(container) {
                 <h2>Autres plans</h2>
                 <div class="stack">
                   ${autresPlans
-                    .map((p) => `<div class="row" style="justify-content:space-between;"><span>${escapeAttr(p.objectif ?? p.discipline)}</span><span class="muted">${p.statut}</span></div>`)
+                    .map((p) => {
+                      const label = p.saisonId
+                        ? `${escapeAttr(p.objectif ?? p.discipline)} <span class="muted">(bloc ${p.ordreSaison}${p.roleSaison === "finale" ? " · objectif final" : " · intermédiaire"})</span>`
+                        : escapeAttr(p.objectif ?? p.discipline);
+                      return `<a class="row" href="#/plan?planId=${p.id}" style="justify-content:space-between; text-decoration:none; color:inherit;"><span>${label}</span><span class="muted">${p.statut}</span></a>`;
+                    })
                     .join("")}
                 </div>
               </div>`

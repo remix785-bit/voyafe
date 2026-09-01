@@ -90,15 +90,21 @@ export const SEUIL_PLAN_COURT_SEMAINES = 6; // Point ouvert Partie II §10.1 —
 /**
  * @param {number} semainesDispo
  * @param {"faible"|"moderee"|"elevee"} chargeHebdoMoyenneActuelle
+ * @param {{typeObjectif?:"finale"|"intermediaire"}} options `typeObjectif:"intermediaire"`
+ *   (Saison — Partie II §9 étendue) plafonne l'affûtage à 1 semaine : une course
+ *   d'étape qui sert un objectif final plus lointain ne doit pas interrompre la
+ *   progression de charge comme le ferait l'affûtage complet d'un objectif final.
  */
-export function construireMacrocycle(semainesDispo, chargeHebdoMoyenneActuelle = "moderee") {
+export function construireMacrocycle(semainesDispo, chargeHebdoMoyenneActuelle = "moderee", options = {}) {
+  const { typeObjectif = "finale" } = options;
   if (semainesDispo < SEUIL_PLAN_COURT_SEMAINES) {
-    return construirePlanCourt(semainesDispo);
+    return construirePlanCourt(semainesDispo, typeObjectif);
   }
 
   let taperSemaines = 2;
   if (chargeHebdoMoyenneActuelle === "elevee") taperSemaines = 3;
   if (chargeHebdoMoyenneActuelle === "faible") taperSemaines = 1;
+  if (typeObjectif === "intermediaire") taperSemaines = Math.min(taperSemaines, 1);
 
   const semainesRestantes = semainesDispo - taperSemaines;
   const semainesBase = Math.round(semainesRestantes * 0.53);
@@ -116,8 +122,9 @@ export function construireMacrocycle(semainesDispo, chargeHebdoMoyenneActuelle =
  * Garde-fou plan court (<6 semaines) : pas de vraie phase Base, focus
  * maintien + affûtage (Partie II §9, point ouvert 1 — résolu par défaut ainsi).
  */
-function construirePlanCourt(semainesDispo) {
-  const taperSemaines = semainesDispo <= 3 ? 1 : 2;
+function construirePlanCourt(semainesDispo, typeObjectif = "finale") {
+  let taperSemaines = semainesDispo <= 3 ? 1 : 2;
+  if (typeObjectif === "intermediaire") taperSemaines = Math.min(taperSemaines, 1);
   const developpement = Math.max(semainesDispo - taperSemaines, 0);
   return { mode: "court", base: 0, developpement, taper: taperSemaines };
 }
@@ -515,7 +522,9 @@ export function genererPlanComplet(inputs) {
     facteurGapCalibre: inputs.facteurGapCalibre,
   });
   const semDispo = semainesDisponibles(inputs.dateEcheance, inputs.dateDebut);
-  const macrocycle = construireMacrocycle(semDispo, inputs.chargeHebdoMoyenneActuelle ?? "moderee");
+  const macrocycle = construireMacrocycle(semDispo, inputs.chargeHebdoMoyenneActuelle ?? "moderee", {
+    typeObjectif: inputs.typeObjectif ?? "finale",
+  });
   const semaines = genererSemaines(macrocycle, inputs.dateDebut ?? new Date().toISOString());
   const objectifPaceMinParKm = calculerAllureObjectif(inputs.distanceObjectifM, inputs.tempsObjectifS);
 
@@ -585,6 +594,78 @@ export function genererPlanComplet(inputs) {
     joursEntrainement: inputs.joursEntrainement ?? null,
     volumeHebdoMaxMin: inputs.volumeHebdoMaxMin ?? null,
     chargeHebdoMoyenneActuelle: inputs.chargeHebdoMoyenneActuelle ?? "moderee",
+    typeObjectif: inputs.typeObjectif ?? "finale",
     statut: "en_attente",
   };
+}
+
+// ---------------------------------------------------------------------------
+// Saison — objectif final + objectifs intermédiaires (Partie II §9 étendue)
+// ---------------------------------------------------------------------------
+
+/**
+ * Génère une saison complète : un objectif final et, en option, des objectifs
+ * intermédiaires (courses "d'étape"), chacun avec son propre bloc de plan
+ * (①→④), chaînés chronologiquement bout à bout du début de saison à
+ * l'objectif final. Seul l'objectif final reçoit l'affûtage complet
+ * (construireMacrocycle) ; les intermédiaires gardent un affûtage minimal
+ * (typeObjectif:"intermediaire") pour que la course d'étape serve la
+ * progression vers l'objectif final plutôt que de l'interrompre.
+ * @param {object} inputs profil commun à toute la saison (discipline,
+ *   performanceRef, joursEntrainement, chargeHebdoMoyenneActuelle,
+ *   volumeHebdoMaxMin, facteurGapCalibre, dateDebut) + :
+ *   - objectifFinal: {nom, distanceM, tempsS, date}
+ *   - objectifsIntermediaires: [{nom, distanceM, tempsS, date}, ...] (optionnel)
+ * @returns {Array<object>} blocs de plan générés, dans l'ordre chronologique,
+ *   chacun enrichi de {roleSaison:"intermediaire"|"finale", ordreSaison}
+ */
+export function genererSaison(inputs) {
+  const { objectifFinal, objectifsIntermediaires = [], ...profilCommun } = inputs;
+  if (!objectifFinal?.date) {
+    throw new Error("L'objectif final (nom, distance, date) est requis pour générer une saison.");
+  }
+
+  const intermediairesTries = [...objectifsIntermediaires].sort(
+    (a, b) => new Date(a.date) - new Date(b.date)
+  );
+  const blocsObjectifs = [
+    ...intermediairesTries.map((o) => ({ ...o, role: "intermediaire" })),
+    { ...objectifFinal, role: "finale" },
+  ];
+
+  let dateDebutCourante = profilCommun.dateDebut ?? new Date().toISOString();
+  const plans = [];
+  for (const [i, objectif] of blocsObjectifs.entries()) {
+    if (new Date(objectif.date) <= new Date(dateDebutCourante)) {
+      const nom = objectif.nom || `Objectif ${i + 1}`;
+      throw new Error(
+        `"${nom}" (${new Date(objectif.date).toLocaleDateString("fr-FR")}) doit être postérieur à la fin du bloc précédent (${new Date(dateDebutCourante).toLocaleDateString("fr-FR")}).`
+      );
+    }
+
+    const plan = genererPlanComplet({
+      ...profilCommun,
+      dateDebut: dateDebutCourante,
+      dateEcheance: objectif.date,
+      distanceObjectifM: objectif.distanceM ?? null,
+      tempsObjectifS: objectif.tempsS ?? null,
+      objectif: objectif.nom || profilCommun.objectif || null,
+      typeObjectif: objectif.role,
+    });
+    // genererPlanComplet ne pose pas discipline/objectif/dateEcheance sur le
+    // plan lui-même (habituellement posés par store.creerPlan) — nécessaires
+    // ici puisque chaque bloc de saison doit être un plan autonome et complet.
+    plan.discipline = profilCommun.discipline;
+    plan.objectif = objectif.nom || profilCommun.objectif || null;
+    plan.dateEcheance = objectif.date;
+    plan.roleSaison = objectif.role;
+    plan.ordreSaison = i + 1;
+    plans.push(plan);
+
+    // Le bloc suivant démarre le lendemain de cette course (le taper réduit
+    // des intermédiaires laisse un jour de récupération avant de relancer).
+    dateDebutCourante = new Date(new Date(objectif.date).getTime() + JOUR_MS).toISOString();
+  }
+
+  return plans;
 }

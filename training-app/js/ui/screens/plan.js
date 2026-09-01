@@ -4,7 +4,9 @@ import { formatPace } from "../../engines/vdot.js";
 import { genererIcs, telechargerIcs } from "../../data/icsExport.js";
 
 export async function render(container, params) {
-  const plan = store.planActif();
+  const plan = params.planId
+    ? store.getState().plans.find((p) => p.id === params.planId)
+    : store.planActif();
   if (!plan) {
     container.innerHTML = `<div class="app-main"><div class="card"><p class="muted">Aucun plan actif.</p><a class="btn btn--primary" href="#/profil">Créer un plan</a></div></div>`;
     return;
@@ -14,9 +16,12 @@ export async function render(container, params) {
   const semaine = plan.semaines.find((s) => s.numero === semaineNumero) ?? plan.semaines[0];
   const idx = plan.semaines.indexOf(semaine);
   const stats = statsSemaine(semaine);
+  const blocsSaison = plan.saisonId ? store.blocsSaison(plan.saisonId) : null;
 
   container.innerHTML = `
     <div class="app-main">
+      ${blocsSaison ? renderFeuilleDeRoute(blocsSaison, plan.id) : ""}
+
       ${StatStrip([
         { label: "Distance", value: `${stats.totalDistance.toFixed(1)} km` },
         { label: "Durée", value: `${Math.round(stats.totalDuree)} min` },
@@ -26,13 +31,13 @@ export async function render(container, params) {
 
       <div class="card">
         <div class="card__header">
-          <h1>Plan — ${escapeAttr(plan.discipline)}</h1>
+          <h1>${blocsSaison ? `Bloc ${plan.ordreSaison}/${blocsSaison.length}` : "Plan"} — ${escapeAttr(plan.discipline)}</h1>
           <div class="row">
             <button class="btn btn--sm" id="export-ics">Exporter en .ics</button>
-            <a class="btn btn--sm" href="#/profil">Modifier</a>
+            ${plan.statut === "actif" || !plan.saisonId ? `<a class="btn btn--sm" href="#/profil">Modifier</a>` : ""}
           </div>
         </div>
-        <p class="muted">${escapeAttr(plan.objectif ?? "")} — échéance ${new Date(plan.dateEcheance).toLocaleDateString("fr-FR")}</p>
+        <p class="muted">${escapeAttr(plan.objectif ?? "")} — échéance ${new Date(plan.dateEcheance).toLocaleDateString("fr-FR")}${plan.roleSaison === "intermediaire" ? " · objectif intermédiaire" : plan.roleSaison === "finale" ? " · objectif final de la saison" : ""}</p>
         ${plan.distanceObjectifM && plan.tempsObjectifS ? `<p class="row"><span class="data">${(plan.distanceObjectifM / 1000).toFixed(1)} km</span><span class="muted">en</span><span class="data">${secondesVersLabel(plan.tempsObjectifS)}</span><span class="muted">— allure objectif</span><span class="data">${formatPace(plan.objectifPaceMinParKm)}</span></p>` : ""}
         ${WeekStrip(plan.semaines, semaine.numero)}
       </div>
@@ -67,10 +72,10 @@ export async function render(container, params) {
   });
 
   container.querySelector("#week-prev")?.addEventListener("click", () => {
-    location.hash = `#/plan?semaine=${plan.semaines[idx - 1].numero}`;
+    location.hash = `#/plan?semaine=${plan.semaines[idx - 1].numero}&planId=${plan.id}`;
   });
   container.querySelector("#week-next")?.addEventListener("click", () => {
-    location.hash = `#/plan?semaine=${plan.semaines[idx + 1].numero}`;
+    location.hash = `#/plan?semaine=${plan.semaines[idx + 1].numero}&planId=${plan.id}`;
   });
 
   // WeekTable rend des <tr> cliquables plutôt que des <a> (invalide en HTML
@@ -80,6 +85,44 @@ export async function render(container, params) {
       location.hash = row.dataset.href;
     });
   });
+
+  container.querySelectorAll("[data-bloc-saison]").forEach((el) => {
+    el.addEventListener("click", () => {
+      location.hash = `#/plan?planId=${el.dataset.blocSaison}`;
+    });
+  });
+}
+
+/**
+ * Feuille de route de la saison (Partie II §9 étendue) : chaque bloc
+ * (objectifs intermédiaires puis objectif final) avec son statut, pour
+ * visualiser où on en est et naviguer entre les blocs de la même saison.
+ */
+function renderFeuilleDeRoute(blocs, planCourantId) {
+  const STATUT_LABEL = { actif: "en cours", en_attente: "à venir", termine: "terminé" };
+  return `
+    <div class="card">
+      <h2>Feuille de route de la saison</h2>
+      <div class="stack">
+        ${blocs
+          .map((b) => {
+            const estCourant = b.id === planCourantId;
+            return `
+            <div class="row" data-bloc-saison="${b.id}" style="justify-content:space-between; cursor:pointer; padding:8px; border-radius:8px; ${estCourant ? "background:var(--color-surface-2, rgba(255,255,255,.04));" : ""}">
+              <div>
+                <span class="data" style="margin-right:8px;">${b.ordreSaison}/${blocs.length}</span>
+                <span>${escapeAttr(b.objectif || (b.roleSaison === "finale" ? "Objectif final" : "Objectif intermédiaire"))}</span>
+                ${b.roleSaison === "finale" ? `<span class="zone-badge" style="margin-left:6px;">final</span>` : ""}
+              </div>
+              <div class="row" style="gap:8px;">
+                <span class="muted">${new Date(b.dateEcheance).toLocaleDateString("fr-FR")}</span>
+                <span class="muted">${STATUT_LABEL[b.statut] ?? b.statut}</span>
+              </div>
+            </div>`;
+          })
+          .join("")}
+      </div>
+    </div>`;
 }
 
 function statsSemaine(semaine) {

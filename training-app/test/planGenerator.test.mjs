@@ -4,6 +4,7 @@ import {
   construireMacrocycle,
   genererSemaines,
   genererPlanComplet,
+  genererSaison,
   semainesDisponibles,
   appliquerPlafondsHebdo,
   calculerAllureObjectif,
@@ -507,6 +508,105 @@ test("genererPlanComplet — le nombre de jours d'entraînement choisis détermi
     assert.equal(semaine.seances.length, 4);
     for (const s of semaine.seances) assert.ok(s.date, "chaque séance doit avoir une date précise");
   }
+});
+
+test("construireMacrocycle — un objectif intermédiaire plafonne l'affûtage à 1 semaine, même en charge élevée", () => {
+  const finale = construireMacrocycle(16, "elevee");
+  const intermediaire = construireMacrocycle(16, "elevee", { typeObjectif: "intermediaire" });
+  assert.equal(finale.taper, 3);
+  assert.equal(intermediaire.taper, 1);
+  assert.ok(intermediaire.base + intermediaire.developpement > finale.base + finale.developpement, "le taper réduit laisse plus de semaines de développement");
+});
+
+test("construireMacrocycle — plan court intermédiaire aussi plafonné à 1 semaine de taper", () => {
+  const finale = construireMacrocycle(5, "moderee");
+  const intermediaire = construireMacrocycle(5, "moderee", { typeObjectif: "intermediaire" });
+  assert.equal(finale.taper, 2);
+  assert.equal(intermediaire.taper, 1);
+});
+
+test("genererSaison — chaîne objectif(s) intermédiaire(s) puis objectif final, bout à bout sans chevauchement", () => {
+  const dateDebut = new Date("2026-01-05T00:00:00Z"); // lundi
+  const objectifIntermediaire = { nom: "10km de rentrée", distanceM: 10000, tempsS: 40 * 60, date: new Date(dateDebut.getTime() + 8 * 7 * 24 * 60 * 60 * 1000).toISOString() };
+  const objectifFinal = { nom: "Marathon", distanceM: 42195, tempsS: 3.5 * 3600, date: new Date(dateDebut.getTime() + 24 * 7 * 24 * 60 * 60 * 1000).toISOString() };
+
+  const blocs = genererSaison({
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    nbSeancesHebdo: 5,
+    chargeHebdoMoyenneActuelle: "moderee",
+    objectifFinal,
+    objectifsIntermediaires: [objectifIntermediaire],
+  });
+
+  assert.equal(blocs.length, 2);
+  const [bloc1, bloc2] = blocs;
+  assert.equal(bloc1.roleSaison, "intermediaire");
+  assert.equal(bloc1.ordreSaison, 1);
+  assert.equal(bloc1.typeObjectif, "intermediaire");
+  assert.equal(bloc1.dateEcheance, objectifIntermediaire.date);
+  assert.equal(bloc1.dateDebutPlan, dateDebut.toISOString());
+
+  assert.equal(bloc2.roleSaison, "finale");
+  assert.equal(bloc2.ordreSaison, 2);
+  assert.equal(bloc2.typeObjectif, "finale");
+  assert.equal(bloc2.dateEcheance, objectifFinal.date);
+  // Le bloc final démarre le lendemain de la course intermédiaire — pas de chevauchement.
+  assert.equal(new Date(bloc2.dateDebutPlan).getTime(), new Date(objectifIntermediaire.date).getTime() + 24 * 60 * 60 * 1000);
+
+  // Le taper de la course intermédiaire est réduit (1 semaine max) par rapport à l'objectif final.
+  assert.ok(bloc1.macrocycle.taper <= 1);
+  assert.equal(bloc2.macrocycle.taper, 2);
+});
+
+test("genererSaison — trie les objectifs intermédiaires par date même fournis dans le désordre", () => {
+  const dateDebut = new Date("2026-01-05T00:00:00Z");
+  const objA = { nom: "A", distanceM: 10000, date: new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000).toISOString() };
+  const objB = { nom: "B", distanceM: 10000, date: new Date(dateDebut.getTime() + 8 * 7 * 24 * 60 * 60 * 1000).toISOString() };
+  const objectifFinal = { nom: "Final", distanceM: 42195, date: new Date(dateDebut.getTime() + 24 * 7 * 24 * 60 * 60 * 1000).toISOString() };
+
+  const blocs = genererSaison({
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    objectifFinal,
+    objectifsIntermediaires: [objA, objB], // A (16 sem.) fourni avant B (8 sem.) alors qu'il est plus tardif
+  });
+
+  assert.equal(blocs.length, 3);
+  assert.equal(blocs[0].dateEcheance, objB.date, "B (plus tôt) doit être traité en premier");
+  assert.equal(blocs[1].dateEcheance, objA.date);
+  assert.equal(blocs[2].dateEcheance, objectifFinal.date);
+});
+
+test("genererSaison — rejette un objectif intermédiaire postérieur ou égal à l'objectif final", () => {
+  const dateDebut = new Date("2026-01-05T00:00:00Z");
+  assert.throws(() =>
+    genererSaison({
+      discipline: "route",
+      performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+      dateDebut: dateDebut.toISOString(),
+      objectifFinal: { nom: "Final", distanceM: 42195, date: new Date(dateDebut.getTime() + 8 * 7 * 24 * 60 * 60 * 1000).toISOString() },
+      objectifsIntermediaires: [
+        { nom: "Trop tard", distanceM: 10000, date: new Date(dateDebut.getTime() + 12 * 7 * 24 * 60 * 60 * 1000).toISOString() },
+      ],
+    })
+  );
+});
+
+test("genererSaison — objectif final seul (aucun intermédiaire) équivaut à un plan simple", () => {
+  const dateDebut = new Date("2026-01-05T00:00:00Z");
+  const objectifFinal = { nom: "10K", distanceM: 10000, tempsS: 40 * 60, date: new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000).toISOString() };
+  const blocs = genererSaison({
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    objectifFinal,
+  });
+  assert.equal(blocs.length, 1);
+  assert.equal(blocs[0].roleSaison, "finale");
+  assert.equal(blocs[0].ordreSaison, 1);
 });
 
 test("genererPlanComplet — la sortie longue tombe sur le dernier jour d'entraînement choisi de la semaine", () => {

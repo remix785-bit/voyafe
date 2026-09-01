@@ -3,7 +3,7 @@
 // seul a le statut 'actif'. Aucune fusion de charge entre plans.
 
 import * as db from "./data/db.js";
-import { genererPlanComplet } from "./engines/planGenerator.js";
+import { genererPlanComplet, genererSaison } from "./engines/planGenerator.js";
 import { vdotFromPerformance } from "./engines/vdot.js";
 import { loadSummary } from "./engines/load.js";
 import { evaluerBoucleAdaptative, detecterRetestImplicite } from "./engines/adaptiveLoop.js";
@@ -114,8 +114,36 @@ export async function init() {
     }
   }
 
+  await avancerSaisons();
+
   state.ready = true;
   notify();
+}
+
+/**
+ * Fait progresser automatiquement une saison (Partie II §9 étendue) : dès
+ * qu'un bloc actif est arrivé à échéance, le bloc suivant (ordreSaison+1,
+ * même saisonId) prend le relais sans action manuelle — l'utilisateur n'a
+ * pas à "activer" chaque objectif intermédiaire au fil de l'année. Un plan
+ * sans saisonId (plan simple, comportement antérieur) n'est jamais touché.
+ */
+async function avancerSaisons() {
+  const maintenant = new Date();
+  const aPersister = [];
+  for (const plan of state.plans) {
+    if (plan.statut !== "actif" || !plan.saisonId) continue;
+    if (new Date(plan.dateEcheance) > maintenant) continue;
+    plan.statut = "termine";
+    aPersister.push(plan);
+    const suivant = state.plans.find(
+      (p) => p.saisonId === plan.saisonId && p.ordreSaison === plan.ordreSaison + 1
+    );
+    if (suivant && suivant.statut === "en_attente") {
+      suivant.statut = "actif";
+      aPersister.push(suivant);
+    }
+  }
+  await Promise.all(aPersister.map((p) => db.put("plans", p)));
 }
 
 function githubConfigure() {
@@ -304,6 +332,47 @@ export async function creerPlan(inputs) {
 
   notify();
   return plan;
+}
+
+/**
+ * Génère une saison entière (objectif final + objectifs intermédiaires,
+ * Partie II §9 étendue) et range ses blocs sous un même saisonId : le
+ * premier bloc de la séquence passe 'actif', les suivants 'en_attente'
+ * jusqu'à ce qu'avancerSaisons() les active à leur tour, à l'échéance du
+ * bloc précédent. Créer une saison est une décision structurante délibérée
+ * (« je structure maintenant mon année ») : un plan simple actif existant
+ * est donc terminé pour laisser la place au premier bloc de la saison,
+ * plutôt que de rester actif indéfiniment en parallèle sans jamais être
+ * remplacé (aucune UI n'existe pour terminer un plan manuellement).
+ */
+export async function creerSaison(inputs) {
+  const blocs = genererSaison(inputs);
+  const saisonId = db.newId("saison");
+  const maintenant = new Date().toISOString();
+
+  const ancienActif = state.plans.find((p) => p.statut === "actif");
+  if (ancienActif) {
+    ancienActif.statut = "termine";
+    await db.put("plans", ancienActif);
+  }
+
+  blocs.forEach((plan, i) => {
+    plan.id = db.newId("plan");
+    plan.discipline = inputs.discipline;
+    plan.saisonId = saisonId;
+    plan.creeLe = maintenant;
+    plan.statut = i === 0 ? "actif" : "en_attente";
+  });
+  await Promise.all(blocs.map((plan) => db.put("plans", plan)));
+  state.plans.push(...blocs);
+
+  notify();
+  return blocs;
+}
+
+/** Blocs d'une saison, dans l'ordre chronologique (objectifs intermédiaires puis objectif final). */
+export function blocsSaison(saisonId) {
+  return state.plans.filter((p) => p.saisonId === saisonId).sort((a, b) => a.ordreSaison - b.ordreSaison);
 }
 
 /**

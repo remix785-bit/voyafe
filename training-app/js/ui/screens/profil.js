@@ -1,6 +1,7 @@
 import * as store from "../../store.js";
 import { vdotFromPerformance, paceZonesForVdot, formatPace } from "../../engines/vdot.js";
 import { calculerAllureObjectif } from "../../engines/planGenerator.js";
+import { SegmentedControl, attachSegmentedControl } from "../components.js";
 
 export async function render(container) {
   const { profil } = store.getState();
@@ -45,7 +46,16 @@ export async function render(container) {
       </div>
 
       <div class="card">
-        <h2>${planExistant ? "Modifier le plan" : "Générer un plan"}</h2>
+        <h2>Plan d'entraînement</h2>
+        ${SegmentedControl(
+          [
+            { id: "simple", label: "Plan simple" },
+            { id: "saison", label: "Saison (objectif final + courses intermédiaires)" },
+          ],
+          "simple"
+        )}
+
+        <div class="screen-segment active" data-segment-panel="simple" style="margin-top:16px;">
         ${planExistant ? `<p class="muted">Change la distance, le temps objectif ou l'échéance puis mets à jour — les séances déjà réalisées/manquées restent enregistrées.</p>` : ""}
         <form id="form-plan">
           <div class="field">
@@ -110,6 +120,79 @@ export async function render(container) {
             ${planExistant ? `<button class="btn btn--sm" type="button" id="btn-nouveau-plan">Créer un nouveau plan à la place</button>` : ""}
           </div>
         </form>
+        </div>
+
+        <div class="screen-segment" data-segment-panel="saison" style="margin-top:16px;">
+          <p class="muted">Structure ta saison quasi sur l'année : un objectif final (ta course cible) et, si besoin, des objectifs intermédiaires (courses d'étape) — chacun reçoit son propre bloc de plan, affûté à sa mesure, chaîné du début de saison jusqu'à l'objectif final pour que les courses intermédiaires servent la progression plutôt que de la casser.</p>
+          <form id="form-saison">
+            <div class="field">
+              <label for="s-discipline">Discipline</label>
+              <select id="s-discipline">
+                <option value="route">Route</option>
+                <option value="trail">Trail</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="s-gap-calibre">Calibration GAP (trail, optionnel)</label>
+              <input type="number" id="s-gap-calibre" step="0.05" min="0.5" max="2" value="1" />
+            </div>
+            <div class="field">
+              <label for="s-debut">Date de début de la saison</label>
+              <input type="date" id="s-debut" value="${new Date().toISOString().slice(0, 10)}" />
+            </div>
+
+            <div class="contour-divider"></div>
+            <h3>Objectif final</h3>
+            <div class="field">
+              <label for="s-final-nom">Nom</label>
+              <input type="text" id="s-final-nom" placeholder="ex: Marathon de Paris" />
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="s-final-distance">Distance (km)</label>
+                <input type="number" id="s-final-distance" step="0.001" min="0" placeholder="ex: 42.195" />
+              </div>
+              <div class="field">
+                <label for="s-final-temps">Temps objectif (hh:mm:ss, optionnel)</label>
+                <input type="text" id="s-final-temps" placeholder="ex: 3:30:00" />
+              </div>
+            </div>
+            <div class="field">
+              <label for="s-final-date">Date de la course</label>
+              <input type="date" id="s-final-date" />
+            </div>
+
+            <div class="contour-divider"></div>
+            <div class="card__header">
+              <h3>Objectifs intermédiaires</h3>
+              <button class="btn btn--sm" type="button" id="btn-ajouter-intermediaire">+ Ajouter</button>
+            </div>
+            <p class="muted" style="margin-top:-8px;">Optionnel — des courses d'étape avant l'objectif final, avec un affûtage minimal pour ne pas interrompre la progression.</p>
+            <div id="intermediaires-list" class="stack"></div>
+
+            <div class="contour-divider"></div>
+            <div class="field">
+              <label>Jours d'entraînement</label>
+              ${renderJoursCheckboxes(joursParDefaut(profil?.disponibiliteHebdo ?? 5), "data-jour-saison")}
+              <p class="muted" id="s-jours-count" style="margin-top:4px;"></p>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="s-charge">Charge hebdo actuelle</label>
+                <select id="s-charge">
+                  <option value="faible">Faible</option>
+                  <option value="moderee" selected>Modérée</option>
+                  <option value="elevee">Élevée</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="s-volume-hebdo-max">Volume hebdo max (h, optionnel)</label>
+                <input type="number" id="s-volume-hebdo-max" step="0.5" min="1" placeholder="ex: 6" />
+              </div>
+            </div>
+            <button class="btn btn--primary" type="submit">Générer la saison</button>
+          </form>
+        </div>
       </div>
     </div>`;
 
@@ -286,6 +369,124 @@ export async function render(container) {
     }
     location.hash = "#/plan";
   });
+
+  attachSegmentedControl(container);
+  initSaisonForm(container);
+}
+
+/**
+ * Câblage du formulaire Saison (objectif final + objectifs intermédiaires) :
+ * ajout/retrait dynamique des lignes d'objectifs intermédiaires et soumission
+ * vers store.creerSaison. Séparé de render() car indépendant du profil/plan
+ * existant (contrairement au formulaire "Plan simple").
+ */
+function initSaisonForm(container) {
+  const liste = container.querySelector("#intermediaires-list");
+  let compteur = 0;
+
+  function ajouterLigneIntermediaire() {
+    compteur++;
+    const div = document.createElement("div");
+    div.className = "card";
+    div.style.padding = "12px";
+    div.dataset.intermediaireRow = "";
+    div.innerHTML = `
+      <div class="card__header">
+        <strong>Objectif intermédiaire ${compteur}</strong>
+        <button type="button" class="btn btn--sm" data-remove-intermediaire>Retirer</button>
+      </div>
+      <div class="field">
+        <label>Nom</label>
+        <input type="text" data-int-nom placeholder="ex: 10km de rentrée" />
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Distance (km)</label><input type="number" step="0.001" min="0" data-int-distance placeholder="ex: 10" /></div>
+        <div class="field"><label>Temps objectif (hh:mm:ss, optionnel)</label><input type="text" data-int-temps /></div>
+      </div>
+      <div class="field"><label>Date</label><input type="date" data-int-date /></div>`;
+    liste.appendChild(div);
+    div.querySelector("[data-remove-intermediaire]").addEventListener("click", () => div.remove());
+  }
+
+  container.querySelector("#btn-ajouter-intermediaire").addEventListener("click", ajouterLigneIntermediaire);
+
+  const updateJoursCountSaison = () => {
+    const n = container.querySelectorAll("[data-jour-saison]:checked").length;
+    container.querySelector("#s-jours-count").textContent =
+      n === 0 ? "Choisis au moins un jour." : `${n} séance${n > 1 ? "s" : ""}/semaine.`;
+  };
+  container.querySelectorAll("[data-jour-saison]").forEach((cb) => cb.addEventListener("change", updateJoursCountSaison));
+  updateJoursCountSaison();
+
+  container.querySelector("#form-saison").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const { profil: p } = store.getState();
+    if (!p) {
+      alert("Renseigne d'abord ton profil (performance de référence).");
+      return;
+    }
+    const discipline = container.querySelector("#s-discipline").value;
+    const facteurGapCalibre = Number(container.querySelector("#s-gap-calibre").value) || 1;
+    const debut = container.querySelector("#s-debut").value;
+    const charge = container.querySelector("#s-charge").value;
+    const volumeHebdoMaxH = Number(container.querySelector("#s-volume-hebdo-max").value) || null;
+    const joursEntrainement = Array.from(container.querySelectorAll("[data-jour-saison]:checked")).map((cb) => Number(cb.value));
+
+    const finalNom = container.querySelector("#s-final-nom").value;
+    const finalDistanceKm = Number(container.querySelector("#s-final-distance").value) || null;
+    const finalTempsLabel = container.querySelector("#s-final-temps").value.trim();
+    const finalDate = container.querySelector("#s-final-date").value;
+
+    if (!finalDate) {
+      alert("Choisis la date de l'objectif final.");
+      return;
+    }
+    if (!joursEntrainement.length) {
+      alert("Choisis au moins un jour d'entraînement.");
+      return;
+    }
+
+    const objectifsIntermediaires = Array.from(container.querySelectorAll("[data-intermediaire-row]")).map((row) => {
+      const date = row.querySelector("[data-int-date]").value;
+      const distanceKm = Number(row.querySelector("[data-int-distance]").value) || null;
+      const tempsLabel = row.querySelector("[data-int-temps]").value.trim();
+      return {
+        nom: row.querySelector("[data-int-nom]").value,
+        distanceM: distanceKm ? distanceKm * 1000 : null,
+        tempsS: tempsLabel ? labelVersSecondes(tempsLabel) : null,
+        date: date ? new Date(date).toISOString() : null,
+      };
+    });
+    if (objectifsIntermediaires.some((o) => !o.date)) {
+      alert("Chaque objectif intermédiaire a besoin d'une date (ou retire la ligne).");
+      return;
+    }
+
+    const inputs = {
+      discipline,
+      performanceRef: p.performanceRef,
+      joursEntrainement,
+      chargeHebdoMoyenneActuelle: charge,
+      volumeHebdoMaxMin: volumeHebdoMaxH ? volumeHebdoMaxH * 60 : null,
+      facteurGapCalibre,
+      dateDebut: debut ? new Date(debut).toISOString() : new Date().toISOString(),
+      objectifFinal: {
+        nom: finalNom,
+        distanceM: finalDistanceKm ? finalDistanceKm * 1000 : null,
+        tempsS: finalTempsLabel ? labelVersSecondes(finalTempsLabel) : null,
+        date: new Date(finalDate).toISOString(),
+      },
+      objectifsIntermediaires,
+    };
+
+    try {
+      await store.creerSaison(inputs);
+    } catch (err) {
+      alert(err.message);
+      return;
+    }
+    location.hash = "#/plan";
+  });
 }
 
 function renderZones(container, profil) {
@@ -351,13 +552,13 @@ function joursParDefaut(n) {
   return spreads[Math.min(Math.max(n, 1), 7)] ?? spreads[5];
 }
 
-function renderJoursCheckboxes(joursCoches) {
+function renderJoursCheckboxes(joursCoches, attr = "data-jour") {
   return `
     <div class="row" style="flex-wrap:wrap;">
       ${JOURS_LABELS.map(
         ({ iso, label }) => `
         <label class="btn btn--sm" style="cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
-          <input type="checkbox" data-jour value="${iso}" ${joursCoches.includes(iso) ? "checked" : ""} style="margin:0;" />
+          <input type="checkbox" ${attr} value="${iso}" ${joursCoches.includes(iso) ? "checked" : ""} style="margin:0;" />
           ${label}
         </label>`
       ).join("")}
