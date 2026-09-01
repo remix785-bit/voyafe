@@ -126,16 +126,10 @@ export async function render(container) {
           <p class="muted">Structure ta saison quasi sur l'année : un objectif final (ta course cible) et, si besoin, des objectifs intermédiaires (courses d'étape) — chacun reçoit son propre bloc de plan, affûté à sa mesure, chaîné du début de saison jusqu'à l'objectif final pour que les courses intermédiaires servent la progression plutôt que de la casser.</p>
           <form id="form-saison">
             <div class="field">
-              <label for="s-discipline">Discipline</label>
-              <select id="s-discipline">
-                <option value="route">Route</option>
-                <option value="trail">Trail</option>
-              </select>
-            </div>
-            <div class="field">
               <label for="s-gap-calibre">Calibration GAP (trail, optionnel)</label>
               <input type="number" id="s-gap-calibre" step="0.05" min="0.5" max="2" value="1" />
             </div>
+            <p class="muted" style="margin-top:-8px;">Ajuste le modèle théorique (Minetti) à ta sensibilité réelle aux pentes — commun à toute la saison, quelle que soit la discipline de chaque objectif.</p>
             <div class="field">
               <label for="s-debut">Date de début de la saison</label>
               <input type="date" id="s-debut" value="${new Date().toISOString().slice(0, 10)}" />
@@ -146,6 +140,19 @@ export async function render(container) {
             <div class="field">
               <label for="s-final-nom">Nom</label>
               <input type="text" id="s-final-nom" placeholder="ex: Marathon de Paris" />
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="s-final-discipline">Discipline</label>
+                <select id="s-final-discipline" data-objectif-discipline>
+                  <option value="route">Route</option>
+                  <option value="trail">Trail</option>
+                </select>
+              </div>
+              <div class="field" data-champ-denivele hidden>
+                <label for="s-final-denivele">D+ de la course (m)</label>
+                <input type="number" id="s-final-denivele" min="0" placeholder="ex: 2500" />
+              </div>
             </div>
             <div class="field-row">
               <div class="field">
@@ -167,7 +174,7 @@ export async function render(container) {
               <h3>Objectifs intermédiaires</h3>
               <button class="btn btn--sm" type="button" id="btn-ajouter-intermediaire">+ Ajouter</button>
             </div>
-            <p class="muted" style="margin-top:-8px;">Optionnel — des courses d'étape avant l'objectif final, avec un affûtage minimal pour ne pas interrompre la progression.</p>
+            <p class="muted" style="margin-top:-8px;">Optionnel — des courses d'étape avant l'objectif final, chacune avec sa propre discipline (route ou trail, avec son D+), avec un affûtage minimal pour ne pas interrompre la progression.</p>
             <div id="intermediaires-list" class="stack"></div>
 
             <div class="contour-divider"></div>
@@ -400,6 +407,19 @@ function initSaisonForm(container) {
         <input type="text" data-int-nom placeholder="ex: 10km de rentrée" />
       </div>
       <div class="field-row">
+        <div class="field">
+          <label>Discipline</label>
+          <select data-objectif-discipline data-int-discipline>
+            <option value="route">Route</option>
+            <option value="trail">Trail</option>
+          </select>
+        </div>
+        <div class="field" data-champ-denivele hidden>
+          <label>D+ de la course (m)</label>
+          <input type="number" min="0" data-int-denivele placeholder="ex: 800" />
+        </div>
+      </div>
+      <div class="field-row">
         <div class="field"><label>Distance (km)</label><input type="number" step="0.001" min="0" data-int-distance placeholder="ex: 10" /></div>
         <div class="field"><label>Temps objectif (hh:mm:ss, optionnel)</label><input type="text" data-int-temps /></div>
       </div>
@@ -409,6 +429,15 @@ function initSaisonForm(container) {
   }
 
   container.querySelector("#btn-ajouter-intermediaire").addEventListener("click", ajouterLigneIntermediaire);
+
+  // Le champ D+ n'a de sens qu'en trail — masqué/affiché selon la discipline
+  // choisie, pour l'objectif final comme pour chaque ligne intermédiaire
+  // (déléguation : couvre aussi les lignes ajoutées dynamiquement).
+  container.querySelector("#form-saison").addEventListener("change", (e) => {
+    if (!e.target.matches("[data-objectif-discipline]")) return;
+    const champDenivele = e.target.closest(".field-row")?.querySelector("[data-champ-denivele]");
+    if (champDenivele) champDenivele.hidden = e.target.value !== "trail";
+  });
 
   const updateJoursCountSaison = () => {
     const n = container.querySelectorAll("[data-jour-saison]:checked").length;
@@ -425,7 +454,6 @@ function initSaisonForm(container) {
       alert("Renseigne d'abord ton profil (performance de référence).");
       return;
     }
-    const discipline = container.querySelector("#s-discipline").value;
     const facteurGapCalibre = Number(container.querySelector("#s-gap-calibre").value) || 1;
     const debut = container.querySelector("#s-debut").value;
     const charge = container.querySelector("#s-charge").value;
@@ -433,6 +461,8 @@ function initSaisonForm(container) {
     const joursEntrainement = Array.from(container.querySelectorAll("[data-jour-saison]:checked")).map((cb) => Number(cb.value));
 
     const finalNom = container.querySelector("#s-final-nom").value;
+    const finalDiscipline = container.querySelector("#s-final-discipline").value;
+    const finalDeniveleM = Number(container.querySelector("#s-final-denivele").value) || null;
     const finalDistanceKm = Number(container.querySelector("#s-final-distance").value) || null;
     const finalTempsLabel = container.querySelector("#s-final-temps").value.trim();
     const finalDate = container.querySelector("#s-final-date").value;
@@ -450,8 +480,12 @@ function initSaisonForm(container) {
       const date = row.querySelector("[data-int-date]").value;
       const distanceKm = Number(row.querySelector("[data-int-distance]").value) || null;
       const tempsLabel = row.querySelector("[data-int-temps]").value.trim();
+      const discipline = row.querySelector("[data-int-discipline]").value;
+      const deniveleM = Number(row.querySelector("[data-int-denivele]").value) || null;
       return {
         nom: row.querySelector("[data-int-nom]").value,
+        discipline,
+        deniveleM: discipline === "trail" ? deniveleM : null,
         distanceM: distanceKm ? distanceKm * 1000 : null,
         tempsS: tempsLabel ? labelVersSecondes(tempsLabel) : null,
         date: date ? new Date(date).toISOString() : null,
@@ -463,7 +497,6 @@ function initSaisonForm(container) {
     }
 
     const inputs = {
-      discipline,
       performanceRef: p.performanceRef,
       joursEntrainement,
       chargeHebdoMoyenneActuelle: charge,
@@ -472,6 +505,8 @@ function initSaisonForm(container) {
       dateDebut: debut ? new Date(debut).toISOString() : new Date().toISOString(),
       objectifFinal: {
         nom: finalNom,
+        discipline: finalDiscipline,
+        deniveleM: finalDiscipline === "trail" ? finalDeniveleM : null,
         distanceM: finalDistanceKm ? finalDistanceKm * 1000 : null,
         tempsS: finalTempsLabel ? labelVersSecondes(finalTempsLabel) : null,
         date: new Date(finalDate).toISOString(),

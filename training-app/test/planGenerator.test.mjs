@@ -609,6 +609,102 @@ test("genererSaison — objectif final seul (aucun intermédiaire) équivaut à 
   assert.equal(blocs[0].ordreSaison, 1);
 });
 
+test("genererPlanComplet — le D+ attendu (deniveleM) ajuste l'allure GAP des séances trail, sans D+ retombe sur du plat", () => {
+  const dateDebut = new Date();
+  const dateEcheance = new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000);
+  const planPlat = genererPlanComplet({
+    discipline: "trail",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: dateEcheance.toISOString(),
+    nbSeancesHebdo: 5,
+    distanceObjectifM: 20000,
+  });
+  const planDPlus = genererPlanComplet({
+    discipline: "trail",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: dateEcheance.toISOString(),
+    nbSeancesHebdo: 5,
+    distanceObjectifM: 20000,
+    deniveleM: 2000, // 10% de pente moyenne attendue
+  });
+  assert.equal(planPlat.deniveleM, null);
+  assert.equal(planDPlus.deniveleM, 2000);
+
+  const semaineDev = (p) => p.semaines.find((s) => s.phase === "developpement");
+  const cotesPlat = semaineDev(planPlat).seances.find((s) => s.templateId === "trail_cotes_longues");
+  const cotesDPlus = semaineDev(planDPlus).seances.find((s) => s.templateId === "trail_cotes_longues");
+  assert.ok(cotesPlat && cotesDPlus);
+  assert.ok(
+    cotesDPlus.allureCibleMinParKm > cotesPlat.allureCibleMinParKm,
+    "avec un D+ attendu, la séance de côtes doit être GAP-ajustée à une allure plus lente qu'à plat"
+  );
+});
+
+test("genererSaison — chaque objectif porte sa propre discipline et son propre D+ (saison mixte route/trail)", () => {
+  const dateDebut = new Date("2026-01-05T00:00:00Z");
+  const objectifTrail = {
+    nom: "Trail des crêtes",
+    discipline: "trail",
+    distanceM: 20000,
+    deniveleM: 1200,
+    date: new Date(dateDebut.getTime() + 8 * 7 * 24 * 60 * 60 * 1000).toISOString(),
+  };
+  const objectifFinal = {
+    nom: "Marathon de Paris",
+    discipline: "route",
+    distanceM: 42195,
+    tempsS: 3.5 * 3600,
+    date: new Date(dateDebut.getTime() + 24 * 7 * 24 * 60 * 60 * 1000).toISOString(),
+  };
+
+  const blocs = genererSaison({
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    nbSeancesHebdo: 5,
+    objectifFinal,
+    objectifsIntermediaires: [objectifTrail],
+  });
+
+  const [blocTrail, blocRoute] = blocs;
+  assert.equal(blocTrail.discipline, "trail");
+  assert.equal(blocTrail.deniveleM, 1200);
+  assert.ok(blocTrail.semaines[0].seances.some((s) => s.templateId?.startsWith("trail_")), "le bloc trail doit utiliser le catalogue trail");
+
+  assert.equal(blocRoute.discipline, "route");
+  assert.equal(blocRoute.deniveleM, null, "le bloc route ne doit porter aucun D+, même si un autre bloc de la saison en a un");
+  assert.ok(blocRoute.semaines[0].seances.some((s) => s.templateId?.startsWith("route_")), "le bloc route doit utiliser le catalogue route");
+});
+
+test("genererSaison — accepte plusieurs objectifs intermédiaires (pas seulement un), tous chaînés bout à bout", () => {
+  const dateDebut = new Date("2026-01-05T00:00:00Z");
+  const objectifFinal = { nom: "Final", discipline: "route", distanceM: 42195, date: new Date(dateDebut.getTime() + 40 * 7 * 24 * 60 * 60 * 1000).toISOString() };
+  const objectifsIntermediaires = [
+    { nom: "Course 1", discipline: "route", distanceM: 10000, date: new Date(dateDebut.getTime() + 8 * 7 * 24 * 60 * 60 * 1000).toISOString() },
+    { nom: "Course 2", discipline: "trail", distanceM: 15000, deniveleM: 900, date: new Date(dateDebut.getTime() + 18 * 7 * 24 * 60 * 60 * 1000).toISOString() },
+    { nom: "Course 3", discipline: "route", distanceM: 21097, date: new Date(dateDebut.getTime() + 28 * 7 * 24 * 60 * 60 * 1000).toISOString() },
+  ];
+
+  const blocs = genererSaison({
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    objectifFinal,
+    objectifsIntermediaires,
+  });
+
+  assert.equal(blocs.length, 4, "3 intermédiaires + 1 final = 4 blocs");
+  assert.deepEqual(blocs.map((b) => b.objectif), ["Course 1", "Course 2", "Course 3", "Final"]);
+  assert.deepEqual(blocs.map((b) => b.ordreSaison), [1, 2, 3, 4]);
+  // Chaque bloc démarre le lendemain de la fin du précédent, sans chevauchement.
+  for (let i = 1; i < blocs.length; i++) {
+    assert.equal(
+      new Date(blocs[i].dateDebutPlan).getTime(),
+      new Date(blocs[i - 1].dateEcheance).getTime() + 24 * 60 * 60 * 1000
+    );
+  }
+});
+
 test("genererPlanComplet — la sortie longue tombe sur le dernier jour d'entraînement choisi de la semaine", () => {
   const dateDebut = new Date();
   const plan = genererPlanComplet({

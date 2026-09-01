@@ -357,8 +357,9 @@ export async function creerSaison(inputs) {
   }
 
   blocs.forEach((plan, i) => {
+    // discipline déjà résolue par bloc dans genererSaison (chaque objectif
+    // peut avoir sa propre discipline route/trail) — ne pas l'écraser ici.
     plan.id = db.newId("plan");
-    plan.discipline = inputs.discipline;
     plan.saisonId = saisonId;
     plan.creeLe = maintenant;
     plan.statut = i === 0 ? "actif" : "en_attente";

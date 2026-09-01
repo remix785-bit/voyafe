@@ -527,6 +527,11 @@ export function genererPlanComplet(inputs) {
   });
   const semaines = genererSemaines(macrocycle, inputs.dateDebut ?? new Date().toISOString());
   const objectifPaceMinParKm = calculerAllureObjectif(inputs.distanceObjectifM, inputs.tempsObjectifS);
+  // Pente moyenne attendue de la course (trail, D+ / distance) — contexte GAP
+  // pour les séances qualité du plan (côtes, descente technique, sortie D+ :
+  // gapAjuste, cf. catalogue trail). Sans D+ renseigné, retombe sur du plat
+  // (comportement antérieur préservé).
+  const penteMoyenneCible = inputs.deniveleM && inputs.distanceObjectifM ? inputs.deniveleM / inputs.distanceObjectifM : 0;
 
   // Index de chaque semaine au sein de sa propre phase (progression du volume,
   // calculerFacteurProgression) et parmi les semaines hors affûtage (rampe de
@@ -566,7 +571,7 @@ export function genererPlanComplet(inputs) {
     const seances = slots
       .map((slot) => trouverTemplate(slot.catalogueId))
       .filter(Boolean)
-      .map((tpl) => instancierSeance(tpl, profilCourant, semaineContexte, {}, objectifPaceMinParKm, progressionContext));
+      .map((tpl) => instancierSeance(tpl, profilCourant, semaineContexte, { penteMoyenne: penteMoyenneCible }, objectifPaceMinParKm, progressionContext));
     // Volume horaire max hebdo (Partie I §1) d'abord — recadre au budget de
     // temps réel de l'utilisateur — puis plafonds par zone T/I/R (Partie I §3),
     // calculés sur ce total déjà réaliste.
@@ -588,6 +593,7 @@ export function genererPlanComplet(inputs) {
     semaines: semainesAvecSeances,
     distanceObjectifM: inputs.distanceObjectifM ?? null,
     tempsObjectifS: inputs.tempsObjectifS ?? null,
+    deniveleM: inputs.deniveleM ?? null,
     objectifPaceMinParKm,
     nbSeancesHebdo: nbSeancesEffectif,
     dateDebutPlan: inputs.dateDebut ?? null,
@@ -611,11 +617,15 @@ export function genererPlanComplet(inputs) {
  * (construireMacrocycle) ; les intermédiaires gardent un affûtage minimal
  * (typeObjectif:"intermediaire") pour que la course d'étape serve la
  * progression vers l'objectif final plutôt que de l'interrompre.
- * @param {object} inputs profil commun à toute la saison (discipline,
- *   performanceRef, joursEntrainement, chargeHebdoMoyenneActuelle,
- *   volumeHebdoMaxMin, facteurGapCalibre, dateDebut) + :
- *   - objectifFinal: {nom, distanceM, tempsS, date}
- *   - objectifsIntermediaires: [{nom, distanceM, tempsS, date}, ...] (optionnel)
+ * @param {object} inputs profil commun à toute la saison (performanceRef,
+ *   joursEntrainement, chargeHebdoMoyenneActuelle, volumeHebdoMaxMin,
+ *   facteurGapCalibre, dateDebut) + :
+ *   - objectifFinal: {nom, distanceM, tempsS, date, discipline, deniveleM}
+ *   - objectifsIntermediaires: [{nom, distanceM, tempsS, date, discipline, deniveleM}, ...]
+ *     (optionnel) — chaque objectif (final ou intermédiaire) porte sa PROPRE
+ *     discipline ("route"|"trail") et, en trail, son propre D+ attendu
+ *     (deniveleM) : une saison peut mêler une course d'étape en trail et un
+ *     objectif final sur route, ou l'inverse.
  * @returns {Array<object>} blocs de plan générés, dans l'ordre chronologique,
  *   chacun enrichi de {roleSaison:"intermediaire"|"finale", ordreSaison}
  */
@@ -643,19 +653,22 @@ export function genererSaison(inputs) {
       );
     }
 
+    const discipline = objectif.discipline || profilCommun.discipline || "route";
     const plan = genererPlanComplet({
       ...profilCommun,
       dateDebut: dateDebutCourante,
       dateEcheance: objectif.date,
+      discipline,
       distanceObjectifM: objectif.distanceM ?? null,
       tempsObjectifS: objectif.tempsS ?? null,
+      deniveleM: discipline === "trail" ? objectif.deniveleM ?? null : null,
       objectif: objectif.nom || profilCommun.objectif || null,
       typeObjectif: objectif.role,
     });
     // genererPlanComplet ne pose pas discipline/objectif/dateEcheance sur le
     // plan lui-même (habituellement posés par store.creerPlan) — nécessaires
     // ici puisque chaque bloc de saison doit être un plan autonome et complet.
-    plan.discipline = profilCommun.discipline;
+    plan.discipline = discipline;
     plan.objectif = objectif.nom || profilCommun.objectif || null;
     plan.dateEcheance = objectif.date;
     plan.roleSaison = objectif.role;

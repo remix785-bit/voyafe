@@ -39,6 +39,7 @@ export async function render(container, params) {
         </div>
         <p class="muted">${escapeAttr(plan.objectif ?? "")} — échéance ${new Date(plan.dateEcheance).toLocaleDateString("fr-FR")}${plan.roleSaison === "intermediaire" ? " · objectif intermédiaire" : plan.roleSaison === "finale" ? " · objectif final de la saison" : ""}</p>
         ${plan.distanceObjectifM && plan.tempsObjectifS ? `<p class="row"><span class="data">${(plan.distanceObjectifM / 1000).toFixed(1)} km</span><span class="muted">en</span><span class="data">${secondesVersLabel(plan.tempsObjectifS)}</span><span class="muted">— allure objectif</span><span class="data">${formatPace(plan.objectifPaceMinParKm)}</span></p>` : ""}
+        ${plan.deniveleM ? `<p class="muted">D+ <span class="data">${Math.round(plan.deniveleM)} m</span></p>` : ""}
         ${WeekStrip(plan.semaines, semaine.numero)}
       </div>
 
