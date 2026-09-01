@@ -2,6 +2,7 @@ import * as store from "../../store.js";
 import { WeekStrip, StatStrip, WeekTable, ZoneLegend } from "../components.js";
 import { formatPace } from "../../engines/vdot.js";
 import { genererIcs, telechargerIcs } from "../../data/icsExport.js";
+import { Icon } from "../icons.js";
 
 export async function render(container, params) {
   const plan = params.planId
@@ -52,6 +53,7 @@ export async function render(container, params) {
         <div style="overflow-x:auto;">
           ${WeekTable(semaine.seances, (i) => `#/seance?semaine=${semaine.numero}&idx=${i}&plan=${plan.id}`)}
         </div>
+        ${idx === plan.semaines.length - 1 ? renderJourJ(plan) : ""}
         ${semaine.renfoRecommande?.length ? renderRenfo(semaine.renfoRecommande) : ""}
       </div>
 
@@ -123,6 +125,31 @@ function renderFeuilleDeRoute(blocs, planCourantId) {
           })
           .join("")}
       </div>
+    </div>`;
+}
+
+/**
+ * Marqueur visuel "Jour J" sur la dernière semaine du plan — l'écart calendaire
+ * entre la dernière séance planifiée et l'échéance est désormais borné à 0-2
+ * jours (genererSemaines absorbe le reste dans la 1ère semaine), mais ça reste
+ * invisible dans le calendrier tant que la course elle-même n'apparaît nulle
+ * part : ce bandeau rend explicite que le plan vise précisément cette date,
+ * pas une semaine "qui s'arrête" avant l'objectif.
+ */
+function renderJourJ(plan) {
+  const joursRestants = Math.ceil((new Date(plan.dateEcheance) - new Date()) / (24 * 60 * 60 * 1000));
+  const compteRebours = joursRestants > 0 ? `J-${joursRestants}` : joursRestants === 0 ? "Aujourd'hui" : "Passée";
+  return `
+    <div class="contour-divider"></div>
+    <div class="row" style="justify-content:space-between; align-items:center; padding:12px; border-radius:var(--radius-card, 12px); background:var(--color-surface-2, rgba(255,255,255,.04));">
+      <div class="row" style="gap:10px; align-items:center;">
+        <span class="jour-j__icon">${Icon("flag")}</span>
+        <div>
+          <strong>Jour J — ${escapeAttr(plan.objectif ?? "")}</strong>
+          <p class="muted" style="margin:0;">${new Date(plan.dateEcheance).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}${plan.distanceObjectifM ? ` · ${(plan.distanceObjectifM / 1000).toFixed(1)} km` : ""}</p>
+        </div>
+      </div>
+      <span class="data" style="font-size:1.1rem;">${compteRebours}</span>
     </div>`;
 }
 

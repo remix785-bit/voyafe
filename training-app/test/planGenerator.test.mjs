@@ -705,6 +705,57 @@ test("genererSaison — accepte plusieurs objectifs intermédiaires (pas seuleme
   }
 });
 
+test("genererSemaines — absorbe le reste de semainesDisponibles (floor) dans la fenêtre de la 1ère semaine, sans changer le nombre de semaines par phase", () => {
+  const m = construireMacrocycle(15, "moderee"); // 15 semaines pleines
+  const semainesSansReste = genererSemaines(m, new Date("2026-09-01T00:00:00Z").toISOString());
+  const semainesAvecReste = genererSemaines(m, new Date("2026-09-01T00:00:00Z").toISOString(), 5);
+
+  assert.equal(semainesSansReste.length, semainesAvecReste.length, "le reste ne doit pas changer le nombre de semaines");
+  assert.equal(semainesSansReste[0].dureeJours, 7);
+  assert.equal(semainesAvecReste[0].dureeJours, 12, "la 1ère semaine absorbe les 5 jours de reste");
+  for (let i = 1; i < semainesAvecReste.length; i++) {
+    assert.equal(semainesAvecReste[i].dureeJours, 7, "les semaines suivantes gardent 7 jours");
+  }
+  // Le décalage cumulé de 5 jours se propage à toutes les semaines suivantes,
+  // donc la dernière semaine finit exactement 5 jours plus tard qu'avant.
+  const derniereSansReste = semainesSansReste[semainesSansReste.length - 1];
+  const derniereAvecReste = semainesAvecReste[semainesAvecReste.length - 1];
+  const finSansReste = new Date(derniereSansReste.dateDebut).getTime() + 7 * 86400000;
+  const finAvecReste = new Date(derniereAvecReste.dateDebut).getTime() + 7 * 86400000;
+  assert.equal((finAvecReste - finSansReste) / 86400000, 5);
+});
+
+test("genererPlanComplet — le plan couvre exactement jusqu'à l'échéance (dernière séance à 0-2 jours de la course), même quand l'écart n'est pas un multiple de 7 jours", () => {
+  const dateDebut = new Date("2026-09-01T00:00:00Z");
+  const dateEcheance = new Date("2026-12-20T00:00:00Z"); // 110 jours = 15 semaines + 5 jours de reste
+  const plan = genererPlanComplet({
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: dateEcheance.toISOString(),
+    nbSeancesHebdo: 5,
+    joursEntrainement: [1, 2, 4, 6, 7],
+  });
+  const toutesLesDates = plan.semaines.flatMap((s) => s.seances.map((se) => new Date(se.date).getTime()));
+  const derniereDate = Math.max(...toutesLesDates);
+  const ecartJours = Math.round((dateEcheance.getTime() - derniereDate) / 86400000);
+  assert.ok(ecartJours >= 0, "aucune séance ne doit tomber après la course");
+  assert.ok(ecartJours <= 2, `dernière séance trop loin de la course, écart de ${ecartJours} jours (attendu <= 2, avant le correctif : jusqu'à 6)`);
+});
+
+test("genererPlanComplet — quand l'écart est un multiple exact de 7 jours, aucun reste à absorber (comportement inchangé)", () => {
+  const dateDebut = new Date();
+  const dateEcheance = new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000);
+  const plan = genererPlanComplet({
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: dateEcheance.toISOString(),
+    nbSeancesHebdo: 5,
+  });
+  assert.equal(plan.semaines[0].dureeJours, 7);
+});
+
 test("genererPlanComplet — la sortie longue tombe sur le dernier jour d'entraînement choisi de la semaine", () => {
   const dateDebut = new Date();
   const plan = genererPlanComplet({

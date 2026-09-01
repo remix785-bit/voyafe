@@ -62,12 +62,12 @@ function jourIso(date) {
  *   null partout si aucun jour d'entraînement n'est fourni (comportement
  *   antérieur préservé : pas de date précise, seul l'ordre compte)
  */
-export function assignerDatesSeances(dateDebutSemaineISO, nbSeances, joursEntrainement) {
+export function assignerDatesSeances(dateDebutSemaineISO, nbSeances, joursEntrainement, nbJoursFenetre = 7) {
   if (!joursEntrainement?.length) return Array(nbSeances).fill(null);
 
   const debut = new Date(dateDebutSemaineISO);
   const candidats = [];
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < nbJoursFenetre; i++) {
     const d = new Date(debut.getTime() + i * JOUR_MS);
     if (joursEntrainement.includes(jourIso(d))) candidats.push(d);
   }
@@ -132,14 +132,27 @@ function construirePlanCourt(semainesDispo, typeObjectif = "finale") {
 /**
  * Construit la liste ordonnée des semaines taguées par phase, avec insertion
  * des semaines de décharge (toutes les 3-4 semaines, hors taper).
+ *
+ * semainesDisponibles() tronque à un nombre entier de semaines (floor) — le
+ * reste (0 à 6 jours) est absorbé ici dans la fenêtre calendaire de la
+ * PREMIÈRE semaine (dureeJours > 7) plutôt que laissé en silence après la
+ * dernière semaine : sans ça, le taper se terminait jusqu'à 6 jours avant
+ * l'échéance réelle (aucune séance planifiée sur ces derniers jours, le plan
+ * semblait "s'arrêter" avant l'objectif au lieu de le viser précisément).
+ * Absorber le reste en semaine 1 (phase Base, l'écart compte le moins) laisse
+ * en revanche le nombre de semaines de chaque phase strictement inchangé
+ * (macrocycle déjà figé), et fait culminer très précisément le taper sur la
+ * date d'échéance.
  * @param {{mode:string, base:number, developpement:number, taper:number}} macrocycle
  * @param {string} dateDebutISO
+ * @param {number} dureeSupplementaireJours jours de reste (0-6) à absorber en semaine 1
  */
-export function genererSemaines(macrocycle, dateDebutISO) {
+export function genererSemaines(macrocycle, dateDebutISO, dureeSupplementaireJours = 0) {
   const semaines = [];
   let numero = 1;
   let dateCourante = new Date(dateDebutISO);
   let compteurDepuisDecharge = 0;
+  let extraRestant = dureeSupplementaireJours;
 
   const pousserSemaine = (phase) => {
     compteurDepuisDecharge++;
@@ -149,14 +162,17 @@ export function genererSemaines(macrocycle, dateDebutISO) {
       statut = "decharge";
       compteurDepuisDecharge = 0;
     }
+    const dureeJours = 7 + extraRestant;
     semaines.push({
       numero,
       phase,
       statut: phase === "taper" ? "taper" : statut,
       dateDebut: new Date(dateCourante).toISOString(),
+      dureeJours,
     });
     numero++;
-    dateCourante = new Date(dateCourante.getTime() + 7 * JOUR_MS);
+    dateCourante = new Date(dateCourante.getTime() + dureeJours * JOUR_MS);
+    extraRestant = 0; // seule la 1ère semaine absorbe le reste
   };
 
   for (let i = 0; i < macrocycle.base; i++) pousserSemaine("base");
@@ -521,11 +537,17 @@ export function genererPlanComplet(inputs) {
   const profilCourant = normaliserProfil(inputs.performanceRef, {
     facteurGapCalibre: inputs.facteurGapCalibre,
   });
-  const semDispo = semainesDisponibles(inputs.dateEcheance, inputs.dateDebut);
+  const dateDebutPlan = inputs.dateDebut ?? new Date().toISOString();
+  const semDispo = semainesDisponibles(inputs.dateEcheance, dateDebutPlan);
   const macrocycle = construireMacrocycle(semDispo, inputs.chargeHebdoMoyenneActuelle ?? "moderee", {
     typeObjectif: inputs.typeObjectif ?? "finale",
   });
-  const semaines = genererSemaines(macrocycle, inputs.dateDebut ?? new Date().toISOString());
+  // semDispo tronque à un nombre entier de semaines (floor) — le reste (0-6
+  // jours) est absorbé dans la fenêtre de la 1ère semaine (genererSemaines)
+  // pour que le plan couvre exactement jusqu'à l'échéance, taper compris.
+  const joursEcartTotal = Math.round((new Date(inputs.dateEcheance) - new Date(dateDebutPlan)) / JOUR_MS);
+  const dureeSupplementaireJours = Math.max(0, joursEcartTotal - semDispo * 7);
+  const semaines = genererSemaines(macrocycle, dateDebutPlan, dureeSupplementaireJours);
   const objectifPaceMinParKm = calculerAllureObjectif(inputs.distanceObjectifM, inputs.tempsObjectifS);
   // Pente moyenne attendue de la course (trail, D+ / distance) — contexte GAP
   // pour les séances qualité du plan (côtes, descente technique, sortie D+ :
@@ -581,7 +603,12 @@ export function genererPlanComplet(inputs) {
     // Date calendaire précise par séance, selon les jours d'entraînement
     // choisis — demande explicite "pouvoir choisir les jours sur lesquels
     // je veux faire mes séances".
-    const dates = assignerDatesSeances(semaineContexte.dateDebut, seancesWithCaps.length, inputs.joursEntrainement);
+    const dates = assignerDatesSeances(
+      semaineContexte.dateDebut,
+      seancesWithCaps.length,
+      inputs.joursEntrainement,
+      semaineContexte.dureeJours ?? 7
+    );
     const seancesDatees = seancesWithCaps.map((s, i) => ({ ...s, date: dates[i] }));
 
     return { ...semaineContexte, seances: seancesDatees, renfoRecommande: renfo };

@@ -459,6 +459,21 @@ a.card:hover {
   color: var(--color-accent);
 }
 
+.jour-j__icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--color-accent-2, var(--color-accent));
+}
+
+.jour-j__icon svg {
+  width: 100%;
+  height: 100%;
+}
+
 .menu-entry__text {
   display: flex;
   flex-direction: column;
