@@ -28,14 +28,15 @@ export async function render(container, params) {
   const planPeriment = Math.abs(vdotActuel - plan.profilCourant.vdot) >= 0.1;
   const coherence =
     plan.distanceObjectifM && plan.tempsObjectifS
-      ? evaluerCoherenceObjectif(vdotActuel, plan.distanceObjectifM, plan.tempsObjectifS, plan.semaines.length)
+      ? evaluerCoherenceObjectif(vdotActuel, plan.distanceObjectifM, plan.tempsObjectifS, plan.semaines.length, plan.deniveleM ?? 0)
       : null;
-  // Axe de travail (vitesse/équilibre/endurance) : n'a de sens que si l'objectif
-  // n'est pas déjà à portée — inutile de dire "quoi améliorer" quand rien ne
-  // manque. Nécessite la distance réellement testée (profil), pas seulement le VDOT.
+  // Axe de travail (vitesse/équilibre/endurance/dénivelé) : n'a de sens que si
+  // l'objectif n'est pas déjà à portée — inutile de dire "quoi améliorer" quand
+  // rien ne manque. Nécessite la distance réellement testée (profil), pas
+  // seulement le VDOT.
   const axeTravail =
     coherence && coherence.niveau !== "atteint" && profil?.performanceRef
-      ? identifierAxeTravail(profil.performanceRef.distanceM, plan.distanceObjectifM)
+      ? identifierAxeTravail(profil.performanceRef.distanceM, plan.distanceObjectifM, plan.deniveleM ?? 0)
       : null;
 
   container.innerHTML = `
@@ -207,15 +208,29 @@ function renderCoherenceObjectif(plan, coherence, axeTravail, profil, planPerime
   const badge = BADGE_NIVEAU[coherence.niveau];
   const ecartLabel = `${coherence.ecartPct >= 0 ? "+" : ""}${coherence.ecartPct.toFixed(1)}%`;
 
+  const estTrail = plan.discipline === "trail" && plan.deniveleM;
+  const noteDenivele = estTrail ? " (D+ de la course pris en compte)" : "";
+
   let conseil = "";
   if (coherence.niveau === "atteint") {
-    conseil = `Ta forme actuelle permettrait déjà de réaliser ce temps — ce plan vise à le sécuriser et à progresser encore d'ici l'échéance.`;
+    conseil = `Ta forme actuelle permettrait déjà de réaliser ce temps${noteDenivele} — ce plan vise à le sécuriser et à progresser encore d'ici l'échéance.`;
   } else if (coherence.niveau === "ambitieux") {
-    conseil = `Il te faut gagner environ ${ecartLabel} de VDOT d'ici l'échéance — cohérent avec ce que ${plan.semaines.length} semaines de plan bien suivi permettent généralement. Le plan a déjà augmenté en conséquence la part de tes sorties longues courue à l'allure objectif.`;
+    const contenuNote =
+      plan.discipline === "route"
+        ? "Le plan a déjà augmenté en conséquence la part de tes sorties longues courue à l'allure objectif."
+        : "Les allures de tes séances de côtes, descente technique et sortie longue sont déjà calées sur le D+ attendu de la course.";
+    conseil = `Il te faut gagner environ ${ecartLabel} de VDOT d'ici l'échéance${noteDenivele} — cohérent avec ce que ${plan.semaines.length} semaines de plan bien suivi permettent généralement. ${contenuNote}`;
   } else {
     const perf = profil?.performanceRef;
-    const tempsRealiste = perf ? riegelPredict(perf.tempsS, perf.distanceM, plan.distanceObjectifM) : null;
-    conseil = `Il faudrait gagner environ ${ecartLabel} de VDOT en ${plan.semaines.length} semaines — nettement au-delà de ce qu'un plan permet généralement sur ce délai. Le plan a déjà poussé la spécificité allure objectif de tes sorties longues au maximum de ce que permet le catalogue, mais le contenu des séances seul ne suffira pas. ${
+    // Riegel (route) ne modélise pas le D+ — un temps "réaliste" en trail ne
+    // peut être présenté comme tel sans induire en erreur, on ne l'affiche
+    // donc que pour un objectif route.
+    const tempsRealiste = perf && plan.discipline === "route" ? riegelPredict(perf.tempsS, perf.distanceM, plan.distanceObjectifM) : null;
+    const contenuNote =
+      plan.discipline === "route"
+        ? "Le plan a déjà poussé la spécificité allure objectif de tes sorties longues au maximum de ce que permet le catalogue, mais le contenu des séances seul ne suffira pas."
+        : "Les allures de tes séances de côtes/descente/sortie longue sont déjà calées sur le D+ attendu, mais leur volume ne s'ajuste pas automatiquement à ce niveau d'ambition — le contenu des séances seul ne suffira pas.";
+    conseil = `Il faudrait gagner environ ${ecartLabel} de VDOT en ${plan.semaines.length} semaines${noteDenivele} — nettement au-delà de ce qu'un plan permet généralement sur ce délai. ${contenuNote} ${
       tempsRealiste
         ? `Avec ta forme actuelle, un temps plus réaliste sur cette distance serait plutôt autour de ${formatDureeCompacte(tempsRealiste)}. `
         : ""
@@ -234,7 +249,13 @@ function renderCoherenceObjectif(plan, coherence, axeTravail, profil, planPerime
           ? `<div class="contour-divider"></div>
              <h3>Ce qui compte le plus à travailler</h3>
              <p><strong>${AXE_LABEL[axeTravail.axe].titre}</strong></p>
-             <p class="muted">${AXE_LABEL[axeTravail.axe].texte}</p>`
+             <p class="muted">${AXE_LABEL[axeTravail.axe].texte}</p>
+             ${
+               axeTravail.axeSecondaire === "denivele"
+                 ? `<p><strong>D+ / technicité</strong></p>
+                    <p class="muted">Pente moyenne attendue d'environ ${Math.round(axeTravail.penteMoyenne * 100)}% — grimper et descendre sollicitent des qualités musculaires spécifiques, distinctes de l'endurance/vitesse pure. Priorité aux côtes (longues et courtes) et à la descente technique.</p>`
+                 : ""
+             }`
           : ""
       }
       ${

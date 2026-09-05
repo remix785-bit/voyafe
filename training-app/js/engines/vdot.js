@@ -188,8 +188,23 @@ export function paceZonesForVdot(vdot) {
 }
 
 /**
- * Évalue si l'objectif visé (distance+temps) est cohérent avec la forme
- * actuelle (VDOT) compte tenu du nombre de semaines d'entraînement
+ * Distance "plat-équivalente" d'un objectif avec D+ (même heuristique que
+ * allurePlatEquivalenteCible, pacing.js : 100 m de D+ ≈ 1 km à plat) —
+ * indispensable pour comparer un objectif trail au modèle VDOT (Daniels,
+ * conçu pour de la course à plat) sans sous-estimer sa difficulté réelle :
+ * courir 20 km avec 1200 m de D+ n'a rien à voir avec 20 km à plat, même à
+ * temps égal. Sans D+ renseigné, reste la distance brute (route).
+ * @param {number} distanceM
+ * @param {number} deniveleM
+ * @returns {number} distance équivalente plat, en mètres
+ */
+export function distanceEquivalentePlateM(distanceM, deniveleM = 0) {
+  return distanceM + (deniveleM / 100) * 1000;
+}
+
+/**
+ * Évalue si l'objectif visé (distance+temps, +D+ en trail) est cohérent avec
+ * la forme actuelle (VDOT) compte tenu du nombre de semaines d'entraînement
  * disponibles — répond au besoin "être certain que le contenu de mes
  * séances me permet de réaliser mon objectif" : le plan peut être bien
  * construit et pourtant viser un temps hors de portée dans le délai donné,
@@ -205,10 +220,14 @@ export function paceZonesForVdot(vdot) {
  * @param {number} distanceObjectifM
  * @param {number} tempsObjectifS
  * @param {number} semainesDisponibles nombre de semaines du plan menant à l'échéance
+ * @param {number} [deniveleM] D+ attendu de la course (trail) — converti en distance
+ *   plat-équivalente avant le calcul de VDOT, sans quoi un objectif trail avec fort D+
+ *   ressortirait comme "déjà atteint" ou "irréaliste" à tort (modèle route par défaut).
  * @returns {{vdotObjectif:number, ecartPct:number, plafondRealistePct:number, niveau:"atteint"|"ambitieux"|"tres_ambitieux"}}
  */
-export function evaluerCoherenceObjectif(vdotActuel, distanceObjectifM, tempsObjectifS, semainesDisponibles) {
-  const { vdot: vdotObjectif } = vdotFromPerformance(distanceObjectifM, tempsObjectifS);
+export function evaluerCoherenceObjectif(vdotActuel, distanceObjectifM, tempsObjectifS, semainesDisponibles, deniveleM = 0) {
+  const distanceEquivalente = distanceEquivalentePlateM(distanceObjectifM, deniveleM);
+  const { vdot: vdotObjectif } = vdotFromPerformance(distanceEquivalente, tempsObjectifS);
   const ecartPct = ((vdotObjectif - vdotActuel) / vdotActuel) * 100;
   const GAIN_HEBDO_PCT = 0.25;
   const PLAFOND_GAIN_PCT = 12; // la progression de VDOT plafonne aussi sur de très longs blocs
@@ -225,23 +244,31 @@ export function evaluerCoherenceObjectif(vdotActuel, distanceObjectifM, tempsObj
  * répond à "ce que je dois améliorer pour atteindre mon objectif", pas
  * seulement "l'objectif est ambitieux". Le VDOT est une mesure composite
  * (vitesse ET endurance) : on ne peut pas décomposer les deux à partir d'un
- * seul point de mesure, mais le RATIO entre la distance objectif et la
- * distance réellement testée est lui-même informatif — c'est exactement la
- * limite documentée du modèle de Riegel (riegelPredict ci-dessus) : fiable
- * sur des extrapolations courtes, optimiste sur de longues extrapolations
- * pour un coureur récréatif (la vitesse pure ne suffit pas à tenir la
- * distance, il faut de la durabilité aérobie spécifiquement construite).
+ * seul point de mesure, mais le RATIO entre la distance objectif (plat-
+ * équivalente, D+ inclus) et la distance réellement testée est lui-même
+ * informatif — c'est exactement la limite documentée du modèle de Riegel
+ * (riegelPredict ci-dessus) : fiable sur des extrapolations courtes,
+ * optimiste sur de longues extrapolations pour un coureur récréatif (la
+ * vitesse pure ne suffit pas à tenir la distance, il faut de la durabilité
+ * aérobie spécifiquement construite). En trail, une pente moyenne marquée
+ * (≥2%) signale en plus un axe D+/technicité à part entière — grimper et
+ * descendre sollicitent des qualités musculaires spécifiques que
+ * l'endurance/vitesse pure ne couvrent pas.
  * @param {number} distanceRefM distance de la performance de référence testée
  * @param {number} distanceObjectifM distance de l'objectif visé
- * @returns {{ratio:number, axe:"vitesse"|"equilibre"|"endurance"}}
+ * @param {number} [deniveleM] D+ attendu de la course (trail)
+ * @returns {{ratio:number, axe:"vitesse"|"equilibre"|"endurance", axeSecondaire:"denivele"|null, penteMoyenne:number}}
  */
-export function identifierAxeTravail(distanceRefM, distanceObjectifM) {
-  const ratio = distanceObjectifM / distanceRefM;
+export function identifierAxeTravail(distanceRefM, distanceObjectifM, deniveleM = 0) {
+  const distanceEquivalente = distanceEquivalentePlateM(distanceObjectifM, deniveleM);
+  const ratio = distanceEquivalente / distanceRefM;
   let axe;
   if (ratio <= 1.5) axe = "vitesse";
   else if (ratio <= 3) axe = "equilibre";
   else axe = "endurance";
-  return { ratio, axe };
+  const penteMoyenne = distanceObjectifM > 0 ? deniveleM / distanceObjectifM : 0;
+  const axeSecondaire = penteMoyenne >= 0.02 ? "denivele" : null;
+  return { ratio, axe, axeSecondaire, penteMoyenne };
 }
 
 /**

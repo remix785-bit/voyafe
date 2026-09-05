@@ -12,6 +12,7 @@ import {
   formatDureeCompacte,
   evaluerCoherenceObjectif,
   identifierAxeTravail,
+  distanceEquivalentePlateM,
 } from "../js/engines/vdot.js";
 import {
   minettiEnergyCost,
@@ -124,6 +125,36 @@ test("identifierAxeTravail — objectif nettement plus long (ex: testé 10K, vis
   const res = identifierAxeTravail(10000, 42195); // ~4.2x
   assert.equal(res.axe, "endurance");
   assert.ok(res.ratio > 4);
+});
+
+test("distanceEquivalentePlateM — 100m de D+ ≈ 1km à plat, sans D+ retombe sur la distance brute", () => {
+  assert.equal(distanceEquivalentePlateM(20000, 0), 20000);
+  assert.equal(distanceEquivalentePlateM(20000, 1200), 20000 + 12000);
+  assert.equal(distanceEquivalentePlateM(20000), 20000, "deniveleM par défaut = 0");
+});
+
+test("evaluerCoherenceObjectif — le D+ (trail) est pris en compte : un objectif ignorant le D+ paraîtrait à tort déjà atteint", () => {
+  const { vdot: vdotActuel } = vdotFromPerformance(10000, 42 * 60);
+  // 20km en 2h : sans D+, cohérent avec la forme actuelle (allure ~6min/km, plus lente que l'allure E).
+  const sansDenivele = evaluerCoherenceObjectif(vdotActuel, 20000, 2 * 3600, 16, 0);
+  assert.equal(sansDenivele.niveau, "atteint");
+  // Même distance/temps, mais 2500m de D+ (trail exigeant) : l'effort réel est
+  // bien plus dur qu'un 20km à plat en 2h — doit ressortir plus ambitieux.
+  const avecDenivele = evaluerCoherenceObjectif(vdotActuel, 20000, 2 * 3600, 16, 2500);
+  assert.ok(avecDenivele.ecartPct > sansDenivele.ecartPct, "le D+ doit alourdir l'écart, jamais l'ignorer");
+  assert.notEqual(avecDenivele.niveau, "atteint", "un tel D+ ne doit plus ressortir comme déjà acquis");
+});
+
+test("identifierAxeTravail — pente moyenne marquée (trail) déclenche l'axe secondaire dénivelé", () => {
+  // 20km avec 2500m de D+ -> pente moyenne 12.5%, largement au-dessus du seuil (2%).
+  const res = identifierAxeTravail(10000, 20000, 2500);
+  assert.equal(res.axeSecondaire, "denivele");
+  assert.ok(Math.abs(res.penteMoyenne - 0.125) < 1e-9);
+});
+
+test("identifierAxeTravail — D+ nul ou faible (route/trail roulant) : pas d'axe secondaire dénivelé", () => {
+  assert.equal(identifierAxeTravail(10000, 20000, 0).axeSecondaire, null);
+  assert.equal(identifierAxeTravail(10000, 20000, 100).axeSecondaire, null); // pente 0.5%, sous le seuil
 });
 
 test("Altitude — effet négligeable sous 1500m, marqué au-delà", () => {

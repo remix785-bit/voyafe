@@ -589,7 +589,7 @@ export function genererPlanComplet(inputs) {
   // affiché ailleurs dans l'appli.
   const coherenceObjectif =
     inputs.distanceObjectifM && inputs.tempsObjectifS
-      ? evaluerCoherenceObjectif(profilCourant.vdot, inputs.distanceObjectifM, inputs.tempsObjectifS, semDispo)
+      ? evaluerCoherenceObjectif(profilCourant.vdot, inputs.distanceObjectifM, inputs.tempsObjectifS, semDispo, inputs.deniveleM ?? 0)
       : null;
   const fractionBlocObjectif = { atteint: 0.12, ambitieux: 0.18, tres_ambitieux: 0.2 }[coherenceObjectif?.niveau] ?? 0;
   // Pente moyenne attendue de la course (trail, D+ / distance) — contexte GAP

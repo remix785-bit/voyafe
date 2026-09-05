@@ -84,6 +84,10 @@ export async function render(container) {
               <input type="text" id="temps-objectif" value="${planExistant?.tempsObjectifS ? secondesVersLabel(planExistant.tempsObjectifS) : ""}" placeholder="ex: 3:30:00" />
             </div>
           </div>
+          <div class="field" id="champ-denivele-objectif" ${planExistant?.discipline === "trail" ? "" : "hidden"}>
+            <label for="denivele-objectif">D+ de la course (m, trail)</label>
+            <input type="number" id="denivele-objectif" min="0" value="${planExistant?.deniveleM ?? ""}" placeholder="ex: 2500" />
+          </div>
           <p class="muted data" id="allure-objectif-preview"></p>
           <p class="muted" id="coherence-objectif-preview"></p>
           <div class="field-row">
@@ -313,12 +317,16 @@ export async function render(container) {
     }
     const distanceM = distanceKm * 1000;
     const tempsS = labelVersSecondes(tempsLabel);
+    const estTrail = container.querySelector("#discipline").value === "trail";
+    const deniveleM = estTrail ? Number(container.querySelector("#denivele-objectif").value) || 0 : 0;
     const allure = calculerAllureObjectif(distanceM, tempsS);
     preview.textContent = allure ? `Allure objectif : ${formatPace(allure)} — utilisée pour les blocs allure course (zone M) du plan.` : "";
 
     // Cohérence objectif/forme — répond à "être certain que le contenu de mes
     // séances me permet de réaliser mon objectif" AVANT même de générer le
-    // plan (même check qu'affiché ensuite sur l'écran Plan).
+    // plan (même check qu'affiché ensuite sur l'écran Plan). En trail, le D+
+    // est converti en distance plat-équivalente (evaluerCoherenceObjectif) :
+    // sans ça, un objectif avec fort D+ ressortirait à tort comme "atteint".
     const { profil: profilActuel } = store.getState();
     const debutVal = container.querySelector("#debut-plan").value;
     const echeanceVal = container.querySelector("#echeance").value;
@@ -331,28 +339,42 @@ export async function render(container) {
       : vdotFromPerformance(profilActuel.performanceRef.distanceM, profilActuel.performanceRef.tempsS).vdot;
     const dateDebut = debutVal ? new Date(debutVal).toISOString() : new Date().toISOString();
     const semDispo = Math.max(semainesDisponibles(new Date(echeanceVal).toISOString(), dateDebut), 0);
-    const coherence = evaluerCoherenceObjectif(vdotActuel, distanceM, tempsS, semDispo);
+    const coherence = evaluerCoherenceObjectif(vdotActuel, distanceM, tempsS, semDispo, deniveleM);
     const ecartLabel = `${coherence.ecartPct >= 0 ? "+" : ""}${coherence.ecartPct.toFixed(1)}%`;
+    const noteDenivele = deniveleM > 0 ? " (D+ pris en compte)" : "";
     let texte;
     if (coherence.niveau === "atteint") {
-      texte = `✓ Objectif déjà à ta portée avec ta forme actuelle.`;
+      texte = `✓ Objectif déjà à ta portée avec ta forme actuelle${noteDenivele}.`;
     } else if (coherence.niveau === "ambitieux") {
-      texte = `Ambitieux mais cohérent avec ${semDispo} semaines de plan (${ecartLabel} de VDOT à gagner).`;
+      texte = `Ambitieux mais cohérent avec ${semDispo} semaines de plan (${ecartLabel} de VDOT à gagner${noteDenivele}).`;
+    } else if (deniveleM > 0) {
+      // Riegel ne modélise pas le D+ — pas de "temps réaliste" chiffré en trail.
+      texte = `Très ambitieux pour ${semDispo} semaines (${ecartLabel} de VDOT nécessaire${noteDenivele}).`;
     } else {
       const tempsRealiste = riegelPredict(profilActuel.performanceRef.tempsS, profilActuel.performanceRef.distanceM, distanceM);
       texte = `Très ambitieux pour ${semDispo} semaines (${ecartLabel} de VDOT nécessaire) — avec ta forme actuelle, plutôt ~${formatDureeCompacte(tempsRealiste)} sur cette distance.`;
     }
     if (coherence.niveau !== "atteint") {
-      const { axe } = identifierAxeTravail(profilActuel.performanceRef.distanceM, distanceM);
+      const { axe, axeSecondaire, penteMoyenne } = identifierAxeTravail(profilActuel.performanceRef.distanceM, distanceM, deniveleM);
       const AXE_COURT = { vitesse: "vitesse pure", equilibre: "vitesse et endurance", endurance: "endurance/tenue de distance" };
-      texte += ` À travailler en priorité : ${AXE_COURT[axe]}.`;
+      texte += ` À travailler en priorité : ${AXE_COURT[axe]}${axeSecondaire === "denivele" ? ` + D+/technicité (pente moy. ~${Math.round(penteMoyenne * 100)}%)` : ""}.`;
     }
     coherencePreview.textContent = texte;
   };
   container.querySelector("#distance-objectif").addEventListener("input", updateAllurePreview);
   container.querySelector("#temps-objectif").addEventListener("input", updateAllurePreview);
+  container.querySelector("#denivele-objectif").addEventListener("input", updateAllurePreview);
   container.querySelector("#debut-plan").addEventListener("input", updateAllurePreview);
   container.querySelector("#echeance").addEventListener("input", updateAllurePreview);
+
+  const updateDeniveleVisibility = () => {
+    container.querySelector("#champ-denivele-objectif").hidden = container.querySelector("#discipline").value !== "trail";
+  };
+  container.querySelector("#discipline").addEventListener("change", () => {
+    updateDeniveleVisibility();
+    updateAllurePreview();
+  });
+  updateDeniveleVisibility();
   updateAllurePreview();
 
   const updateJoursCount = () => {
@@ -385,6 +407,7 @@ export async function render(container) {
     const charge = container.querySelector("#charge").value;
     const volumeHebdoMaxH = Number(container.querySelector("#volume-hebdo-max").value) || null;
     const facteurGapCalibre = Number(container.querySelector("#gap-calibre").value) || 1;
+    const deniveleM = discipline === "trail" ? Number(container.querySelector("#denivele-objectif").value) || null : null;
     const joursEntrainement = Array.from(container.querySelectorAll("[data-jour]:checked")).map((cb) => Number(cb.value));
     if (!echeance) {
       alert("Choisis une date de course.");
@@ -404,6 +427,7 @@ export async function render(container) {
       chargeHebdoMoyenneActuelle: charge,
       distanceObjectifM: distanceKm ? distanceKm * 1000 : null,
       tempsObjectifS: tempsLabel ? labelVersSecondes(tempsLabel) : null,
+      deniveleM,
       volumeHebdoMaxMin: volumeHebdoMaxH ? volumeHebdoMaxH * 60 : null,
       facteurGapCalibre,
     };
