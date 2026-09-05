@@ -1,5 +1,5 @@
 import * as store from "../../store.js";
-import { vdotFromPerformance, paceZonesForVdot, formatPace, riegelPredict, formatDureeCompacte, evaluerCoherenceObjectif } from "../../engines/vdot.js";
+import { vdotFromPerformance, paceZonesForVdot, formatPace, riegelPredict, formatDureeCompacte, evaluerCoherenceObjectif, identifierAxeTravail } from "../../engines/vdot.js";
 import { calculerAllureObjectif, semainesDisponibles } from "../../engines/planGenerator.js";
 import { SegmentedControl, attachSegmentedControl } from "../components.js";
 
@@ -333,14 +333,21 @@ export async function render(container) {
     const semDispo = Math.max(semainesDisponibles(new Date(echeanceVal).toISOString(), dateDebut), 0);
     const coherence = evaluerCoherenceObjectif(vdotActuel, distanceM, tempsS, semDispo);
     const ecartLabel = `${coherence.ecartPct >= 0 ? "+" : ""}${coherence.ecartPct.toFixed(1)}%`;
+    let texte;
     if (coherence.niveau === "atteint") {
-      coherencePreview.textContent = `✓ Objectif déjà à ta portée avec ta forme actuelle.`;
+      texte = `✓ Objectif déjà à ta portée avec ta forme actuelle.`;
     } else if (coherence.niveau === "ambitieux") {
-      coherencePreview.textContent = `Ambitieux mais cohérent avec ${semDispo} semaines de plan (${ecartLabel} de VDOT à gagner).`;
+      texte = `Ambitieux mais cohérent avec ${semDispo} semaines de plan (${ecartLabel} de VDOT à gagner).`;
     } else {
       const tempsRealiste = riegelPredict(profilActuel.performanceRef.tempsS, profilActuel.performanceRef.distanceM, distanceM);
-      coherencePreview.textContent = `Très ambitieux pour ${semDispo} semaines (${ecartLabel} de VDOT nécessaire) — avec ta forme actuelle, plutôt ~${formatDureeCompacte(tempsRealiste)} sur cette distance.`;
+      texte = `Très ambitieux pour ${semDispo} semaines (${ecartLabel} de VDOT nécessaire) — avec ta forme actuelle, plutôt ~${formatDureeCompacte(tempsRealiste)} sur cette distance.`;
     }
+    if (coherence.niveau !== "atteint") {
+      const { axe } = identifierAxeTravail(profilActuel.performanceRef.distanceM, distanceM);
+      const AXE_COURT = { vitesse: "vitesse pure", equilibre: "vitesse et endurance", endurance: "endurance/tenue de distance" };
+      texte += ` À travailler en priorité : ${AXE_COURT[axe]}.`;
+    }
+    coherencePreview.textContent = texte;
   };
   container.querySelector("#distance-objectif").addEventListener("input", updateAllurePreview);
   container.querySelector("#temps-objectif").addEventListener("input", updateAllurePreview);

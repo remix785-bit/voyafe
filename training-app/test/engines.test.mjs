@@ -11,6 +11,7 @@ import {
   parseDureeLabel,
   formatDureeCompacte,
   evaluerCoherenceObjectif,
+  identifierAxeTravail,
 } from "../js/engines/vdot.js";
 import {
   minettiEnergyCost,
@@ -106,6 +107,23 @@ test("evaluerCoherenceObjectif — le plafond réaliste croît avec le nombre de
   const long = evaluerCoherenceObjectif(vdotActuel, 10000, 40 * 60, 40);
   assert.ok(long.plafondRealistePct > court.plafondRealistePct);
   assert.ok(long.plafondRealistePct <= 12, "le plafond doit rester borné même sur un très long plan");
+});
+
+test("identifierAxeTravail — objectif proche/plus court que la distance testée -> axe vitesse", () => {
+  assert.equal(identifierAxeTravail(10000, 10000).axe, "vitesse");
+  assert.equal(identifierAxeTravail(10000, 5000).axe, "vitesse");
+  assert.equal(identifierAxeTravail(10000, 15000).axe, "vitesse"); // ratio 1.5 pile
+});
+
+test("identifierAxeTravail — objectif 2-3x la distance testée -> axe équilibre", () => {
+  const res = identifierAxeTravail(10000, 21097); // ~2.1x
+  assert.equal(res.axe, "equilibre");
+});
+
+test("identifierAxeTravail — objectif nettement plus long (ex: testé 10K, vise marathon) -> axe endurance", () => {
+  const res = identifierAxeTravail(10000, 42195); // ~4.2x
+  assert.equal(res.axe, "endurance");
+  assert.ok(res.ratio > 4);
 });
 
 test("Altitude — effet négligeable sous 1500m, marqué au-delà", () => {

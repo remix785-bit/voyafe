@@ -1,6 +1,6 @@
 import * as store from "../../store.js";
 import { WeekStrip, StatStrip, WeekTable, ZoneLegend } from "../components.js";
-import { formatPace, riegelPredict, formatDureeCompacte, evaluerCoherenceObjectif } from "../../engines/vdot.js";
+import { formatPace, riegelPredict, formatDureeCompacte, evaluerCoherenceObjectif, identifierAxeTravail } from "../../engines/vdot.js";
 import { genererIcs, telechargerIcs } from "../../data/icsExport.js";
 import { Icon } from "../icons.js";
 
@@ -30,6 +30,13 @@ export async function render(container, params) {
     plan.distanceObjectifM && plan.tempsObjectifS
       ? evaluerCoherenceObjectif(vdotActuel, plan.distanceObjectifM, plan.tempsObjectifS, plan.semaines.length)
       : null;
+  // Axe de travail (vitesse/équilibre/endurance) : n'a de sens que si l'objectif
+  // n'est pas déjà à portée — inutile de dire "quoi améliorer" quand rien ne
+  // manque. Nécessite la distance réellement testée (profil), pas seulement le VDOT.
+  const axeTravail =
+    coherence && coherence.niveau !== "atteint" && profil?.performanceRef
+      ? identifierAxeTravail(profil.performanceRef.distanceM, plan.distanceObjectifM)
+      : null;
 
   container.innerHTML = `
     <div class="app-main">
@@ -56,7 +63,7 @@ export async function render(container, params) {
         ${WeekStrip(plan.semaines, semaine.numero)}
       </div>
 
-      ${coherence ? renderCoherenceObjectif(plan, coherence, profil, planPeriment) : ""}
+      ${coherence ? renderCoherenceObjectif(plan, coherence, axeTravail, profil, planPeriment) : ""}
 
       <div class="card">
         <div class="card__header">
@@ -181,7 +188,22 @@ const BADGE_NIVEAU = {
  * ce qu'un bloc de la durée du plan permet généralement de combler
  * (evaluerCoherenceObjectif, hypothèse indicative documentée dans vdot.js).
  */
-function renderCoherenceObjectif(plan, coherence, profil, planPeriment) {
+const AXE_LABEL = {
+  vitesse: {
+    titre: "Vitesse pure (VO2max/seuil)",
+    texte: "Ta distance objectif est proche (ou plus courte) que ta distance testée — l'écart vient surtout de la vitesse pure, pas de la tenue de distance. Priorité aux séances Interval et Seuil.",
+  },
+  equilibre: {
+    titre: "Vitesse et endurance, à parts égales",
+    texte: "Vitesse et capacité à tenir la distance comptent à peu près autant ici — qualité (Seuil/Interval) et spécificité allure objectif sont à travailler ensemble.",
+  },
+  endurance: {
+    titre: "Endurance / capacité à tenir la distance",
+    texte: "Ta distance objectif est nettement plus longue que ta distance testée — les modèles de prédiction ont tendance à être optimistes sur un tel écart. La vitesse ne suffira pas : priorité aux sorties longues et à la spécificité allure objectif.",
+  },
+};
+
+function renderCoherenceObjectif(plan, coherence, axeTravail, profil, planPeriment) {
   const badge = BADGE_NIVEAU[coherence.niveau];
   const ecartLabel = `${coherence.ecartPct >= 0 ? "+" : ""}${coherence.ecartPct.toFixed(1)}%`;
 
@@ -189,11 +211,11 @@ function renderCoherenceObjectif(plan, coherence, profil, planPeriment) {
   if (coherence.niveau === "atteint") {
     conseil = `Ta forme actuelle permettrait déjà de réaliser ce temps — ce plan vise à le sécuriser et à progresser encore d'ici l'échéance.`;
   } else if (coherence.niveau === "ambitieux") {
-    conseil = `Il te faut gagner environ ${ecartLabel} de VDOT d'ici l'échéance — cohérent avec ce que ${plan.semaines.length} semaines de plan bien suivi permettent généralement. Les blocs à l'allure objectif de tes sorties longues sont là pour ça.`;
+    conseil = `Il te faut gagner environ ${ecartLabel} de VDOT d'ici l'échéance — cohérent avec ce que ${plan.semaines.length} semaines de plan bien suivi permettent généralement. Le plan a déjà augmenté en conséquence la part de tes sorties longues courue à l'allure objectif.`;
   } else {
     const perf = profil?.performanceRef;
     const tempsRealiste = perf ? riegelPredict(perf.tempsS, perf.distanceM, plan.distanceObjectifM) : null;
-    conseil = `Il faudrait gagner environ ${ecartLabel} de VDOT en ${plan.semaines.length} semaines — nettement au-delà de ce qu'un plan permet généralement sur ce délai (contenu des séances mis à part). ${
+    conseil = `Il faudrait gagner environ ${ecartLabel} de VDOT en ${plan.semaines.length} semaines — nettement au-delà de ce qu'un plan permet généralement sur ce délai. Le plan a déjà poussé la spécificité allure objectif de tes sorties longues au maximum de ce que permet le catalogue, mais le contenu des séances seul ne suffira pas. ${
       tempsRealiste
         ? `Avec ta forme actuelle, un temps plus réaliste sur cette distance serait plutôt autour de ${formatDureeCompacte(tempsRealiste)}. `
         : ""
@@ -207,6 +229,14 @@ function renderCoherenceObjectif(plan, coherence, profil, planPeriment) {
         <span class="${badge.classe}">${badge.label}</span>
       </div>
       <p class="muted">${conseil}</p>
+      ${
+        axeTravail
+          ? `<div class="contour-divider"></div>
+             <h3>Ce qui compte le plus à travailler</h3>
+             <p><strong>${AXE_LABEL[axeTravail.axe].titre}</strong></p>
+             <p class="muted">${AXE_LABEL[axeTravail.axe].texte}</p>`
+          : ""
+      }
       ${
         planPeriment
           ? `<p class="badge-warning">Le plan utilise encore un VDOT de ${plan.profilCourant.vdot.toFixed(1)} (dernier retest non encore appliqué) — <a href="#/profil">mets à jour le plan</a> pour recalculer allures et cohérence sur ta forme la plus récente.</p>`

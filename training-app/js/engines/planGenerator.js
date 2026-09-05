@@ -1,9 +1,9 @@
 // Générateur de plan — Étapes ①→④, Partie II.
 // ① Normalisation du profil · ② Macrocycle · ③ Microcycle · ④ Instanciation des séances.
 
-import { vdotFromPerformance, paceZonesForVdot } from "./vdot.js";
+import { vdotFromPerformance, paceZonesForVdot, evaluerCoherenceObjectif } from "./vdot.js";
 import { gapFactor, flatEquivalentToRealPace } from "./gap.js";
-import { resoudreStructureDetaillee } from "./structureSeance.js";
+import { resoudreStructureDetaillee, formatDureeCourte } from "./structureSeance.js";
 import { SESSIONS_ROUTE } from "../catalog/sessionsRoute.js";
 import { SESSIONS_TRAIL } from "../catalog/sessionsTrail.js";
 import { renfoPourPhase } from "../catalog/renfo.js";
@@ -365,7 +365,10 @@ export function calculerDistanceSortieLongue(indexNonTaper, totalNonTaper, dista
  *   par l'utilisateur) — remplace, quand fournie, l'allure M déduite de la seule forme actuelle
  *   pour les blocs "spécificité allure course" (zone M, route). Sans objectif renseigné, on
  *   retombe sur l'allure M dérivée du VDOT comme avant.
- * @param {{facteurPhase?:number, distanceSortieLongueKm?:number|null}|null} progressionContext
+ * @param {{facteurPhase?:number, distanceSortieLongueKm?:number|null, fractionBlocObjectif?:number}|null} progressionContext
+ *   fractionBlocObjectif : part de la sortie longue à courir à l'allure objectif — pilotée par
+ *   evaluerCoherenceObjectif (plus l'objectif est ambitieux pour le délai, plus la spécificité
+ *   allure course prend de place dans la séance, jusqu'au plafond du catalogue).
  */
 export function instancierSeance(
   template,
@@ -398,6 +401,7 @@ export function instancierSeance(
   let volumeSeanceMin;
   let distanceKm = null;
   let allureBlocObjectifMinParKm = null;
+  let blocObjectifDureeMin = null;
 
   const estSortieLongueAvecObjectif =
     SORTIE_LONGUE_IDS.includes(template.id) && progressionContext?.distanceSortieLongueKm != null;
@@ -423,6 +427,14 @@ export function instancierSeance(
 
     if (zoneCible === "M" && template.discipline === "route" && objectifPaceMinParKm != null) {
       allureBlocObjectifMinParKm = objectifPaceMinParKm;
+      const fraction = progressionContext?.fractionBlocObjectif ?? 0;
+      if (fraction > 0) {
+        // Plafond du catalogue (route_sortie_longue, Partie I §6.1) : "Portion M
+        // ≤ min(110 min, 29 km)" — jamais dépassé, même pour un objectif jugé
+        // très ambitieux (la spécificité a une limite de sécurité, pas la dose
+        // qui comble un écart de forme).
+        blocObjectifDureeMin = Math.min(volumeSeanceMin * fraction, 110);
+      }
     }
   } else {
     const volumeBaseMin = template.corpsDeSeance.dureeMin
@@ -440,13 +452,24 @@ export function instancierSeance(
     allureCibleMinParKm: allureCible,
     allureRapideMinParKm: allureRapide,
     allureBlocObjectifMinParKm,
+    blocObjectifDureeMin,
     volumeSeanceMin,
     distanceKm,
-    structureDetaillee: resoudreStructureDetaillee(template.corpsDeSeance, volumeSeanceMin, allureCible),
+    structureDetaillee:
+      blocObjectifDureeMin != null
+        ? { ...template.corpsDeSeance, format: formaterBlocObjectif(blocObjectifDureeMin) }
+        : resoudreStructureDetaillee(template.corpsDeSeance, volumeSeanceMin, allureCible),
     protocoleEchauffement: template.protocoleEchauffement ?? false,
     precautions: [template.precautions, gapWarning].filter(Boolean),
     statut: "a_venir",
   };
+}
+
+/** Phrase de prescription pour le bloc "sortie longue + spécificité allure objectif"
+ * (route_sortie_longue) — distincte de formaterStructure() (structureSeance.js) car ce
+ * n'est pas une séance à répétitions : une seule portion continue à l'allure objectif. */
+function formaterBlocObjectif(blocObjectifDureeMin) {
+  return `Majorité en E, dont ${formatDureeCourte(blocObjectifDureeMin)} à l'allure objectif`;
 }
 
 /**
@@ -501,15 +524,25 @@ export function plafonnerVolumeHebdoTotal(seances, volumeHebdoMaxMin) {
   const ratio = volumeHebdoMaxMin / total;
   return seances.map((s) => {
     const volumeSeanceMin = s.volumeSeanceMin * ratio;
+    // Le bloc à l'allure objectif (route_sortie_longue) suit le même ratio que
+    // le volume global de la séance, pour rester dans la même proportion —
+    // sinon un écrêtage sévère pourrait laisser un bloc M plus long que la
+    // séance réduite elle-même.
+    const blocObjectifDureeMin = s.blocObjectifDureeMin != null ? s.blocObjectifDureeMin * ratio : s.blocObjectifDureeMin;
     return {
       ...s,
       volumeSeanceMin,
       distanceKm: s.allureCibleMinParKm ? volumeSeanceMin / s.allureCibleMinParKm : s.distanceKm != null ? s.distanceKm * ratio : null,
+      blocObjectifDureeMin,
       // Même raison qu'au-dessus (appliquerPlafondsHebdo) : re-résoudre la
-      // structure à répétitions sur le volume réduit pour rester cohérent.
-      structureDetaillee: s.structureDetaillee
-        ? resoudreStructureDetaillee(s.structureDetaillee, volumeSeanceMin, s.allureCibleMinParKm)
-        : s.structureDetaillee,
+      // structure à répétitions sur le volume réduit pour rester cohérent ;
+      // le bloc objectif a sa propre phrase, régénérée sur sa nouvelle durée.
+      structureDetaillee:
+        blocObjectifDureeMin != null
+          ? { ...s.structureDetaillee, format: formaterBlocObjectif(blocObjectifDureeMin) }
+          : s.structureDetaillee
+            ? resoudreStructureDetaillee(s.structureDetaillee, volumeSeanceMin, s.allureCibleMinParKm)
+            : s.structureDetaillee,
       avertissementVolumeHebdo: `Volume réduit pour respecter ton volume hebdo maximum disponible (${(volumeHebdoMaxMin / 60).toFixed(1)} h).`,
     };
   });
@@ -549,6 +582,16 @@ export function genererPlanComplet(inputs) {
   const dureeSupplementaireJours = Math.max(0, joursEcartTotal - semDispo * 7);
   const semaines = genererSemaines(macrocycle, dateDebutPlan, dureeSupplementaireJours);
   const objectifPaceMinParKm = calculerAllureObjectif(inputs.distanceObjectifM, inputs.tempsObjectifS);
+  // Cohérence objectif/forme (vdot.js) — pilote la part de la sortie longue
+  // courue à l'allure objectif (fractionBlocObjectif ci-dessous) : un objectif
+  // ambitieux pour le délai donné doit se traduire dans le CONTENU des
+  // séances (plus de spécificité allure course), pas rester un simple constat
+  // affiché ailleurs dans l'appli.
+  const coherenceObjectif =
+    inputs.distanceObjectifM && inputs.tempsObjectifS
+      ? evaluerCoherenceObjectif(profilCourant.vdot, inputs.distanceObjectifM, inputs.tempsObjectifS, semDispo)
+      : null;
+  const fractionBlocObjectif = { atteint: 0.12, ambitieux: 0.18, tres_ambitieux: 0.2 }[coherenceObjectif?.niveau] ?? 0;
   // Pente moyenne attendue de la course (trail, D+ / distance) — contexte GAP
   // pour les séances qualité du plan (côtes, descente technique, sortie D+ :
   // gapAjuste, cf. catalogue trail). Sans D+ renseigné, retombe sur du plat
@@ -580,7 +623,7 @@ export function genererPlanComplet(inputs) {
     // la dernière semaine hors affûtage, juste avant que le volume ne redescende.
     const estRepetitionGenerale = indexNonTaper === semainesNonTaper.length - 1 && semainesNonTaper.length > 0;
 
-    const progressionContext = { facteurPhase, distanceSortieLongueKm };
+    const progressionContext = { facteurPhase, distanceSortieLongueKm, fractionBlocObjectif };
 
     const slots = composerSemaine(
       semaineContexte.phase,

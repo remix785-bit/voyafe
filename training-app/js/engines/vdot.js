@@ -221,6 +221,30 @@ export function evaluerCoherenceObjectif(vdotActuel, distanceObjectifM, tempsObj
 }
 
 /**
+ * Identifie l'axe de travail prioritaire pour combler un écart d'objectif —
+ * répond à "ce que je dois améliorer pour atteindre mon objectif", pas
+ * seulement "l'objectif est ambitieux". Le VDOT est une mesure composite
+ * (vitesse ET endurance) : on ne peut pas décomposer les deux à partir d'un
+ * seul point de mesure, mais le RATIO entre la distance objectif et la
+ * distance réellement testée est lui-même informatif — c'est exactement la
+ * limite documentée du modèle de Riegel (riegelPredict ci-dessus) : fiable
+ * sur des extrapolations courtes, optimiste sur de longues extrapolations
+ * pour un coureur récréatif (la vitesse pure ne suffit pas à tenir la
+ * distance, il faut de la durabilité aérobie spécifiquement construite).
+ * @param {number} distanceRefM distance de la performance de référence testée
+ * @param {number} distanceObjectifM distance de l'objectif visé
+ * @returns {{ratio:number, axe:"vitesse"|"equilibre"|"endurance"}}
+ */
+export function identifierAxeTravail(distanceRefM, distanceObjectifM) {
+  const ratio = distanceObjectifM / distanceRefM;
+  let axe;
+  if (ratio <= 1.5) axe = "vitesse";
+  else if (ratio <= 3) axe = "equilibre";
+  else axe = "endurance";
+  return { ratio, axe };
+}
+
+/**
  * Correction d'altitude — Partie I, Section 3.1.
  * Modèle en deux phases (Peronnet/Thibault/Cousineau 1991 ; Wehrlin/Hallén 2006).
  * @param {number} altitudeM altitude en mètres

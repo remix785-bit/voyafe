@@ -146,6 +146,74 @@ test("genererPlanComplet — l'allure objectif apparaît comme bloc dédié, l'a
   assert.ok(Math.abs(distanceRecalculee - seanceM_avec.distanceKm) < 0.01);
 });
 
+test("genererPlanComplet — le bloc à l'allure objectif de la sortie longue grandit avec l'ambition de l'objectif (evaluerCoherenceObjectif)", () => {
+  const dateDebut = new Date();
+  const dateEcheance = new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000);
+  const inputsCommuns = {
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: dateEcheance.toISOString(),
+    nbSeancesHebdo: 5,
+    distanceObjectifM: 42195,
+  };
+
+  const trouverSortieLongueM = (plan) =>
+    plan.semaines.find((s) => s.phase === "developpement").seances.find((s) => s.templateId === "route_sortie_longue");
+
+  const atteint = genererPlanComplet({ ...inputsCommuns, tempsObjectifS: 3.5 * 3600 }); // vérifié: niveau "atteint"
+  const ambitieux = genererPlanComplet({ ...inputsCommuns, tempsObjectifS: 190 * 60 }); // vérifié: niveau "ambitieux"
+  const tresAmbitieux = genererPlanComplet({ ...inputsCommuns, tempsObjectifS: 186 * 60 }); // vérifié: niveau "tres_ambitieux"
+
+  const sAtteint = trouverSortieLongueM(atteint);
+  const sAmbitieux = trouverSortieLongueM(ambitieux);
+  const sTresAmbitieux = trouverSortieLongueM(tresAmbitieux);
+
+  const fraction = (s) => s.blocObjectifDureeMin / s.volumeSeanceMin;
+  assert.ok(Math.abs(fraction(sAtteint) - 0.12) < 0.005);
+  assert.ok(Math.abs(fraction(sAmbitieux) - 0.18) < 0.005);
+  assert.ok(Math.abs(fraction(sTresAmbitieux) - 0.2) < 0.005);
+
+  // Le contenu de la séance grandit avec l'ambition, pas seulement un badge affiché ailleurs.
+  assert.ok(sAtteint.blocObjectifDureeMin < sAmbitieux.blocObjectifDureeMin);
+  assert.ok(sAmbitieux.blocObjectifDureeMin < sTresAmbitieux.blocObjectifDureeMin);
+
+  for (const s of [sAtteint, sAmbitieux, sTresAmbitieux]) {
+    assert.ok(s.blocObjectifDureeMin <= 110, "jamais au-delà du plafond de sécurité du catalogue");
+    assert.match(s.structureDetaillee.format, /à l'allure objectif/);
+  }
+});
+
+test("genererPlanComplet — sans distance+temps objectif, aucun bloc à l'allure objectif quantifié (comportement antérieur préservé)", () => {
+  const dateDebut = new Date();
+  const plan = genererPlanComplet({
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000).toISOString(),
+    nbSeancesHebdo: 5,
+  });
+  const sortieLongue = plan.semaines.find((s) => s.phase === "developpement").seances.find((s) => s.templateId === "route_sortie_longue");
+  assert.equal(sortieLongue.blocObjectifDureeMin, null);
+});
+
+test("plafonnerVolumeHebdoTotal — le bloc à l'allure objectif est réduit dans la même proportion que le volume de la séance", () => {
+  const seances = [
+    {
+      zoneDaniels: "M",
+      volumeSeanceMin: 120,
+      allureCibleMinParKm: 5,
+      distanceKm: 24,
+      blocObjectifDureeMin: 20,
+      structureDetaillee: { format: "Majorité en E, dont 20 min à l'allure objectif" },
+    },
+  ];
+  const [out] = plafonnerVolumeHebdoTotal(seances, 60); // ratio 0.5
+  assert.equal(out.volumeSeanceMin, 60);
+  assert.equal(out.blocObjectifDureeMin, 10);
+  assert.match(out.structureDetaillee.format, /10 min à l'allure objectif/);
+});
+
 test("composerSemaine — le fractionné (T+I ou T+R) prime toujours sur le footing récupération quand la place manque", () => {
   const semaineDev4 = composerSemaine("developpement", "route", 4, 2); // paire -> T + I, 4 séances dispo
   const ids4 = semaineDev4.map((s) => s.catalogueId);
