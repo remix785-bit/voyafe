@@ -10,6 +10,7 @@ import {
   parsePaceLabel,
   parseDureeLabel,
   formatDureeCompacte,
+  evaluerCoherenceObjectif,
 } from "../js/engines/vdot.js";
 import {
   minettiEnergyCost,
@@ -72,6 +73,39 @@ test("Riegel — prédiction semi à partir d'un 10K cohérente avec (D2/D1)^1.0
   const attendu = (21097.5 / 10000) ** 1.06;
   assert.ok(Math.abs(ratio - attendu) < 1e-9);
   assert.ok(ratio > 2.15 && ratio < 2.25, `ratio inattendu: ${ratio}`);
+});
+
+test("evaluerCoherenceObjectif — objectif déjà couvert par le VDOT actuel -> niveau 'atteint'", () => {
+  const { vdot: vdotActuel } = vdotFromPerformance(10000, 40 * 60);
+  // Objectif 10K en 42:00, plus lent que la forme actuelle -> déjà à portée.
+  const res = evaluerCoherenceObjectif(vdotActuel, 10000, 42 * 60, 12);
+  assert.equal(res.niveau, "atteint");
+  assert.ok(res.ecartPct <= 0);
+});
+
+test("evaluerCoherenceObjectif — écart modéré sur un plan assez long -> 'ambitieux' (dans le plafond réaliste)", () => {
+  const { vdot: vdotActuel } = vdotFromPerformance(10000, 42 * 60);
+  const { vdot: vdotObjectifAttendu } = vdotFromPerformance(10000, 40 * 60); // ~5.9% de VDOT en plus
+  const ecartAttendu = ((vdotObjectifAttendu - vdotActuel) / vdotActuel) * 100;
+  assert.ok(ecartAttendu > 5 && ecartAttendu < 7, `écart de test hors bornes utiles: ${ecartAttendu}`);
+  const res = evaluerCoherenceObjectif(vdotActuel, 10000, 40 * 60, 30); // 30 semaines -> plafond 7.5%, > écart
+  assert.equal(res.niveau, "ambitieux");
+  assert.ok(Math.abs(res.ecartPct - ecartAttendu) < 0.01);
+});
+
+test("evaluerCoherenceObjectif — grand écart sur un plan court -> 'tres_ambitieux'", () => {
+  const { vdot: vdotActuel } = vdotFromPerformance(10000, 50 * 60);
+  const res = evaluerCoherenceObjectif(vdotActuel, 10000, 35 * 60, 6); // objectif très ambitieux, 6 semaines seulement
+  assert.equal(res.niveau, "tres_ambitieux");
+  assert.ok(res.ecartPct > res.plafondRealistePct);
+});
+
+test("evaluerCoherenceObjectif — le plafond réaliste croît avec le nombre de semaines disponibles, mais reste borné", () => {
+  const vdotActuel = 50;
+  const court = evaluerCoherenceObjectif(vdotActuel, 10000, 40 * 60, 4);
+  const long = evaluerCoherenceObjectif(vdotActuel, 10000, 40 * 60, 40);
+  assert.ok(long.plafondRealistePct > court.plafondRealistePct);
+  assert.ok(long.plafondRealistePct <= 12, "le plafond doit rester borné même sur un très long plan");
 });
 
 test("Altitude — effet négligeable sous 1500m, marqué au-delà", () => {

@@ -1,6 +1,6 @@
 import * as store from "../../store.js";
-import { vdotFromPerformance, paceZonesForVdot, formatPace } from "../../engines/vdot.js";
-import { calculerAllureObjectif } from "../../engines/planGenerator.js";
+import { vdotFromPerformance, paceZonesForVdot, formatPace, riegelPredict, formatDureeCompacte, evaluerCoherenceObjectif } from "../../engines/vdot.js";
+import { calculerAllureObjectif, semainesDisponibles } from "../../engines/planGenerator.js";
 import { SegmentedControl, attachSegmentedControl } from "../components.js";
 
 export async function render(container) {
@@ -85,6 +85,7 @@ export async function render(container) {
             </div>
           </div>
           <p class="muted data" id="allure-objectif-preview"></p>
+          <p class="muted" id="coherence-objectif-preview"></p>
           <div class="field-row">
             <div class="field">
               <label for="debut-plan">Date de début du plan</label>
@@ -304,16 +305,47 @@ export async function render(container) {
     const distanceKm = Number(container.querySelector("#distance-objectif").value);
     const tempsLabel = container.querySelector("#temps-objectif").value.trim();
     const preview = container.querySelector("#allure-objectif-preview");
+    const coherencePreview = container.querySelector("#coherence-objectif-preview");
     if (!distanceKm || !tempsLabel) {
       preview.textContent = "";
+      coherencePreview.textContent = "";
       return;
     }
+    const distanceM = distanceKm * 1000;
     const tempsS = labelVersSecondes(tempsLabel);
-    const allure = calculerAllureObjectif(distanceKm * 1000, tempsS);
+    const allure = calculerAllureObjectif(distanceM, tempsS);
     preview.textContent = allure ? `Allure objectif : ${formatPace(allure)} — utilisée pour les blocs allure course (zone M) du plan.` : "";
+
+    // Cohérence objectif/forme — répond à "être certain que le contenu de mes
+    // séances me permet de réaliser mon objectif" AVANT même de générer le
+    // plan (même check qu'affiché ensuite sur l'écran Plan).
+    const { profil: profilActuel } = store.getState();
+    const debutVal = container.querySelector("#debut-plan").value;
+    const echeanceVal = container.querySelector("#echeance").value;
+    if (!profilActuel || !echeanceVal) {
+      coherencePreview.textContent = "";
+      return;
+    }
+    const vdotActuel = profilActuel.historiqueVdot?.length
+      ? profilActuel.historiqueVdot[profilActuel.historiqueVdot.length - 1].vdot
+      : vdotFromPerformance(profilActuel.performanceRef.distanceM, profilActuel.performanceRef.tempsS).vdot;
+    const dateDebut = debutVal ? new Date(debutVal).toISOString() : new Date().toISOString();
+    const semDispo = Math.max(semainesDisponibles(new Date(echeanceVal).toISOString(), dateDebut), 0);
+    const coherence = evaluerCoherenceObjectif(vdotActuel, distanceM, tempsS, semDispo);
+    const ecartLabel = `${coherence.ecartPct >= 0 ? "+" : ""}${coherence.ecartPct.toFixed(1)}%`;
+    if (coherence.niveau === "atteint") {
+      coherencePreview.textContent = `✓ Objectif déjà à ta portée avec ta forme actuelle.`;
+    } else if (coherence.niveau === "ambitieux") {
+      coherencePreview.textContent = `Ambitieux mais cohérent avec ${semDispo} semaines de plan (${ecartLabel} de VDOT à gagner).`;
+    } else {
+      const tempsRealiste = riegelPredict(profilActuel.performanceRef.tempsS, profilActuel.performanceRef.distanceM, distanceM);
+      coherencePreview.textContent = `Très ambitieux pour ${semDispo} semaines (${ecartLabel} de VDOT nécessaire) — avec ta forme actuelle, plutôt ~${formatDureeCompacte(tempsRealiste)} sur cette distance.`;
+    }
   };
   container.querySelector("#distance-objectif").addEventListener("input", updateAllurePreview);
   container.querySelector("#temps-objectif").addEventListener("input", updateAllurePreview);
+  container.querySelector("#debut-plan").addEventListener("input", updateAllurePreview);
+  container.querySelector("#echeance").addEventListener("input", updateAllurePreview);
   updateAllurePreview();
 
   const updateJoursCount = () => {

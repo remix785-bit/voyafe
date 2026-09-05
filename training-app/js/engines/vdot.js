@@ -188,6 +188,39 @@ export function paceZonesForVdot(vdot) {
 }
 
 /**
+ * Évalue si l'objectif visé (distance+temps) est cohérent avec la forme
+ * actuelle (VDOT) compte tenu du nombre de semaines d'entraînement
+ * disponibles — répond au besoin "être certain que le contenu de mes
+ * séances me permet de réaliser mon objectif" : le plan peut être bien
+ * construit et pourtant viser un temps hors de portée dans le délai donné,
+ * sans qu'aucun signal ne le dise ailleurs dans l'appli.
+ *
+ * Hypothèse indicative (point ouvert, non tirée d'une source unique) : un
+ * gain de VDOT d'environ 0.25%/semaine d'entraînement structuré est un
+ * ordre de grandeur raisonnable pour un coureur récréatif à intermédiaire
+ * sur un bloc de plusieurs mois — un coureur déjà très entraîné progresse
+ * nettement moins vite, à l'inverse un débutant peut progresser plus vite.
+ * Sert de repère, pas d'une prédiction individualisée garantie.
+ * @param {number} vdotActuel
+ * @param {number} distanceObjectifM
+ * @param {number} tempsObjectifS
+ * @param {number} semainesDisponibles nombre de semaines du plan menant à l'échéance
+ * @returns {{vdotObjectif:number, ecartPct:number, plafondRealistePct:number, niveau:"atteint"|"ambitieux"|"tres_ambitieux"}}
+ */
+export function evaluerCoherenceObjectif(vdotActuel, distanceObjectifM, tempsObjectifS, semainesDisponibles) {
+  const { vdot: vdotObjectif } = vdotFromPerformance(distanceObjectifM, tempsObjectifS);
+  const ecartPct = ((vdotObjectif - vdotActuel) / vdotActuel) * 100;
+  const GAIN_HEBDO_PCT = 0.25;
+  const PLAFOND_GAIN_PCT = 12; // la progression de VDOT plafonne aussi sur de très longs blocs
+  const plafondRealistePct = Math.min(Math.max(semainesDisponibles, 0) * GAIN_HEBDO_PCT, PLAFOND_GAIN_PCT);
+  let niveau;
+  if (ecartPct <= 0) niveau = "atteint";
+  else if (ecartPct <= plafondRealistePct) niveau = "ambitieux";
+  else niveau = "tres_ambitieux";
+  return { vdotObjectif, ecartPct, plafondRealistePct, niveau };
+}
+
+/**
  * Correction d'altitude — Partie I, Section 3.1.
  * Modèle en deux phases (Peronnet/Thibault/Cousineau 1991 ; Wehrlin/Hallén 2006).
  * @param {number} altitudeM altitude en mètres

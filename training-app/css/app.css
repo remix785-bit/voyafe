@@ -1075,6 +1075,24 @@ a.card:hover {
   padding: 2px 10px;
 }
 
+.badge-success {
+  display: inline-block;
+  font-size: 0.75rem;
+  color: var(--color-success);
+  border: 1px solid var(--color-success);
+  border-radius: var(--radius-pill);
+  padding: 2px 10px;
+}
+
+.badge-danger {
+  display: inline-block;
+  font-size: 0.75rem;
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-pill);
+  padding: 2px 10px;
+}
+
 .proposal-card {
   border-left: 3px solid var(--color-functional-strong);
 }

@@ -1,6 +1,6 @@
 import * as store from "../../store.js";
 import { WeekStrip, StatStrip, WeekTable, ZoneLegend } from "../components.js";
-import { formatPace } from "../../engines/vdot.js";
+import { formatPace, riegelPredict, formatDureeCompacte, evaluerCoherenceObjectif } from "../../engines/vdot.js";
 import { genererIcs, telechargerIcs } from "../../data/icsExport.js";
 import { Icon } from "../icons.js";
 
@@ -18,6 +18,18 @@ export async function render(container, params) {
   const idx = plan.semaines.indexOf(semaine);
   const stats = statsSemaine(semaine);
   const blocsSaison = plan.saisonId ? store.blocsSaison(plan.saisonId) : null;
+
+  // VDOT réel le plus récent (dernier retest, même non encore appliqué au plan)
+  // — même définition que dashboard.js, pour rester cohérent d'un écran à l'autre.
+  const { profil } = store.getState();
+  const vdotActuel = profil?.historiqueVdot?.length
+    ? profil.historiqueVdot[profil.historiqueVdot.length - 1].vdot
+    : plan.profilCourant.vdot;
+  const planPeriment = Math.abs(vdotActuel - plan.profilCourant.vdot) >= 0.1;
+  const coherence =
+    plan.distanceObjectifM && plan.tempsObjectifS
+      ? evaluerCoherenceObjectif(vdotActuel, plan.distanceObjectifM, plan.tempsObjectifS, plan.semaines.length)
+      : null;
 
   container.innerHTML = `
     <div class="app-main">
@@ -43,6 +55,8 @@ export async function render(container, params) {
         ${plan.deniveleM ? `<p class="muted">D+ <span class="data">${Math.round(plan.deniveleM)} m</span></p>` : ""}
         ${WeekStrip(plan.semaines, semaine.numero)}
       </div>
+
+      ${coherence ? renderCoherenceObjectif(plan, coherence, profil, planPeriment) : ""}
 
       <div class="card">
         <div class="card__header">
@@ -150,6 +164,54 @@ function renderJourJ(plan) {
         </div>
       </div>
       <span class="data" style="font-size:1.1rem;">${compteRebours}</span>
+    </div>`;
+}
+
+const BADGE_NIVEAU = {
+  atteint: { classe: "badge-success", label: "Objectif à ta portée" },
+  ambitieux: { classe: "badge-warning", label: "Objectif ambitieux" },
+  tres_ambitieux: { classe: "badge-danger", label: "Objectif très ambitieux" },
+};
+
+/**
+ * "Cohérence de l'objectif" — répond au besoin explicite d'être certain que
+ * le contenu des séances peut effectivement mener à l'objectif (distance +
+ * temps visé), pas seulement que le plan est bien structuré. Compare le VDOT
+ * qu'exigerait l'objectif au VDOT réel le plus récent, resitué par rapport à
+ * ce qu'un bloc de la durée du plan permet généralement de combler
+ * (evaluerCoherenceObjectif, hypothèse indicative documentée dans vdot.js).
+ */
+function renderCoherenceObjectif(plan, coherence, profil, planPeriment) {
+  const badge = BADGE_NIVEAU[coherence.niveau];
+  const ecartLabel = `${coherence.ecartPct >= 0 ? "+" : ""}${coherence.ecartPct.toFixed(1)}%`;
+
+  let conseil = "";
+  if (coherence.niveau === "atteint") {
+    conseil = `Ta forme actuelle permettrait déjà de réaliser ce temps — ce plan vise à le sécuriser et à progresser encore d'ici l'échéance.`;
+  } else if (coherence.niveau === "ambitieux") {
+    conseil = `Il te faut gagner environ ${ecartLabel} de VDOT d'ici l'échéance — cohérent avec ce que ${plan.semaines.length} semaines de plan bien suivi permettent généralement. Les blocs à l'allure objectif de tes sorties longues sont là pour ça.`;
+  } else {
+    const perf = profil?.performanceRef;
+    const tempsRealiste = perf ? riegelPredict(perf.tempsS, perf.distanceM, plan.distanceObjectifM) : null;
+    conseil = `Il faudrait gagner environ ${ecartLabel} de VDOT en ${plan.semaines.length} semaines — nettement au-delà de ce qu'un plan permet généralement sur ce délai (contenu des séances mis à part). ${
+      tempsRealiste
+        ? `Avec ta forme actuelle, un temps plus réaliste sur cette distance serait plutôt autour de ${formatDureeCompacte(tempsRealiste)}. `
+        : ""
+    }Envisage d'allonger le délai, d'augmenter le volume/les jours d'entraînement, ou de revoir l'objectif — <a href="#/profil">ajuster dans Profil</a>.`;
+  }
+
+  return `
+    <div class="card">
+      <div class="card__header">
+        <h2>Cohérence de l'objectif</h2>
+        <span class="${badge.classe}">${badge.label}</span>
+      </div>
+      <p class="muted">${conseil}</p>
+      ${
+        planPeriment
+          ? `<p class="badge-warning">Le plan utilise encore un VDOT de ${plan.profilCourant.vdot.toFixed(1)} (dernier retest non encore appliqué) — <a href="#/profil">mets à jour le plan</a> pour recalculer allures et cohérence sur ta forme la plus récente.</p>`
+          : ""
+      }
     </div>`;
 }
 
