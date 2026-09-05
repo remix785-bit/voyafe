@@ -184,6 +184,78 @@ test("genererPlanComplet — le bloc à l'allure objectif de la sortie longue gr
   }
 });
 
+test("genererPlanComplet — le volume des séances de spécificité trail (côtes, descente technique) grandit avec l'ambition de l'objectif", () => {
+  const dateDebut = new Date();
+  const dateEcheance = new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000);
+  const inputsCommuns = {
+    discipline: "trail",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: dateEcheance.toISOString(),
+    nbSeancesHebdo: 5,
+    distanceObjectifM: 42195, // mêmes valeurs que le test route — même mécanique de niveau, discipline indifférente
+  };
+
+  const trouverCotesLongues = (plan) =>
+    plan.semaines.find((s) => s.phase === "developpement").seances.find((s) => s.templateId === "trail_cotes_longues");
+
+  const atteint = genererPlanComplet({ ...inputsCommuns, tempsObjectifS: 3.5 * 3600 }); // vérifié: niveau "atteint"
+  const ambitieux = genererPlanComplet({ ...inputsCommuns, tempsObjectifS: 190 * 60 }); // vérifié: niveau "ambitieux"
+  const tresAmbitieux = genererPlanComplet({ ...inputsCommuns, tempsObjectifS: 186 * 60 }); // vérifié: niveau "tres_ambitieux"
+
+  const sAtteint = trouverCotesLongues(atteint);
+  const sAmbitieux = trouverCotesLongues(ambitieux);
+  const sTresAmbitieux = trouverCotesLongues(tresAmbitieux);
+  assert.ok(sAtteint && sAmbitieux && sTresAmbitieux);
+
+  // Même facteurPhase (même position dans le plan) -> le seul écart vient du boost d'ambition.
+  assert.ok(Math.abs(sAmbitieux.volumeSeanceMin / sAtteint.volumeSeanceMin - 1.15) < 0.01);
+  assert.ok(Math.abs(sTresAmbitieux.volumeSeanceMin / sAtteint.volumeSeanceMin - 1.3) < 0.01);
+  assert.ok(sAtteint.volumeSeanceMin < sAmbitieux.volumeSeanceMin);
+  assert.ok(sAmbitieux.volumeSeanceMin < sTresAmbitieux.volumeSeanceMin);
+});
+
+test("instancierSeance — boostSpecificiteTrail s'applique uniquement aux séances TRAIL_SPECIFICITE_IDS (côtes, descente technique)", () => {
+  const profilCourant = { allures: { T: { target: 4.2, fast: 4.0 }, E: { target: 5.2, fast: 5.0 } }, facteurGapCalibre: 1 };
+  const semaineContexte = { numero: 3, phase: "developpement", statut: "normale" };
+
+  const cotesLongues = {
+    id: "trail_cotes_longues",
+    zoneDaniels: "T",
+    discipline: "trail",
+    gapAjuste: true,
+    corpsDeSeance: { type: "repetitions", repDureeMinRange: [6, 10], nbRepsRange: [3, 5], ratioEffortRecup: "5:1" },
+  };
+  const sansBoost = instancierSeance(cotesLongues, profilCourant, semaineContexte, {}, null, { facteurPhase: 1 });
+  const avecBoost = instancierSeance(cotesLongues, profilCourant, semaineContexte, {}, null, { facteurPhase: 1, boostSpecificiteTrail: 1.3 });
+  assert.ok(Math.abs(avecBoost.volumeSeanceMin / sansBoost.volumeSeanceMin - 1.3) < 0.01);
+
+  // Un template trail hors TRAIL_SPECIFICITE_IDS (ex: sortie D+ progressif, sans
+  // rampe distance ici) n'est pas affecté par le boost — mécanique distincte
+  // de fractionBlocObjectif (route) / boostSpecificiteTrail (côtes/descente).
+  const sortieDplus = { id: "trail_sortie_dplus_progressif", zoneDaniels: "E", discipline: "trail", corpsDeSeance: {} };
+  const sansBoostAutre = instancierSeance(sortieDplus, profilCourant, semaineContexte, {}, null, { facteurPhase: 1 });
+  const avecBoostAutre = instancierSeance(sortieDplus, profilCourant, semaineContexte, {}, null, { facteurPhase: 1, boostSpecificiteTrail: 1.3 });
+  assert.equal(sansBoostAutre.volumeSeanceMin, avecBoostAutre.volumeSeanceMin);
+});
+
+test("genererPlanComplet — le boost de spécificité trail ne s'applique pas aux séances route (discipline route inchangée)", () => {
+  const dateDebut = new Date();
+  const dateEcheance = new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000);
+  const plan = genererPlanComplet({
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: dateEcheance.toISOString(),
+    nbSeancesHebdo: 5,
+    distanceObjectifM: 42195,
+    tempsObjectifS: 186 * 60, // "tres_ambitieux" -> boostSpecificiteTrail resterait 1x pour route de toute façon
+  });
+  const seuil = plan.semaines.find((s) => s.phase === "developpement").seances.find((s) => s.templateId === "route_seuil");
+  // Volume attendu sans boost : uniquement facteurPhase (0.75-1.15x) sur les 30 min par défaut.
+  assert.ok(seuil.volumeSeanceMin <= 30 * 1.15 + 0.01);
+});
+
 test("genererPlanComplet — sans distance+temps objectif, aucun bloc à l'allure objectif quantifié (comportement antérieur préservé)", () => {
   const dateDebut = new Date();
   const plan = genererPlanComplet({

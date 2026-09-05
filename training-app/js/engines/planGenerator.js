@@ -332,6 +332,14 @@ export function calculerFacteurProgression(indexDansPhase, totalDansPhase) {
 const SORTIE_LONGUE_IDS = ["route_sortie_longue", "trail_sortie_dplus_progressif", "trail_sortie_longue_specifique"];
 
 /**
+ * Séances trail dédiées à la spécificité D+ (côtes, descente technique) —
+ * équivalent trail du bloc à l'allure objectif de la sortie longue route
+ * (fractionBlocObjectif) : leur volume grandit avec l'ambition de l'objectif
+ * plutôt que de rester fixe quelle que soit la difficulté à combler.
+ */
+const TRAIL_SPECIFICITE_IDS = ["trail_cotes_longues", "trail_cotes_courtes", "trail_descente_technique"];
+
+/**
  * Calcule la distance cible (km) de la sortie longue de la semaine, en
  * rampe progressive vers un pic proche de l'objectif de course, puis
  * affûtage (Partie II §7 / demande explicite : adapter le plan à la
@@ -365,10 +373,12 @@ export function calculerDistanceSortieLongue(indexNonTaper, totalNonTaper, dista
  *   par l'utilisateur) — remplace, quand fournie, l'allure M déduite de la seule forme actuelle
  *   pour les blocs "spécificité allure course" (zone M, route). Sans objectif renseigné, on
  *   retombe sur l'allure M dérivée du VDOT comme avant.
- * @param {{facteurPhase?:number, distanceSortieLongueKm?:number|null, fractionBlocObjectif?:number}|null} progressionContext
+ * @param {{facteurPhase?:number, distanceSortieLongueKm?:number|null, fractionBlocObjectif?:number, boostSpecificiteTrail?:number}|null} progressionContext
  *   fractionBlocObjectif : part de la sortie longue à courir à l'allure objectif — pilotée par
  *   evaluerCoherenceObjectif (plus l'objectif est ambitieux pour le délai, plus la spécificité
  *   allure course prend de place dans la séance, jusqu'au plafond du catalogue).
+ *   boostSpecificiteTrail : multiplicateur de volume pour les séances de spécificité D+ trail
+ *   (TRAIL_SPECIFICITE_IDS — côtes, descente technique), même logique côté trail.
  */
 export function instancierSeance(
   template,
@@ -441,6 +451,9 @@ export function instancierSeance(
       ? (template.corpsDeSeance.dureeMin[0] + template.corpsDeSeance.dureeMin[1]) / 2
       : 30;
     volumeSeanceMin = calculerVolumeSeance(volumeBaseMin, semaineContexte, progressionContext);
+    if (TRAIL_SPECIFICITE_IDS.includes(template.id)) {
+      volumeSeanceMin *= progressionContext?.boostSpecificiteTrail ?? 1;
+    }
     distanceKm = allureCible ? volumeSeanceMin / allureCible : null;
   }
 
@@ -592,6 +605,12 @@ export function genererPlanComplet(inputs) {
       ? evaluerCoherenceObjectif(profilCourant.vdot, inputs.distanceObjectifM, inputs.tempsObjectifS, semDispo, inputs.deniveleM ?? 0)
       : null;
   const fractionBlocObjectif = { atteint: 0.12, ambitieux: 0.18, tres_ambitieux: 0.2 }[coherenceObjectif?.niveau] ?? 0;
+  // Équivalent trail de fractionBlocObjectif : le volume des séances de
+  // spécificité D+ (côtes, descente technique — TRAIL_SPECIFICITE_IDS) grandit
+  // avec l'ambition de l'objectif, plutôt que de rester fixe quelle que soit
+  // la difficulté à combler. Sans objectif chiffré, pas de boost (1x = inchangé).
+  const boostSpecificiteTrail =
+    inputs.discipline === "trail" ? { atteint: 1, ambitieux: 1.15, tres_ambitieux: 1.3 }[coherenceObjectif?.niveau] ?? 1 : 1;
   // Pente moyenne attendue de la course (trail, D+ / distance) — contexte GAP
   // pour les séances qualité du plan (côtes, descente technique, sortie D+ :
   // gapAjuste, cf. catalogue trail). Sans D+ renseigné, retombe sur du plat
@@ -623,7 +642,7 @@ export function genererPlanComplet(inputs) {
     // la dernière semaine hors affûtage, juste avant que le volume ne redescende.
     const estRepetitionGenerale = indexNonTaper === semainesNonTaper.length - 1 && semainesNonTaper.length > 0;
 
-    const progressionContext = { facteurPhase, distanceSortieLongueKm, fractionBlocObjectif };
+    const progressionContext = { facteurPhase, distanceSortieLongueKm, fractionBlocObjectif, boostSpecificiteTrail };
 
     const slots = composerSemaine(
       semaineContexte.phase,

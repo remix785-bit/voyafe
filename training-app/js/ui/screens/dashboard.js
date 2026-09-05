@@ -18,7 +18,7 @@ import {
   ProgressBar,
   attachChartInteractions,
 } from "../components.js";
-import { formatPace, formatDureeCompacte, riegelPredict, ZONES } from "../../engines/vdot.js";
+import { formatPace, formatDureeCompacte, riegelPredictAjuste, ZONES } from "../../engines/vdot.js";
 import { statsPerformance, barresDistanceHebdo, barresDistanceMensuelle, barresDPlusMensuel, variationPct } from "../../engines/performance.js";
 import { ewmaAcwr } from "../../engines/load.js";
 
@@ -386,7 +386,7 @@ function predireTempsAutresDistances(performanceRef) {
   ];
   return distances.map((d) => ({
     label: d.label,
-    tempsS: riegelPredict(performanceRef.tempsS, performanceRef.distanceM, d.m),
+    tempsS: riegelPredictAjuste(performanceRef.tempsS, performanceRef.distanceM, d.m),
   }));
 }
 

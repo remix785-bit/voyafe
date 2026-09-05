@@ -1,11 +1,22 @@
 import * as store from "../../store.js";
-import { vdotFromPerformance, paceZonesForVdot, formatPace, riegelPredict, formatDureeCompacte, evaluerCoherenceObjectif, identifierAxeTravail } from "../../engines/vdot.js";
+import { vdotFromPerformance, paceZonesForVdot, formatPace, riegelPredictAjuste, formatDureeCompacte, evaluerCoherenceObjectif, identifierAxeTravail } from "../../engines/vdot.js";
 import { calculerAllureObjectif, semainesDisponibles } from "../../engines/planGenerator.js";
 import { SegmentedControl, attachSegmentedControl } from "../components.js";
 
 export async function render(container) {
   const { profil } = store.getState();
   const planExistant = store.planActif() ?? store.getState().plans[store.getState().plans.length - 1] ?? null;
+
+  // Saison existante à éditer : celle du plan actif si elle en fait partie,
+  // sinon la plus récemment créée — même logique de repli que planExistant.
+  const planAvecSaison =
+    store.getState().plans.find((p) => p.saisonId && p.statut === "actif") ??
+    [...store.getState().plans].filter((p) => p.saisonId).sort((a, b) => new Date(b.creeLe) - new Date(a.creeLe))[0] ??
+    null;
+  const saisonId = planAvecSaison?.saisonId ?? null;
+  const blocsSaisonExistante = saisonId ? store.blocsSaison(saisonId) : [];
+  const blocFinalExistant = blocsSaisonExistante.find((b) => b.roleSaison === "finale") ?? null;
+  const blocsIntermediairesExistants = blocsSaisonExistante.filter((b) => b.roleSaison === "intermediaire");
 
   container.innerHTML = `
     <div class="app-main">
@@ -129,49 +140,50 @@ export async function render(container) {
 
         <div class="screen-segment" data-segment-panel="saison" style="margin-top:16px;">
           <p class="muted">Structure ta saison quasi sur l'année : un objectif final (ta course cible) et, si besoin, des objectifs intermédiaires (courses d'étape) — chacun reçoit son propre bloc de plan, affûté à sa mesure, chaîné du début de saison jusqu'à l'objectif final pour que les courses intermédiaires servent la progression plutôt que de la casser.</p>
+          ${blocFinalExistant ? `<p class="muted">Modifie n'importe quel champ puis mets à jour — les séances déjà réalisées/manquées restent enregistrées, bloc par bloc.</p>` : ""}
           <form id="form-saison">
             <div class="field">
               <label for="s-gap-calibre">Calibration GAP (trail, optionnel)</label>
-              <input type="number" id="s-gap-calibre" step="0.05" min="0.5" max="2" value="1" />
+              <input type="number" id="s-gap-calibre" step="0.05" min="0.5" max="2" value="${blocFinalExistant?.profilCourant?.facteurGapCalibre ?? 1}" />
             </div>
             <p class="muted" style="margin-top:-8px;">Ajuste le modèle théorique (Minetti) à ta sensibilité réelle aux pentes — commun à toute la saison, quelle que soit la discipline de chaque objectif.</p>
             <div class="field">
               <label for="s-debut">Date de début de la saison</label>
-              <input type="date" id="s-debut" value="${new Date().toISOString().slice(0, 10)}" />
+              <input type="date" id="s-debut" value="${(blocsIntermediairesExistants[0] ?? blocFinalExistant)?.dateDebutPlan?.slice(0, 10) ?? new Date().toISOString().slice(0, 10)}" />
             </div>
 
             <div class="contour-divider"></div>
             <h3>Objectif final</h3>
             <div class="field">
               <label for="s-final-nom">Nom</label>
-              <input type="text" id="s-final-nom" placeholder="ex: Marathon de Paris" />
+              <input type="text" id="s-final-nom" value="${escapeAttr(blocFinalExistant?.objectif ?? "")}" placeholder="ex: Marathon de Paris" />
             </div>
             <div class="field-row">
               <div class="field">
                 <label for="s-final-discipline">Discipline</label>
                 <select id="s-final-discipline" data-objectif-discipline>
-                  <option value="route">Route</option>
-                  <option value="trail">Trail</option>
+                  <option value="route" ${blocFinalExistant?.discipline === "trail" ? "" : "selected"}>Route</option>
+                  <option value="trail" ${blocFinalExistant?.discipline === "trail" ? "selected" : ""}>Trail</option>
                 </select>
               </div>
-              <div class="field" data-champ-denivele hidden>
+              <div class="field" data-champ-denivele ${blocFinalExistant?.discipline === "trail" ? "" : "hidden"}>
                 <label for="s-final-denivele">D+ de la course (m)</label>
-                <input type="number" id="s-final-denivele" min="0" placeholder="ex: 2500" />
+                <input type="number" id="s-final-denivele" min="0" value="${blocFinalExistant?.deniveleM ?? ""}" placeholder="ex: 2500" />
               </div>
             </div>
             <div class="field-row">
               <div class="field">
                 <label for="s-final-distance">Distance (km)</label>
-                <input type="number" id="s-final-distance" step="0.001" min="0" placeholder="ex: 42.195" />
+                <input type="number" id="s-final-distance" step="0.001" min="0" value="${blocFinalExistant?.distanceObjectifM ? blocFinalExistant.distanceObjectifM / 1000 : ""}" placeholder="ex: 42.195" />
               </div>
               <div class="field">
                 <label for="s-final-temps">Temps objectif (hh:mm:ss, optionnel)</label>
-                <input type="text" id="s-final-temps" placeholder="ex: 3:30:00" />
+                <input type="text" id="s-final-temps" value="${blocFinalExistant?.tempsObjectifS ? secondesVersLabel(blocFinalExistant.tempsObjectifS) : ""}" placeholder="ex: 3:30:00" />
               </div>
             </div>
             <div class="field">
               <label for="s-final-date">Date de la course</label>
-              <input type="date" id="s-final-date" />
+              <input type="date" id="s-final-date" value="${blocFinalExistant?.dateEcheance?.slice(0, 10) ?? ""}" />
             </div>
 
             <div class="contour-divider"></div>
@@ -185,24 +197,27 @@ export async function render(container) {
             <div class="contour-divider"></div>
             <div class="field">
               <label>Jours d'entraînement</label>
-              ${renderJoursCheckboxes(joursParDefaut(profil?.disponibiliteHebdo ?? 5), "data-jour-saison")}
+              ${renderJoursCheckboxes(blocFinalExistant?.joursEntrainement ?? joursParDefaut(profil?.disponibiliteHebdo ?? 5), "data-jour-saison")}
               <p class="muted" id="s-jours-count" style="margin-top:4px;"></p>
             </div>
             <div class="field-row">
               <div class="field">
                 <label for="s-charge">Charge hebdo actuelle</label>
                 <select id="s-charge">
-                  <option value="faible">Faible</option>
-                  <option value="moderee" selected>Modérée</option>
-                  <option value="elevee">Élevée</option>
+                  <option value="faible" ${blocFinalExistant?.chargeHebdoMoyenneActuelle === "faible" ? "selected" : ""}>Faible</option>
+                  <option value="moderee" ${!blocFinalExistant || blocFinalExistant.chargeHebdoMoyenneActuelle === "moderee" ? "selected" : ""}>Modérée</option>
+                  <option value="elevee" ${blocFinalExistant?.chargeHebdoMoyenneActuelle === "elevee" ? "selected" : ""}>Élevée</option>
                 </select>
               </div>
               <div class="field">
                 <label for="s-volume-hebdo-max">Volume hebdo max (h, optionnel)</label>
-                <input type="number" id="s-volume-hebdo-max" step="0.5" min="1" placeholder="ex: 6" />
+                <input type="number" id="s-volume-hebdo-max" step="0.5" min="1" value="${blocFinalExistant?.volumeHebdoMaxMin ? (blocFinalExistant.volumeHebdoMaxMin / 60).toFixed(1) : ""}" placeholder="ex: 6" />
               </div>
             </div>
-            <button class="btn btn--primary" type="submit">Générer la saison</button>
+            <div class="row">
+              <button class="btn btn--primary" type="submit">${blocFinalExistant ? "Mettre à jour la saison" : "Générer la saison"}</button>
+              ${blocFinalExistant ? `<button class="btn btn--sm" type="button" id="btn-supprimer-saison">Supprimer la saison</button>` : ""}
+            </div>
           </form>
         </div>
       </div>
@@ -351,7 +366,7 @@ export async function render(container) {
       // Riegel ne modélise pas le D+ — pas de "temps réaliste" chiffré en trail.
       texte = `Très ambitieux pour ${semDispo} semaines (${ecartLabel} de VDOT nécessaire${noteDenivele}).`;
     } else {
-      const tempsRealiste = riegelPredict(profilActuel.performanceRef.tempsS, profilActuel.performanceRef.distanceM, distanceM);
+      const tempsRealiste = riegelPredictAjuste(profilActuel.performanceRef.tempsS, profilActuel.performanceRef.distanceM, distanceM);
       texte = `Très ambitieux pour ${semDispo} semaines (${ecartLabel} de VDOT nécessaire) — avec ta forme actuelle, plutôt ~${formatDureeCompacte(tempsRealiste)} sur cette distance.`;
     }
     if (coherence.niveau !== "atteint") {
@@ -441,25 +456,29 @@ export async function render(container) {
   });
 
   attachSegmentedControl(container);
-  initSaisonForm(container);
+  initSaisonForm(container, saisonId, blocsIntermediairesExistants);
 }
 
 /**
  * Câblage du formulaire Saison (objectif final + objectifs intermédiaires) :
  * ajout/retrait dynamique des lignes d'objectifs intermédiaires et soumission
- * vers store.creerSaison. Séparé de render() car indépendant du profil/plan
- * existant (contrairement au formulaire "Plan simple").
+ * vers store.creerSaison (nouvelle saison) ou store.modifierSaison (édition
+ * d'une saison existante, saisonId fourni) — régénère toute la saison en
+ * conservant son identité, comme modifierPlan le fait pour un plan simple.
+ * @param {string|null} saisonId saison à éditer, ou null pour en créer une nouvelle
+ * @param {Array<object>} blocsIntermediairesExistants blocs "intermediaire" de la saison à éditer, pour préremplir les lignes
  */
-function initSaisonForm(container) {
+function initSaisonForm(container, saisonId, blocsIntermediairesExistants = []) {
   const liste = container.querySelector("#intermediaires-list");
   let compteur = 0;
 
-  function ajouterLigneIntermediaire() {
+  function ajouterLigneIntermediaire(prefill = null) {
     compteur++;
     const div = document.createElement("div");
     div.className = "card";
     div.style.padding = "12px";
     div.dataset.intermediaireRow = "";
+    const estTrail = prefill?.discipline === "trail";
     div.innerHTML = `
       <div class="card__header">
         <strong>Objectif intermédiaire ${compteur}</strong>
@@ -467,31 +486,39 @@ function initSaisonForm(container) {
       </div>
       <div class="field">
         <label>Nom</label>
-        <input type="text" data-int-nom placeholder="ex: 10km de rentrée" />
+        <input type="text" data-int-nom value="${escapeAttr(prefill?.objectif ?? "")}" placeholder="ex: 10km de rentrée" />
       </div>
       <div class="field-row">
         <div class="field">
           <label>Discipline</label>
           <select data-objectif-discipline data-int-discipline>
-            <option value="route">Route</option>
-            <option value="trail">Trail</option>
+            <option value="route" ${estTrail ? "" : "selected"}>Route</option>
+            <option value="trail" ${estTrail ? "selected" : ""}>Trail</option>
           </select>
         </div>
-        <div class="field" data-champ-denivele hidden>
+        <div class="field" data-champ-denivele ${estTrail ? "" : "hidden"}>
           <label>D+ de la course (m)</label>
-          <input type="number" min="0" data-int-denivele placeholder="ex: 800" />
+          <input type="number" min="0" data-int-denivele value="${prefill?.deniveleM ?? ""}" placeholder="ex: 800" />
         </div>
       </div>
       <div class="field-row">
-        <div class="field"><label>Distance (km)</label><input type="number" step="0.001" min="0" data-int-distance placeholder="ex: 10" /></div>
-        <div class="field"><label>Temps objectif (hh:mm:ss, optionnel)</label><input type="text" data-int-temps /></div>
+        <div class="field"><label>Distance (km)</label><input type="number" step="0.001" min="0" data-int-distance value="${prefill?.distanceObjectifM ? prefill.distanceObjectifM / 1000 : ""}" placeholder="ex: 10" /></div>
+        <div class="field"><label>Temps objectif (hh:mm:ss, optionnel)</label><input type="text" data-int-temps value="${prefill?.tempsObjectifS ? secondesVersLabel(prefill.tempsObjectifS) : ""}" /></div>
       </div>
-      <div class="field"><label>Date</label><input type="date" data-int-date /></div>`;
+      <div class="field"><label>Date</label><input type="date" data-int-date value="${prefill?.dateEcheance?.slice(0, 10) ?? ""}" /></div>`;
     liste.appendChild(div);
     div.querySelector("[data-remove-intermediaire]").addEventListener("click", () => div.remove());
   }
 
-  container.querySelector("#btn-ajouter-intermediaire").addEventListener("click", ajouterLigneIntermediaire);
+  for (const bloc of blocsIntermediairesExistants) ajouterLigneIntermediaire(bloc);
+
+  container.querySelector("#btn-ajouter-intermediaire").addEventListener("click", () => ajouterLigneIntermediaire());
+
+  container.querySelector("#btn-supprimer-saison")?.addEventListener("click", async () => {
+    if (!confirm("Supprimer cette saison et tous ses blocs ? Cette action est irréversible.")) return;
+    await store.supprimerSaison(saisonId);
+    await render(container);
+  });
 
   // Le champ D+ n'a de sens qu'en trail — masqué/affiché selon la discipline
   // choisie, pour l'objectif final comme pour chaque ligne intermédiaire
@@ -578,7 +605,11 @@ function initSaisonForm(container) {
     };
 
     try {
-      await store.creerSaison(inputs);
+      if (saisonId) {
+        await store.modifierSaison(saisonId, inputs);
+      } else {
+        await store.creerSaison(inputs);
+      }
     } catch (err) {
       alert(err.message);
       return;

@@ -1,6 +1,6 @@
 import * as store from "../../store.js";
 import { WeekStrip, StatStrip, WeekTable, ZoneLegend } from "../components.js";
-import { formatPace, riegelPredict, formatDureeCompacte, evaluerCoherenceObjectif, identifierAxeTravail } from "../../engines/vdot.js";
+import { formatPace, riegelPredictAjuste, formatDureeCompacte, evaluerCoherenceObjectif, identifierAxeTravail } from "../../engines/vdot.js";
 import { genererIcs, telechargerIcs } from "../../data/icsExport.js";
 import { Icon } from "../icons.js";
 
@@ -218,18 +218,18 @@ function renderCoherenceObjectif(plan, coherence, axeTravail, profil, planPerime
     const contenuNote =
       plan.discipline === "route"
         ? "Le plan a déjà augmenté en conséquence la part de tes sorties longues courue à l'allure objectif."
-        : "Les allures de tes séances de côtes, descente technique et sortie longue sont déjà calées sur le D+ attendu de la course.";
+        : "Le plan a déjà augmenté en conséquence le volume de tes séances de côtes et de descente technique, en plus des allures déjà calées sur le D+ attendu de la course.";
     conseil = `Il te faut gagner environ ${ecartLabel} de VDOT d'ici l'échéance${noteDenivele} — cohérent avec ce que ${plan.semaines.length} semaines de plan bien suivi permettent généralement. ${contenuNote}`;
   } else {
     const perf = profil?.performanceRef;
     // Riegel (route) ne modélise pas le D+ — un temps "réaliste" en trail ne
     // peut être présenté comme tel sans induire en erreur, on ne l'affiche
     // donc que pour un objectif route.
-    const tempsRealiste = perf && plan.discipline === "route" ? riegelPredict(perf.tempsS, perf.distanceM, plan.distanceObjectifM) : null;
+    const tempsRealiste = perf && plan.discipline === "route" ? riegelPredictAjuste(perf.tempsS, perf.distanceM, plan.distanceObjectifM) : null;
     const contenuNote =
       plan.discipline === "route"
         ? "Le plan a déjà poussé la spécificité allure objectif de tes sorties longues au maximum de ce que permet le catalogue, mais le contenu des séances seul ne suffira pas."
-        : "Les allures de tes séances de côtes/descente/sortie longue sont déjà calées sur le D+ attendu, mais leur volume ne s'ajuste pas automatiquement à ce niveau d'ambition — le contenu des séances seul ne suffira pas.";
+        : "Le plan a déjà poussé le volume de tes séances de côtes et de descente technique au maximum de ce niveau d'ambition, mais le contenu des séances seul ne suffira pas.";
     conseil = `Il faudrait gagner environ ${ecartLabel} de VDOT en ${plan.semaines.length} semaines${noteDenivele} — nettement au-delà de ce qu'un plan permet généralement sur ce délai. ${contenuNote} ${
       tempsRealiste
         ? `Avec ta forme actuelle, un temps plus réaliste sur cette distance serait plutôt autour de ${formatDureeCompacte(tempsRealiste)}. `

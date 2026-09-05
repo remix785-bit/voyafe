@@ -377,6 +377,75 @@ export function blocsSaison(saisonId) {
 }
 
 /**
+ * Régénère une saison existante (ajout/retrait/modification d'objectifs) en
+ * conservant son identité (saisonId) — reprend, bloc par bloc et au mieux
+ * (numéro de semaine + zone), l'historique des séances déjà réalisées ou
+ * manquées, comme modifierPlan le fait pour un plan simple. Le statut de
+ * chaque bloc est recalculé par DATE (pas "1er bloc = actif" comme à la
+ * création) : une saison déjà en cours peut avoir dépassé son 1er bloc.
+ */
+export async function modifierSaison(saisonId, inputs) {
+  const ancienBlocs = blocsSaison(saisonId);
+  if (!ancienBlocs.length) throw new Error("Saison introuvable.");
+
+  const nouveauxBlocs = genererSaison(inputs);
+  const maintenant = new Date();
+
+  nouveauxBlocs.forEach((plan, i) => {
+    const ancien = ancienBlocs[i]; // correspondance au mieux par position (ordreSaison)
+    plan.id = ancien?.id ?? db.newId("plan");
+    plan.saisonId = saisonId;
+    plan.creeLe = ancien?.creeLe ?? maintenant.toISOString();
+    plan.modifieLe = maintenant.toISOString();
+
+    if (ancien) {
+      for (const semaine of plan.semaines) {
+        if (new Date(semaine.dateDebut) > maintenant) continue;
+        const ancienneSemaine = ancien.semaines.find((s) => s.numero === semaine.numero);
+        if (!ancienneSemaine) continue;
+        for (const seance of semaine.seances) {
+          const ancienneSeance = ancienneSemaine.seances.find(
+            (s) => s.zoneDaniels === seance.zoneDaniels && s.statut !== "a_venir"
+          );
+          if (ancienneSeance) {
+            seance.statut = ancienneSeance.statut;
+            if (ancienneSeance.note) seance.note = ancienneSeance.note;
+          }
+        }
+      }
+    }
+
+    if (new Date(plan.dateEcheance) < maintenant) plan.statut = "termine";
+    else if (new Date(plan.dateDebutPlan) <= maintenant) plan.statut = "actif";
+    else plan.statut = "en_attente";
+  });
+
+  // Un seul bloc actif à la fois : si aucun ne retombe pile dans sa fenêtre
+  // (dates décalées à l'édition), le premier bloc à venir prend le relais.
+  if (!nouveauxBlocs.some((p) => p.statut === "actif")) {
+    const premierFutur = nouveauxBlocs.find((p) => p.statut === "en_attente");
+    if (premierFutur) premierFutur.statut = "actif";
+  }
+
+  await Promise.all(nouveauxBlocs.map((plan) => db.put("plans", plan)));
+  // Un bloc en trop (saison réduite en nombre d'objectifs) est retiré.
+  const idsConserves = new Set(nouveauxBlocs.map((p) => p.id));
+  await Promise.all(ancienBlocs.filter((p) => !idsConserves.has(p.id)).map((p) => db.remove("plans", p.id)));
+
+  state.plans = state.plans.filter((p) => p.saisonId !== saisonId).concat(nouveauxBlocs);
+  notify();
+  return nouveauxBlocs;
+}
+
+/** Supprime une saison entière (tous ses blocs) — aucune UI n'existait jusqu'ici pour l'abandonner. */
+export async function supprimerSaison(saisonId) {
+  const blocs = blocsSaison(saisonId);
+  await Promise.all(blocs.map((p) => db.remove("plans", p.id)));
+  state.plans = state.plans.filter((p) => p.saisonId !== saisonId);
+  notify();
+}
+
+/**
  * Met à jour un plan existant (distance/temps objectif, échéance, discipline,
  * charge, disponibilité...) en régénérant les étapes ①→④ avec les nouveaux
  * inputs, tout en conservant l'identité du plan (id, statut) et l'historique

@@ -13,6 +13,7 @@ import {
   evaluerCoherenceObjectif,
   identifierAxeTravail,
   distanceEquivalentePlateM,
+  riegelPredictAjuste,
 } from "../js/engines/vdot.js";
 import {
   minettiEnergyCost,
@@ -75,6 +76,31 @@ test("Riegel — prédiction semi à partir d'un 10K cohérente avec (D2/D1)^1.0
   const attendu = (21097.5 / 10000) ** 1.06;
   assert.ok(Math.abs(ratio - attendu) < 1e-9);
   assert.ok(ratio > 2.15 && ratio < 2.25, `ratio inattendu: ${ratio}`);
+});
+
+test("riegelPredictAjuste — identique à riegelPredict jusqu'au semi (extrapolation courte déjà fiable)", () => {
+  const t10k = 40 * 60;
+  assert.equal(riegelPredictAjuste(t10k, 10000, 15000), riegelPredict(t10k, 10000, 15000));
+  assert.equal(riegelPredictAjuste(t10k, 10000, 21097.5), riegelPredict(t10k, 10000, 21097.5));
+});
+
+test("riegelPredictAjuste — pénalité croissante entre semi et marathon, ~8% pile au marathon", () => {
+  const t10k = 40 * 60;
+  const brutMarathon = riegelPredict(t10k, 10000, 42195);
+  const ajusteMarathon = riegelPredictAjuste(t10k, 10000, 42195);
+  assert.ok(Math.abs(ajusteMarathon / brutMarathon - 1.08) < 1e-9);
+
+  const brutSemiPlus = riegelPredict(t10k, 10000, 30000); // entre semi et marathon
+  const ajusteSemiPlus = riegelPredictAjuste(t10k, 10000, 30000);
+  const ratioSemiPlus = ajusteSemiPlus / brutSemiPlus;
+  assert.ok(ratioSemiPlus > 1 && ratioSemiPlus < 1.08, `pénalité intermédiaire attendue, obtenu ratio ${ratioSemiPlus}`);
+});
+
+test("riegelPredictAjuste — la pénalité reste plafonnée à 8% au-delà du marathon (ultra)", () => {
+  const t10k = 40 * 60;
+  const brutUltra = riegelPredict(t10k, 10000, 80000);
+  const ajusteUltra = riegelPredictAjuste(t10k, 10000, 80000);
+  assert.ok(Math.abs(ajusteUltra / brutUltra - 1.08) < 1e-9);
 });
 
 test("evaluerCoherenceObjectif — objectif déjà couvert par le VDOT actuel -> niveau 'atteint'", () => {

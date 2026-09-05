@@ -89,6 +89,34 @@ export function riegelPredict(t1Seconds, d1Meters, d2Meters) {
 }
 
 /**
+ * Riegel corrigé pour les longues extrapolations (au-delà du semi) — le
+ * modèle brut ci-dessus documente déjà sa propre limite ("sur marathon, tend
+ * à sous-estimer légèrement le temps réel des coureurs récréatifs"), mais
+ * cette limite n'était appliquée nulle part : chaque "temps réaliste" affiché
+ * pour une distance marathon ressortait systématiquement trop optimiste.
+ *
+ * Hypothèse indicative (point ouvert, non tirée d'une source unique, même
+ * esprit que evaluerCoherenceObjectif) : pénalité croissant linéairement de
+ * 0% au semi (21097.5 m, extrapolation courte déjà fiable) à ~8% au marathon
+ * (42195 m, ordre de grandeur usuel pour un coureur récréatif), plafonnée
+ * au-delà (au-delà du marathon, l'app ne modélise de toute façon rien de
+ * plus fiable). Sert de repère, pas d'une prédiction individualisée garantie.
+ * @param {number} t1Seconds
+ * @param {number} d1Meters
+ * @param {number} d2Meters
+ * @returns {number} temps prédit en secondes, corrigé pour les longues distances
+ */
+export function riegelPredictAjuste(t1Seconds, d1Meters, d2Meters) {
+  const brut = riegelPredict(t1Seconds, d1Meters, d2Meters);
+  const SEUIL_M = 21097.5;
+  const DISTANCE_PENALITE_MAX_M = 42195;
+  const PENALITE_MAX_PCT = 0.08;
+  if (d2Meters <= SEUIL_M) return brut;
+  const t = Math.min((d2Meters - SEUIL_M) / (DISTANCE_PENALITE_MAX_M - SEUIL_M), 1);
+  return brut * (1 + PENALITE_MAX_PCT * t);
+}
+
+/**
  * Zones d'entraînement Daniels (E/M/T/I/R) — bornes %VO2max.
  * Partie I, Section 3. R est extrapolé au-delà de 100% (approximatif).
  */
