@@ -54,6 +54,23 @@ test("estimerChargeJournaliere — active sans moving_time renseigné ne casse p
   assert.equal(estimerChargeJournaliere({}, 5), 0);
 });
 
+test("estimerChargeJournaliere — sans RPE déclaré, utilise la FC moyenne Strava (repli objectif) plutôt qu'un RPE neutre fixe", () => {
+  const chargeFcHaute = estimerChargeJournaliere({ ...activiteReelle, average_heartrate: 175 }, null);
+  const chargeFcBasse = estimerChargeJournaliere({ ...activiteReelle, average_heartrate: 110 }, null);
+  assert.ok(chargeFcHaute > chargeFcBasse, "une FC moyenne plus élevée doit produire une charge plus élevée");
+});
+
+test("estimerChargeJournaliere — le RPE déclaré prime toujours sur la FC moyenne quand les deux sont disponibles", () => {
+  const avecRpeDeclare = estimerChargeJournaliere({ ...activiteReelle, average_heartrate: 175 }, 3);
+  const rpe3Seul = estimerChargeJournaliere(activiteReelle, 3);
+  assert.equal(avecRpeDeclare, rpe3Seul);
+});
+
+test("estimerChargeJournaliere — sans RPE déclaré ni FC moyenne, repli sur un RPE neutre par défaut", () => {
+  const charge = estimerChargeJournaliere(activiteReelle, null);
+  assert.ok(Math.abs(charge - (7891 / 60) * 5) < 0.01);
+});
+
 test("urlAutorisation — construit l'URL OAuth avec les bons scopes (lecture activités privées incluses)", () => {
   const url = new URL(urlAutorisation({ clientId: "12345", redirectUri: "https://example.test/app/" }));
   assert.equal(url.origin + url.pathname, "https://www.strava.com/oauth/authorize");

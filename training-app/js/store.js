@@ -730,9 +730,16 @@ export async function marquerSeanceStatut(planId, semaineNumero, seanceIndex, st
 }
 
 export async function ajouterLogQuotidien(log) {
-  const record = { id: db.newId("log"), date: new Date().toISOString().slice(0, 10), ...log };
+  const date = new Date().toISOString().slice(0, 10);
+  const existant = state.logsQuotidiens.find((l) => l.date === date);
+  const record = existant ? { ...existant, ...log } : { id: db.newId("log"), date, ...log };
   await db.put("logsQuotidiens", record);
-  state.logsQuotidiens.push(record);
+  if (existant) {
+    const idx = state.logsQuotidiens.findIndex((l) => l.id === existant.id);
+    state.logsQuotidiens[idx] = record;
+  } else {
+    state.logsQuotidiens.push(record);
+  }
   state.logsQuotidiens.sort((a, b) => a.date.localeCompare(b.date));
   notify();
   return record;
@@ -759,7 +766,10 @@ function collecterChargeEtVolumeParJour() {
   for (const seance of state.seancesRealisees) {
     const jour = seance.date.slice(0, 10);
     const logDuJour = state.logsQuotidiens.find((l) => l.date === jour);
-    const chargeSeance = estimerChargeJournaliere({ moving_time: seance.dureeMin * 60 }, logDuJour?.rpe ?? 5);
+    const chargeSeance = estimerChargeJournaliere(
+      { moving_time: seance.dureeMin * 60, average_heartrate: seance.frequenceCardiaqueMoyenne },
+      logDuJour?.rpe ?? null
+    );
     const existant = parJour.get(jour);
     // Le repli "log seul" (RPE × 30, sans séance réelle) est remplacé par la
     // première séance réelle du jour, pas additionné à elle — seules deux
@@ -900,7 +910,19 @@ export async function synchroniserStrava(joursHistorique = 28) {
   const token = await tokenStravaValide();
 
   const after = Math.floor((Date.now() - joursHistorique * 24 * 60 * 60 * 1000) / 1000);
-  const activites = await listerActivites({ token, after, perPage: 50 });
+  // Pagination : une seule page de 50 ne couvrait pas un utilisateur multi-
+  // séances/jour sur une fenêtre de 28 jours (jusqu'à 200 activités
+  // possibles) — on récupère toutes les pages jusqu'à ce que l'API en
+  // renvoie moins qu'une page pleine (fin de fenêtre atteinte), avec un
+  // garde-fou à 10 pages pour éviter toute boucle infinie en cas de réponse
+  // inattendue de l'API.
+  const perPage = 50;
+  const activites = [];
+  for (let page = 1; page <= 10; page++) {
+    const lot = await listerActivites({ token, after, perPage, page });
+    activites.push(...lot);
+    if (lot.length < perPage) break;
+  }
   const plan = planActif();
 
   let nouvelles = 0;
@@ -922,6 +944,7 @@ export async function synchroniserStrava(joursHistorique = 28) {
       dureeMin: ecart.dureeMin,
       deniveleM: ecart.deniveleM,
       allureMoyenneMinParKm: ecart.allureMoyenneMinParKm,
+      frequenceCardiaqueMoyenne: activite.average_heartrate ?? null,
       ecart: ecart.ecart,
       planId: plan?.id ?? null,
       semaineNumero: correspondance?.semaine.numero ?? null,
@@ -956,11 +979,51 @@ export function resumeCharge() {
 }
 
 export function evaluerAdaptation() {
-  const rmssd = state.logsQuotidiens.map((l) => l.rmssd).filter((v) => v != null);
-  const fcRepos = state.logsQuotidiens.map((l) => l.fcRepos).filter((v) => v != null);
-  const bienEtre = state.logsQuotidiens.map((l) => l.bienEtre).filter((v) => v != null);
   const charge = resumeCharge();
-  return evaluerBoucleAdaptative({ rmssd, fcRepos, bienEtre }, charge ?? { acwrEwma: 1, zone: "verte" });
+  const resultat = evaluerBoucleAdaptative(state.logsQuotidiens, charge ?? { acwrEwma: 1, zone: "verte" });
+
+  // Une proposition refusée aujourd'hui ne doit pas ressurgir à l'identique
+  // au prochain rendu/rechargement de la même journée (historiqueAjustements
+  // était alimenté mais jamais reconsulté) — un nouveau jour de données reste
+  // libre de la re-proposer si la dégradation persiste réellement.
+  const aujourdHui = new Date().toISOString().slice(0, 10);
+  const typesRefusesAujourdHui = new Set(
+    state.historiqueAjustements
+      .filter((a) => a.decision === "refuse" && a.date.slice(0, 10) === aujourdHui)
+      .map((a) => a.proposition.type)
+  );
+  resultat.propositions = resultat.propositions.filter((p) => !typesRefusesAujourdHui.has(p.type));
+  return resultat;
+}
+
+/**
+ * Retest implicite (Étape ⑤, Partie II §6, étape 5) : parmi les séances
+ * Strava rapprochées d'une séance de qualité planifiée (T/I/R — une séance
+ * E/M n'est pas un indicateur de forme fiable), cherche la plus récente dont
+ * l'allure réelle correspond à un VDOT significativement supérieur au profil
+ * actuel, et propose un retest. La fonction de détection existait déjà dans
+ * adaptiveLoop.js mais rien ne l'appelait jamais côté données réelles.
+ */
+export function retestImpliciteSuggere() {
+  if (!state.profil?.performanceRef) return null;
+  const vdotActuel = state.profil.historiqueVdot?.length
+    ? state.profil.historiqueVdot[state.profil.historiqueVdot.length - 1].vdot
+    : vdotFromPerformance(state.profil.performanceRef.distanceM, state.profil.performanceRef.tempsS);
+
+  const candidats = [...state.seancesRealisees]
+    .filter((s) => s.seanceIndex != null && s.distanceKm > 0 && s.dureeMin > 0)
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  for (const seance of candidats) {
+    const plan = state.plans.find((p) => p.id === seance.planId);
+    const zone = plan?.semaines?.find((s) => s.numero === seance.semaineNumero)?.seances[seance.seanceIndex]?.zoneDaniels;
+    if (!["T", "I", "R"].includes(zone)) continue;
+
+    const vdotObserve = vdotFromPerformance(seance.distanceKm * 1000, seance.dureeMin * 60);
+    const detection = detecterRetestImplicite(vdotActuel, vdotObserve);
+    if (detection.proposer) return { ...detection, seance };
+  }
+  return null;
 }
 
 export async function enregistrerPropositionDecision(proposition, decision) {

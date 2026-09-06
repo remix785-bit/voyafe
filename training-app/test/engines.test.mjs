@@ -535,33 +535,57 @@ test("Pacing — détection des points significatifs: le bruit GPS résiduel (<2
   assert.equal(reperes.length, 0, `bruit résiduel ne doit produire aucun repère, obtenu ${reperes.length}`);
 });
 
-test("Boucle adaptative — propose une conversion si 2 marqueurs sur 3 dégradés", () => {
-  const baseline = Array(14).fill(60); // RMSSD stable
-  const logs = {
-    rmssd: [...baseline, 40, 38, 39], // dégradé (baisse)
-    fcRepos: [...Array(14).fill(50), 65, 66, 64], // dégradé (hausse)
-    bienEtre: [...Array(14).fill(7), 7, 7, 7], // stable
-  };
+// Construit une série de logs quotidiens datés jour par jour (le plus ancien
+// en premier), comme le fait réellement store.js (state.logsQuotidiens) —
+// nécessaire depuis que estDegrade() vérifie 3 JOURS CALENDAIRES consécutifs
+// plutôt que les 3 dernières valeurs renseignées (cf. correction B5/B11).
+function joursConsecutifs(n, valeurParJour) {
+  const logs = [];
+  const debut = new Date("2026-01-01T00:00:00Z");
+  for (let i = 0; i < n; i++) {
+    const date = new Date(debut.getTime() + i * 86400000).toISOString().slice(0, 10);
+    logs.push({ date, ...valeurParJour(i) });
+  }
+  return logs;
+}
+
+test("Boucle adaptative — propose une conversion si 2 marqueurs sur 3 dégradés sur 3 jours calendaires consécutifs", () => {
+  // 14 jours de baseline stable puis 3 jours dégradés, sans aucun trou de date.
+  const logs = joursConsecutifs(17, (i) =>
+    i < 14
+      ? { rmssd: 60, fcRepos: 50, bienEtre: 7 }
+      : { rmssd: [40, 38, 39][i - 14], fcRepos: [65, 66, 64][i - 14], bienEtre: 7 }
+  );
   const result = evaluerBoucleAdaptative(logs, { acwrEwma: 1.0, zone: "verte" });
   assert.equal(result.marqueursDegrades.length, 2);
   assert.equal(result.propositions.length, 1);
   assert.equal(result.modeAutomatique, false);
 });
 
+test("Boucle adaptative — un jour sans saisie dans la fenêtre des 3 derniers jours casse la série 'consécutive', même si 3 valeurs dégradées existent", () => {
+  // Les 3 dernières VALEURS renseignées (jours 14, 15, 17) sont dégradées,
+  // mais le jour 16 n'a pas de RMSSD saisi -> pas 3 jours CALENDAIRES
+  // consécutifs de dégradation avant le dernier jour renseigné.
+  const logs = joursConsecutifs(17, (i) => {
+    if (i < 14) return { rmssd: 60 };
+    if (i === 14) return { rmssd: 40 };
+    if (i === 15) return { rmssd: 38 };
+    if (i === 16) return {}; // trou volontaire
+    return { rmssd: 39 };
+  });
+  const result = evaluerBoucleAdaptative(logs, { acwrEwma: 1.0, zone: "verte" });
+  assert.ok(!result.marqueursDegrades.includes("RMSSD"), "un jour manquant dans la fenêtre ne doit pas être ignoré silencieusement");
+});
+
 test("Boucle adaptative — zone rouge déclenchée par le seul volume brut : la justification nomme le volume, pas l'intensité perçue", () => {
-  const logs = { rmssd: [], fcRepos: [], bienEtre: [] };
   const chargeActuelle = { acwrEwma: 1.0, zoneIntensite: "verte", acwrVolumeEwma: 1.8, zoneVolume: "rouge", zone: "rouge" };
-  const result = evaluerBoucleAdaptative(logs, chargeActuelle);
+  const result = evaluerBoucleAdaptative([], chargeActuelle);
   assert.equal(result.propositions.length, 1);
   assert.ok(result.propositions[0].justification.includes("volume brut"));
 });
 
 test("Boucle adaptative — ne propose rien si les marqueurs sont stables", () => {
-  const logs = {
-    rmssd: Array(17).fill(60),
-    fcRepos: Array(17).fill(50),
-    bienEtre: Array(17).fill(7),
-  };
+  const logs = joursConsecutifs(17, () => ({ rmssd: 60, fcRepos: 50, bienEtre: 7 }));
   const result = evaluerBoucleAdaptative(logs, { acwrEwma: 1.0, zone: "verte" });
   assert.equal(result.propositions.length, 0);
 });

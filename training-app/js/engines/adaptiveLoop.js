@@ -4,22 +4,45 @@
 // Elle génère des PROPOSITIONS tracables, jamais des modifications automatiques
 // (point tranché en Partie I §14, point ouvert 1).
 
+// Seuil de dégradation par marqueur : un même -10% n'a pas le même sens
+// physiologique selon le marqueur (le RMSSD varie naturellement bien plus
+// que le bien-être déclaratif, borné 1-10) — un seuil uniforme sous-
+// détectait le bien-être et sur-détectait le RMSSD.
+const SEUIL_DEGRADATION = { rmssd: 0.85, fcRepos: 0.92, bienEtre: 0.9 };
+
 /**
  * Évalue si un marqueur quotidien est "dégradé" par rapport à sa baseline
- * (moyenne des 14 jours précédents, hors les 3 derniers jours évalués).
- * @param {number[]} historique valeurs quotidiennes, plus récent en dernier
- * @param {"rmssd"|"fcRepos"|"bienEtre"} type
+ * (moyenne des 14 jours précédents, hors les 3 derniers jours évalués), sur
+ * 3 JOURS CALENDAIRES réellement consécutifs — un jour sans saisie dans
+ * cette fenêtre casse la série (auparavant on prenait juste les 3 dernières
+ * valeurs renseignées, qui pouvaient être espacées de bien plus de 3 jours
+ * si l'utilisateur avait sauté des jours de journal, contredisant le nom et
+ * la justification affichée "3 jours consécutifs").
+ * @param {{date:string, rmssd?:number, fcRepos?:number, bienEtre?:number}[]} logsQuotidiens trié du plus ancien au plus récent, peut contenir des trous
+ * @param {"rmssd"|"fcRepos"|"bienEtre"} cle
  */
-function estDegrade(historique, type) {
-  if (historique.length < 4) return false;
-  const recents = historique.slice(-3);
-  const baseline = historique.slice(0, -3).slice(-14);
+function estDegrade(logsQuotidiens, cle) {
+  const avecValeur = logsQuotidiens.filter((l) => l[cle] != null);
+  if (avecValeur.length < 4) return false;
+
+  const dernierJour = new Date(avecValeur[avecValeur.length - 1].date);
+  const recents = [];
+  for (let i = 2; i >= 0; i--) {
+    const jour = new Date(dernierJour);
+    jour.setDate(jour.getDate() - i);
+    const iso = jour.toISOString().slice(0, 10);
+    const entree = avecValeur.find((l) => l.date === iso);
+    if (!entree) return false;
+    recents.push(entree[cle]);
+  }
+
+  const baseline = avecValeur.slice(0, -3).slice(-14).map((l) => l[cle]);
   if (!baseline.length) return false;
   const moyenneBaseline = baseline.reduce((a, b) => a + b, 0) / baseline.length;
 
   // RMSSD et bien-être : une baisse est dégradée. FC repos : une hausse est dégradée.
-  const seuil = 0.9; // -10% ou inverse selon le sens
-  if (type === "fcRepos") {
+  const seuil = SEUIL_DEGRADATION[cle];
+  if (cle === "fcRepos") {
     return recents.every((v) => v > moyenneBaseline * (2 - seuil));
   }
   return recents.every((v) => v < moyenneBaseline * seuil);
@@ -29,14 +52,14 @@ function estDegrade(historique, type) {
  * Règle de décision de la boucle adaptative (Partie II §6, étape 4).
  * Si ≥2 marqueurs sur 3 sont dégradés pendant ≥3 jours consécutifs,
  * génère une proposition justifiée.
- * @param {{rmssd?:number[], fcRepos?:number[], bienEtre?:number[]}} logs historiques quotidiens
+ * @param {{date:string, rmssd?:number, fcRepos?:number, bienEtre?:number}[]} logsQuotidiens trié du plus ancien au plus récent
  * @param {{acwrEwma:number, zone:string}} chargeActuelle sortie de load.js#loadSummary
  */
-export function evaluerBoucleAdaptative(logs, chargeActuelle) {
+export function evaluerBoucleAdaptative(logsQuotidiens, chargeActuelle) {
   const marqueursDegrades = [];
-  if (logs.rmssd && estDegrade(logs.rmssd, "rmssd")) marqueursDegrades.push("RMSSD");
-  if (logs.fcRepos && estDegrade(logs.fcRepos, "fcRepos")) marqueursDegrades.push("FC repos");
-  if (logs.bienEtre && estDegrade(logs.bienEtre, "bienEtre")) marqueursDegrades.push("bien-être déclaratif");
+  if (estDegrade(logsQuotidiens, "rmssd")) marqueursDegrades.push("RMSSD");
+  if (estDegrade(logsQuotidiens, "fcRepos")) marqueursDegrades.push("FC repos");
+  if (estDegrade(logsQuotidiens, "bienEtre")) marqueursDegrades.push("bien-être déclaratif");
 
   const propositions = [];
 

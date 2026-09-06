@@ -9,7 +9,7 @@ export async function render(container) {
     <div class="app-main">
       <div class="card card--action">
         <h1>Journal quotidien</h1>
-        <p class="muted">${new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}</p>
+        <p class="muted">${new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}${existant ? " · déjà renseigné, modifie et réenregistre" : ""}</p>
         <form id="form-journal" class="stack">
           <div class="field">
             <label for="fc-repos">FC repos (bpm, optionnel)</label>
@@ -22,6 +22,14 @@ export async function render(container) {
           <div class="field">
             <label for="poids-journal">Poids (kg, optionnel)</label>
             <input type="number" id="poids-journal" value="${existant?.poids ?? ""}" min="30" max="150" step="0.1" />
+          </div>
+          <div class="field">
+            <label for="sommeil-journal">Sommeil cette nuit (heures, optionnel)</label>
+            <input type="number" id="sommeil-journal" value="${existant?.sommeilH ?? ""}" min="0" max="14" step="0.25" />
+          </div>
+          <div class="field">
+            <label for="douleur-journal">Douleur / gêne physique (optionnel)</label>
+            <input type="text" id="douleur-journal" value="${existant?.douleur ?? ""}" placeholder="ex. genou droit, tendon d'Achille..." />
           </div>
           <div class="field">
             <label>Bien-être (1 = très mauvais, 10 = excellent)</label>
@@ -54,7 +62,9 @@ export async function render(container) {
     const fcRepos = numOrNull(container.querySelector("#fc-repos").value);
     const rmssd = numOrNull(container.querySelector("#rmssd").value);
     const poids = numOrNull(container.querySelector("#poids-journal").value);
-    await store.ajouterLogQuotidien({ fcRepos, rmssd, poids, bienEtre: state.bienEtre, rpe: state.rpe });
+    const sommeilH = numOrNull(container.querySelector("#sommeil-journal").value);
+    const douleur = container.querySelector("#douleur-journal").value.trim() || null;
+    await store.ajouterLogQuotidien({ fcRepos, rmssd, poids, sommeilH, douleur, bienEtre: state.bienEtre, rpe: state.rpe });
     location.hash = "#/dashboard";
   });
 }

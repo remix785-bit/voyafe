@@ -219,21 +219,28 @@ export function ZoneLegend(vdot) {
  * le Dashboard et l'écran Historique & Stats.
  * @param {number[]} values
  */
-export function Sparkline(values, { height = 60 } = {}) {
+/**
+ * @param {number[]} values
+ * @param {{height?:number, baseline?:number|null}} [options] baseline : valeur de référence affichée
+ *   en ligne pointillée (ex. moyenne récente servant de seuil de dégradation) — absente si null/omise.
+ */
+export function Sparkline(values, { height = 60, baseline = null } = {}) {
   if (!values.length) return `<p class="muted">—</p>`;
   if (values.length < 2) return `<p class="data">${values[0].toFixed(1)}</p>`;
   const w = 400;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  const min = Math.min(...values, baseline ?? Infinity);
+  const max = Math.max(...values, baseline ?? -Infinity);
   const range = max - min || 1;
   const points = values
     .map((v, i) => `${(i / (values.length - 1)) * w},${height - ((v - min) / range) * (height - 8) - 4}`)
     .join(" ");
+  const yBaseline = baseline != null ? height - ((baseline - min) / range) * (height - 8) - 4 : null;
   return `
     <svg viewBox="0 0 ${w} ${height}" width="100%" height="${height}" preserveAspectRatio="none">
+      ${yBaseline != null ? `<line x1="0" x2="${w}" y1="${yBaseline}" y2="${yBaseline}" stroke="var(--color-border)" stroke-width="1" stroke-dasharray="4 3" />` : ""}
       <polyline points="${points}" fill="none" stroke="var(--color-accent-strong)" stroke-width="2" />
     </svg>
-    <p class="muted">Min ${min.toFixed(1)} — Max ${max.toFixed(1)}</p>`;
+    <p class="muted">Min ${min.toFixed(1)} — Max ${max.toFixed(1)}${baseline != null ? ` — réf. ${baseline.toFixed(1)}` : ""}</p>`;
 }
 
 /**
@@ -255,16 +262,26 @@ export function RecoveryTrend(logsQuotidiens) {
       if (valeurs.length < 2) {
         return `<div style="margin-bottom:14px;"><span class="muted">${label}</span><p class="muted">Pas encore assez de données (min. 2 jours renseignés).</p></div>`;
       }
+      // Même baseline que celle utilisée par la boucle adaptative
+      // (adaptiveLoop.js#estDegrade, moyenne des jusqu'à 14 valeurs
+      // précédant les 3 dernières) — sans repère visuel, la tendance était
+      // affichée sans jamais montrer le seuil qui déclenche réellement une
+      // proposition de décharge.
+      const baseline = valeurs.length >= 4 ? moyenne(valeurs.slice(0, -3).slice(-14)) : null;
       return `
         <div style="margin-bottom:14px;">
           <div class="row" style="justify-content:space-between;">
             <span class="muted">${label}</span>
             <span class="data">${valeurs[valeurs.length - 1]}</span>
           </div>
-          ${Sparkline(valeurs, { height: 36 })}
+          ${Sparkline(valeurs, { height: 36, baseline })}
         </div>`;
     })
     .join("");
+}
+
+function moyenne(valeurs) {
+  return valeurs.reduce((a, b) => a + b, 0) / valeurs.length;
 }
 
 /**

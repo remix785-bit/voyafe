@@ -142,6 +142,7 @@ export async function render(container) {
   const barresMensuel = barresDistanceMensuelle(seancesRealisees);
   const barresDPlus = barresDPlusMensuel(seancesRealisees);
   const semainesRetest = semainesDepuisDernierTest(profil?.historiqueVdot);
+  const retestImplicite = store.retestImpliciteSuggere();
   // Le VDOT du plan est figé au moment de sa création/mise à jour ; l'historique
   // (alimenté à chaque retest, même sans toucher au plan) porte la valeur réelle
   // la plus récente — c'est elle qu'on affiche en tête, pas celle du plan.
@@ -308,6 +309,11 @@ export async function render(container) {
                 ? `Retest recommandé — dernier test il y a ${semainesRetest} semaines.`
                 : `Prochain retest recommandé dans ${4 - semainesRetest} semaine${4 - semainesRetest > 1 ? "s" : ""}.`
           }</p>
+          ${
+            retestImplicite
+              ? `<p class="badge-warning" style="margin-top:8px;">Ta séance qualité du ${new Date(retestImplicite.seance.date).toLocaleDateString("fr-FR")} correspond à un VDOT ${retestImplicite.ecartPct >= 0 ? "supérieur" : "inférieur"} de ${Math.abs(retestImplicite.ecartPct).toFixed(1)}% à ton profil actuel — <a href="#/profil">envisage un retest</a>.</p>`
+              : ""
+          }
           <a class="btn btn--sm" href="#/profil" style="margin-top:8px;">Voir le détail des zones</a>
         </div>
 

@@ -120,14 +120,31 @@ export function calculerEcart(activiteStrava, seancePlanifiee) {
   };
 }
 
+// Bandes de FC moyenne -> RPE-équivalent (faute de FC max/repos individuelle
+// en profil pour un calcul de réserve cardiaque personnalisé) : un repli
+// objectif plus fiable qu'un RPE neutre par défaut quand l'utilisateur n'a
+// pas renseigné son journal ce jour-là mais que Strava fournit une FC
+// moyenne exploitable.
+function rpeDepuisFrequenceCardiaque(fcMoyenne) {
+  if (fcMoyenne < 120) return 3;
+  if (fcMoyenne < 140) return 5;
+  if (fcMoyenne < 155) return 6.5;
+  if (fcMoyenne < 170) return 8;
+  return 9.5;
+}
+
 /**
- * Estime une charge journalière simple (TRIMP approximatif par défaut :
- * durée × facteur d'intensité RPE) pour alimenter le moteur de charge
- * (ACWR/EWMA, Partie I §10) à partir des activités Strava ingérées.
+ * Estime une charge journalière simple (TRIMP approximatif : durée ×
+ * facteur d'intensité RPE) pour alimenter le moteur de charge (ACWR/EWMA,
+ * Partie I §10) à partir des activités Strava ingérées. Ordre de
+ * préférence pour l'intensité : RPE déclaré par l'utilisateur (signal
+ * direct) > FC moyenne Strava (signal objectif indirect) > RPE neutre par
+ * défaut (faute de mieux).
  * @param {object} activiteStrava
- * @param {number} rpeEstime 1-10, à défaut de fréquence cardiaque exploitable
+ * @param {number|null} [rpeDeclare] RPE déclaré ce jour-là dans le journal, si connu
  */
-export function estimerChargeJournaliere(activiteStrava, rpeEstime = 5) {
+export function estimerChargeJournaliere(activiteStrava, rpeDeclare = null) {
   const dureeMin = (activiteStrava.moving_time ?? 0) / 60;
-  return dureeMin * rpeEstime;
+  const rpe = rpeDeclare ?? (activiteStrava.average_heartrate ? rpeDepuisFrequenceCardiaque(activiteStrava.average_heartrate) : 5);
+  return dureeMin * rpe;
 }

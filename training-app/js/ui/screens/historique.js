@@ -5,7 +5,7 @@ import { Sparkline, ZoneRepartition, BarChart, ActivityHeatmap, SegmentedControl
 import { formatPace } from "../../engines/vdot.js";
 
 export async function render(container) {
-  const { profil, plans, seancesRealisees } = store.getState();
+  const { profil, plans, seancesRealisees, logsQuotidiens } = store.getState();
   const plan = plans.find((p) => p.statut === "actif") ?? plans[plans.length - 1];
 
   container.innerHTML = `
@@ -36,6 +36,11 @@ export async function render(container) {
         <div class="card">
           <h2>Régularité (26 dernières semaines)</h2>
           ${ActivityHeatmap(store.volumeParJourAvecDates(), { semaines: 26 })}
+        </div>
+
+        <div class="card">
+          <h2>Poids</h2>
+          ${renderPoids(logsQuotidiens)}
         </div>
       </div>
 
@@ -71,7 +76,26 @@ function renderLoadHistory(loads) {
     const window = loads.slice(0, i + 1);
     points.push({ simple: acwr(window), ewma: ewmaAcwr(window) });
   }
-  return Sparkline(points.map((p) => p.ewma));
+  // EWMA (lissé) ET simple (7j/28j brut) étaient tous deux calculés par
+  // load.js, mais seul l'EWMA était jamais affiché — le simple, plus réactif
+  // et plus lisible pour un pic ponctuel, restait invisible.
+  return `
+    <div style="margin-bottom:10px;">
+      <div class="row" style="justify-content:space-between;"><span class="muted">EWMA (lissé, référence)</span><span class="data">${points[points.length - 1].ewma.toFixed(2)}</span></div>
+      ${Sparkline(points.map((p) => p.ewma))}
+    </div>
+    <div>
+      <div class="row" style="justify-content:space-between;"><span class="muted">ACWR simple (7j / 28j)</span><span class="data">${points[points.length - 1].simple.toFixed(2)}</span></div>
+      ${Sparkline(points.map((p) => p.simple))}
+    </div>`;
+}
+
+function renderPoids(logsQuotidiens) {
+  const valeurs = logsQuotidiens.filter((l) => l.poids != null).map((l) => l.poids);
+  if (valeurs.length < 2) {
+    return `<p class="muted">Renseigne ton poids dans le <a href="#/journal">journal quotidien</a> pour voir la tendance apparaître (min. 2 jours).</p>`;
+  }
+  return `<span class="data">${valeurs[valeurs.length - 1]} kg</span>${Sparkline(valeurs, { height: 50 })}`;
 }
 
 function renderActivitesRecentes(seancesRealisees) {
