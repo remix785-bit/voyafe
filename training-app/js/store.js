@@ -4,7 +4,7 @@
 
 import * as db from "./data/db.js";
 import { genererPlanComplet, genererSaison } from "./engines/planGenerator.js";
-import { vdotFromPerformance } from "./engines/vdot.js";
+import { vdotFromPerformance, distanceEquivalentePlateM } from "./engines/vdot.js";
 import { loadSummary } from "./engines/load.js";
 import { evaluerBoucleAdaptative, detecterRetestImplicite } from "./engines/adaptiveLoop.js";
 import {
@@ -240,6 +240,13 @@ export async function enregistrerProfil(performanceRef, weightKg, disponibiliteH
       vdot,
       distanceM: performanceRef.distanceM,
       tempsS: performanceRef.tempsS,
+      // Résultat de course réel (trail avec D+, enregistrerResultatCourse) :
+      // distanceM/tempsS ci-dessus sont la distance PLAT-ÉQUIVALENTE utilisée
+      // pour le calcul du VDOT (cohérent avec evaluerCoherenceObjectif) —
+      // distanceReelleM/deniveleReelM gardent la performance brute réellement
+      // courue, pour l'affichage (Profil) sans dénaturer le calcul.
+      ...(performanceRef.distanceReelleM ? { distanceReelleM: performanceRef.distanceReelleM } : {}),
+      ...(performanceRef.deniveleReelM ? { deniveleReelM: performanceRef.deniveleReelM } : {}),
     });
   }
 
@@ -443,6 +450,138 @@ export async function supprimerSaison(saisonId) {
   await Promise.all(blocs.map((p) => db.remove("plans", p.id)));
   state.plans = state.plans.filter((p) => p.saisonId !== saisonId);
   notify();
+}
+
+/**
+ * Plans dont l'échéance (objectif chiffré) est passée mais dont le résultat
+ * réel n'a jamais été saisi — ferme la boucle objectif -> résultat réel ->
+ * nouveau profil : sans ça, rien ne demandait jamais le temps réellement
+ * réalisé, et l'utilisateur devait aller ajouter un test correctif à la
+ * main dans Profil. Triés du plus ancien au plus récent (un seul à la fois).
+ */
+export function coursesEnAttenteDeResultat() {
+  const maintenant = new Date();
+  return state.plans
+    .filter((p) => p.distanceObjectifM && p.tempsObjectifS && !p.resultatReel && new Date(p.dateEcheance) < maintenant)
+    .sort((a, b) => new Date(a.dateEcheance) - new Date(b.dateEcheance));
+}
+
+/**
+ * Régénère un bloc de saison pas encore terminé (statut 'actif' ou
+ * 'en_attente' — un bloc peut déjà être 'actif' si avancerSaisons() l'a
+ * promu avant que le résultat du bloc précédent ne soit saisi) avec un
+ * nouveau profilCourant, en conservant tout le reste (id, dates, objectif,
+ * discipline, D+, saisonId, ordre, statut) et, comme modifierPlan/
+ * modifierSaison, l'historique des séances déjà réalisées/manquées pour les
+ * semaines dont la date de début est révolue — utilisé par
+ * enregistrerResultatCourse pour propager un résultat réel aux blocs
+ * suivants d'une saison.
+ */
+function regenererBlocAvecProfil(ancienBloc, performanceRef) {
+  const inputs = {
+    discipline: ancienBloc.discipline,
+    objectif: ancienBloc.objectif,
+    dateEcheance: ancienBloc.dateEcheance,
+    dateDebut: ancienBloc.dateDebutPlan,
+    performanceRef,
+    joursEntrainement: ancienBloc.joursEntrainement,
+    chargeHebdoMoyenneActuelle: ancienBloc.chargeHebdoMoyenneActuelle,
+    distanceObjectifM: ancienBloc.distanceObjectifM,
+    tempsObjectifS: ancienBloc.tempsObjectifS,
+    deniveleM: ancienBloc.deniveleM,
+    volumeHebdoMaxMin: ancienBloc.volumeHebdoMaxMin,
+    facteurGapCalibre: ancienBloc.profilCourant?.facteurGapCalibre ?? 1,
+    typeObjectif: ancienBloc.roleSaison === "finale" ? "finale" : "intermediaire",
+  };
+  const nouveau = genererPlanComplet(inputs);
+  nouveau.id = ancienBloc.id;
+  nouveau.discipline = ancienBloc.discipline;
+  nouveau.objectif = ancienBloc.objectif;
+  nouveau.dateEcheance = ancienBloc.dateEcheance;
+  nouveau.saisonId = ancienBloc.saisonId;
+  nouveau.roleSaison = ancienBloc.roleSaison;
+  nouveau.ordreSaison = ancienBloc.ordreSaison;
+  nouveau.statut = ancienBloc.statut;
+
+  const maintenant = new Date();
+  for (const semaine of nouveau.semaines) {
+    if (new Date(semaine.dateDebut) > maintenant) continue;
+    const ancienneSemaine = ancienBloc.semaines.find((s) => s.numero === semaine.numero);
+    if (!ancienneSemaine) continue;
+    for (const seance of semaine.seances) {
+      const ancienneSeance = ancienneSemaine.seances.find(
+        (s) => s.zoneDaniels === seance.zoneDaniels && s.statut !== "a_venir"
+      );
+      if (ancienneSeance) {
+        seance.statut = ancienneSeance.statut;
+        if (ancienneSeance.note) seance.note = ancienneSeance.note;
+      }
+    }
+  }
+  nouveau.creeLe = ancienBloc.creeLe;
+  nouveau.modifieLe = new Date().toISOString();
+  return nouveau;
+}
+
+/**
+ * Enregistre le résultat réel d'une course (objectif d'un plan dont
+ * l'échéance est passée) : journalise un nouveau test VDOT à partir de ce
+ * résultat — converti en distance plat-équivalente si du D+ est renseigné
+ * (même logique que evaluerCoherenceObjectif ; sans cette conversion, un
+ * résultat trail lent corromprait tout le profil avec un VDOT
+ * artificiellement bas, faussant zones/allures pour toutes les disciplines).
+ * Si ce plan appartient à une saison, régénère les blocs pas encore
+ * commencés avec la forme à jour plutôt que celle du jour de création de la
+ * saison — "le bloc suivant profite du résultat réel", pas seulement Profil.
+ * @param {string} planId
+ * @param {{tempsReelS:number, distanceReelleM?:number, deniveleReelM?:number}} resultat
+ */
+export async function enregistrerResultatCourse(planId, { tempsReelS, distanceReelleM, deniveleReelM } = {}) {
+  const plan = state.plans.find((p) => p.id === planId);
+  if (!plan) throw new Error("Plan introuvable.");
+  if (!state.profil) throw new Error("Renseigne d'abord ton profil.");
+  if (!tempsReelS) throw new Error("Renseigne le temps réellement réalisé.");
+
+  const distanceReelle = distanceReelleM ?? plan.distanceObjectifM;
+  const denivele = deniveleReelM ?? plan.deniveleM ?? 0;
+  const distancePourVdot = denivele ? distanceEquivalentePlateM(distanceReelle, denivele) : distanceReelle;
+
+  const nouveauProfil = await enregistrerProfil(
+    {
+      distanceM: distancePourVdot,
+      tempsS: tempsReelS,
+      dateTest: plan.dateEcheance,
+      distanceReelleM: distanceReelle,
+      deniveleReelM: denivele || null,
+    },
+    state.profil.weightKg,
+    state.profil.disponibiliteHebdo
+  );
+
+  plan.resultatReel = {
+    tempsS: tempsReelS,
+    distanceReelleM: distanceReelle,
+    deniveleReelM: denivele || null,
+    dateSaisie: new Date().toISOString(),
+  };
+  await db.put("plans", plan);
+
+  if (plan.saisonId) {
+    // 'actif' inclus : avancerSaisons() peut avoir déjà promu le bloc suivant
+    // si le résultat est saisi quelques jours après l'échéance du précédent.
+    const blocsFuturs = blocsSaison(plan.saisonId).filter(
+      (p) => p.ordreSaison > plan.ordreSaison && p.statut !== "termine"
+    );
+    for (const ancien of blocsFuturs) {
+      const regenere = regenererBlocAvecProfil(ancien, nouveauProfil.performanceRef);
+      const idx = state.plans.findIndex((p) => p.id === regenere.id);
+      state.plans[idx] = regenere;
+      await db.put("plans", regenere);
+    }
+  }
+
+  notify();
+  return plan;
 }
 
 /**

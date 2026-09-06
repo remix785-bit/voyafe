@@ -256,12 +256,17 @@ export async function render(container) {
     el.innerHTML = `<div class="stack">${hist
       .map((h, i) => {
         const aDesBrutes = h.distanceM != null && h.tempsS != null;
+        // Résultat de course réel avec D+ (enregistrerResultatCourse) : affiche
+        // la distance/D+ réellement courus, pas la distance plat-équivalente
+        // utilisée en coulisses pour le calcul du VDOT (h.distanceM/h.tempsS).
+        const distanceAffichee = h.distanceReelleM ?? h.distanceM;
+        const suffixeDenivele = h.deniveleReelM ? ` · D+ ${Math.round(h.deniveleReelM)} m` : "";
         return `
         <div class="row" style="justify-content:space-between; gap:8px;">
           <div>
             <span class="muted">${new Date(h.date).toLocaleDateString("fr-FR")}</span>
             <span class="data" style="margin-left:8px;">${h.vdot.toFixed(1)}</span>
-            ${aDesBrutes ? `<span class="muted" style="margin-left:8px;">(${(h.distanceM / 1000).toFixed(1)} km en ${secondesVersLabel(h.tempsS)})</span>` : ""}
+            ${aDesBrutes ? `<span class="muted" style="margin-left:8px;">(${(distanceAffichee / 1000).toFixed(1)} km${suffixeDenivele} en ${secondesVersLabel(h.tempsS)})</span>` : ""}
           </div>
           <div class="row" style="gap:4px;">
             ${aDesBrutes ? `<button type="button" class="btn btn--sm" data-edit-vdot="${i}" style="padding:2px 8px;" title="Corriger ce test">✎</button>` : ""}

@@ -18,9 +18,15 @@ import {
   ProgressBar,
   attachChartInteractions,
 } from "../components.js";
-import { formatPace, formatDureeCompacte, riegelPredictAjuste, ZONES } from "../../engines/vdot.js";
+import { formatPace, formatDureeCompacte, riegelPredictAjuste, parseDureeLabel, ZONES } from "../../engines/vdot.js";
 import { statsPerformance, barresDistanceHebdo, barresDistanceMensuelle, barresDPlusMensuel, variationPct } from "../../engines/performance.js";
 import { ewmaAcwr } from "../../engines/load.js";
+import { Icon } from "../icons.js";
+
+// Résultats de course "plus tard" (skip) — en mémoire seulement, pour ne pas
+// re-solliciter à chaque rendu du Dashboard pendant la même session, sans
+// pour autant enterrer définitivement la demande (réapparaît au rechargement).
+const resultatsIgnoresSession = new Set();
 
 function joursRestants(dateEcheance) {
   const ms = new Date(dateEcheance) - new Date();
@@ -78,15 +84,24 @@ export async function render(container) {
   const chargeSummary = store.resumeCharge();
   const adaptation = store.evaluerAdaptation();
 
+  // Boucle objectif -> résultat réel -> nouveau profil : dès qu'une échéance
+  // est passée sans résultat saisi, on le demande ici — avant même de savoir
+  // s'il reste un plan actif (le plan concerné peut déjà être 'termine').
+  const planResultatEnAttente =
+    store.coursesEnAttenteDeResultat().find((p) => !resultatsIgnoresSession.has(p.id)) ?? null;
+  const bandeauResultat = planResultatEnAttente ? renderBandeauResultat(planResultatEnAttente) : "";
+
   if (!plan) {
     container.innerHTML = `
       <div class="app-main">
+        ${bandeauResultat}
         <div class="card card--action">
           <h1>Bienvenue</h1>
           <p class="muted">Aucun plan actif. Commence par renseigner ton profil et générer ton premier plan.</p>
           <a class="btn btn--primary" href="#/profil">Créer mon profil &amp; mon plan</a>
         </div>
       </div>`;
+    if (planResultatEnAttente) wireBandeauResultat(container, planResultatEnAttente);
     return;
   }
 
@@ -135,6 +150,8 @@ export async function render(container) {
 
   container.innerHTML = `
     <div class="app-main">
+      ${bandeauResultat}
+
       ${StatStrip(statTiles)}
 
       ${adaptation.propositions.length ? renderPropositions(adaptation) : ""}
@@ -324,6 +341,55 @@ export async function render(container) {
   });
 
   attachChartInteractions(container);
+  if (planResultatEnAttente) wireBandeauResultat(container, planResultatEnAttente);
+}
+
+/**
+ * Bandeau "résultat de course" — ferme la boucle objectif -> résultat réel
+ * -> nouveau profil : sans lui, rien ne demandait jamais le temps
+ * réellement réalisé, l'utilisateur devait aller ajouter un test correctif
+ * à la main dans Profil. Le résultat saisi ici crée directement ce test
+ * (converti en distance plat-équivalente si du D+ était visé) et, pour un
+ * bloc de saison, régénère les blocs suivants pas encore commencés avec la
+ * forme à jour (store.enregistrerResultatCourse).
+ */
+function renderBandeauResultat(plan) {
+  const joursDepuis = Math.floor((Date.now() - new Date(plan.dateEcheance).getTime()) / (24 * 60 * 60 * 1000));
+  return `
+    <div class="card card--action">
+      <div class="card__header">
+        <h1>Résultat de ta course</h1>
+        <span class="jour-j__icon">${Icon("flag")}</span>
+      </div>
+      <p class="muted">${escapeAttr(plan.objectif ?? "Ta course")} — ${new Date(plan.dateEcheance).toLocaleDateString("fr-FR")} (il y a ${joursDepuis} jour${joursDepuis > 1 ? "s" : ""}). Quel temps as-tu réellement réalisé ? Ça met à jour ta forme${plan.saisonId ? " et adapte automatiquement la suite de ta saison" : ""}.</p>
+      <form id="form-resultat-course">
+        <div class="field">
+          <label for="temps-reel-course">Temps réel (hh:mm:ss)</label>
+          <input type="text" id="temps-reel-course" placeholder="ex: 3:32:10" />
+        </div>
+        <div class="row">
+          <button class="btn btn--primary" type="submit">Enregistrer</button>
+          <button class="btn btn--sm" type="button" id="btn-plus-tard-resultat">Plus tard</button>
+        </div>
+      </form>
+    </div>`;
+}
+
+function wireBandeauResultat(container, plan) {
+  container.querySelector("#btn-plus-tard-resultat").addEventListener("click", () => {
+    resultatsIgnoresSession.add(plan.id);
+    render(container);
+  });
+  container.querySelector("#form-resultat-course").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const tempsReelS = parseDureeLabel(container.querySelector("#temps-reel-course").value);
+    if (!tempsReelS) {
+      alert("Renseigne le temps réellement réalisé (hh:mm:ss).");
+      return;
+    }
+    await store.enregistrerResultatCourse(plan.id, { tempsReelS });
+    render(container);
+  });
 }
 
 /**
