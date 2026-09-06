@@ -89,16 +89,34 @@ export async function render(container, params) {
   container.querySelector("#mark-annuler")?.addEventListener("click", () => marquer("a_venir"));
 }
 
+/**
+ * Durée d'une phase de protocole (minutes -> secondes) : milieu de la
+ * fourchette `dureeMin` du catalogue (protocols.js) quand elle existe. Les
+ * phases décrites en répétitions plutôt qu'en durée (ex. "4-6 × 80-100 m")
+ * n'ont pas de dureeMin catalogué — `secoursMin` reste alors une estimation
+ * du minuteur, à défaut d'une durée officielle.
+ */
+function dureeMoyenneSec(phase, secoursMin) {
+  if (phase.dureeMin) return Math.round(((phase.dureeMin[0] + phase.dureeMin[1]) / 2) * 60);
+  return secoursMin * 60;
+}
+
 function wireTimer(container, seance) {
+  // Phases (noms ET durées) dérivées directement du catalogue protocols.js
+  // plutôt que dupliquées en dur ici — auparavant, une durée changée dans le
+  // catalogue (les fourchettes affichées dans les cartes Échauffement/Retour
+  // au calme ci-dessus) ne se répercutait jamais sur le minuteur, qui
+  // gardait ses propres valeurs figées et même des noms de phase différents.
   const phases = [];
   if (seance.protocoleEchauffement) {
-    phases.push({ nom: "Mise en route aérobie", dureeSec: 17 * 60 });
-    phases.push({ nom: "Gammes / éducatifs", dureeSec: 9 * 60 });
-    phases.push({ nom: "Accélérations progressives", dureeSec: 5 * 60 });
+    for (const p of ECHAUFFEMENT_INTENSITE.phases) {
+      phases.push({ nom: p.nom, dureeSec: dureeMoyenneSec(p, 5) });
+    }
   }
   phases.push({ nom: "Corps de séance", dureeSec: Math.round(seance.volumeSeanceMin * 60) });
-  phases.push({ nom: "Footing retour au calme", dureeSec: 12 * 60 });
-  phases.push({ nom: "Mobilité", dureeSec: 6 * 60 });
+  for (const p of RETOUR_AU_CALME.phases) {
+    phases.push({ nom: p.nom, dureeSec: dureeMoyenneSec(p, 6) });
+  }
 
   timer = new TrainingTimer(phases);
   const phaseEl = container.querySelector("#timer-phase");

@@ -28,6 +28,8 @@ import {
   resoudreDistanceAllureTemps,
   coutGapDomaine,
   facteurTechnicite,
+  technicitePourSegment,
+  fusionnerNutritionPacing,
   modeSegment,
   tempsMinSegmentHike,
   allurePlatEquivalenteCible,
@@ -274,6 +276,43 @@ test("facteurTechnicite — chemin roulant = 1.00, technicité croissante = fact
   assert.equal(facteurTechnicite("roulant"), 1.0);
   assert.ok(facteurTechnicite("modere") < facteurTechnicite("technique"));
   assert.ok(facteurTechnicite("technique") < facteurTechnicite("extreme"));
+});
+
+test("technicitePourSegment — valeur globale (chaîne) appliquée telle quelle, comportement historique", () => {
+  const segment = { depart: 5000, fin: 5500 };
+  assert.equal(technicitePourSegment(segment, "technique"), "technique");
+});
+
+test("technicitePourSegment — zone déclarée par l'utilisateur prime sur le défaut si le milieu du segment y tombe", () => {
+  const segment = { depart: 5000, fin: 5500 }; // milieu = 5250
+  const technicite = { defaut: "roulant", zones: [{ debutM: 4000, finM: 6000, type: "extreme" }] };
+  assert.equal(technicitePourSegment(segment, technicite), "extreme");
+});
+
+test("technicitePourSegment — hors de toute zone déclarée, repli sur le défaut", () => {
+  const segment = { depart: 100, fin: 200 };
+  const technicite = { defaut: "modere", zones: [{ debutM: 4000, finM: 6000, type: "extreme" }] };
+  assert.equal(technicitePourSegment(segment, technicite), "modere");
+});
+
+test("fusionnerNutritionPacing — un ravito réel (waypoint GPX) prime sur le rappel générique à intervalle de temps", () => {
+  const segmentsPacing = [
+    { distance: 1000, tempsCumuleMin: 10, allureMinParKm: 10, mode: "run" },
+    { distance: 1000, tempsCumuleMin: 20, allureMinParKm: 10, mode: "run" },
+    { distance: 1000, tempsCumuleMin: 30, allureMinParKm: 10, mode: "run" },
+  ];
+  const ravitosGpx = [{ nom: "Base de vie", distanceCumulee: 1500 }];
+  const timeline = fusionnerNutritionPacing(segmentsPacing, { glucidesGParH: 60, frequenceMin: 15 }, ravitosGpx);
+  assert.ok(timeline[1].actionNutrition.includes("Base de vie"), `attendu le nom du waypoint, obtenu: ${timeline[1].actionNutrition}`);
+});
+
+test("fusionnerNutritionPacing — sans waypoint GPX, repli sur le rappel générique à intervalle de temps (comportement historique)", () => {
+  const segmentsPacing = [
+    { distance: 1000, tempsCumuleMin: 10, allureMinParKm: 10, mode: "run" },
+    { distance: 1000, tempsCumuleMin: 20, allureMinParKm: 10, mode: "run" },
+  ];
+  const timeline = fusionnerNutritionPacing(segmentsPacing, { glucidesGParH: 60, frequenceMin: 15 });
+  assert.ok(timeline[1].actionNutrition?.includes("Ravitaillement"));
 });
 
 test("modeSegment — bascule en marche (hike) au seuil de pente, course (run) en-dessous (§4)", () => {

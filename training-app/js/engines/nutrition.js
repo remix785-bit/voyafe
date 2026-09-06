@@ -70,3 +70,31 @@ export function raceFuelingTargets(dureeCourseMin, type = "route") {
       "Ces apports doivent être individualisés et testés à l'entraînement avant d'être appliqués en course (tolérance digestive).",
   };
 }
+
+/**
+ * Ajuste les besoins hydriques en course selon la température et l'humidité
+ * ambiantes — en parallèle de l'ajustement d'allure déjà existant pour
+ * l'altitude (vdot.js#adjustPaceForAltitude) : les cibles de base
+ * (raceFuelingTargets) sont calibrées pour des conditions tempérées
+ * (~20°C), la sudation augmente ensuite avec la chaleur (et, dans une
+ * moindre mesure, l'humidité qui réduit l'évaporation).
+ * @param {[number,number]} hydratationMlParH plage de base (raceFuelingTargets)
+ * @param {number} temperatureC température ambiante estimée
+ * @param {number} [humiditePct] humidité relative (0-100)
+ */
+export function ajusterHydratationChaleur(hydratationMlParH, temperatureC, humiditePct = 50) {
+  if (temperatureC <= 20) {
+    return { min: hydratationMlParH[0], max: hydratationMlParH[1], majorationPct: 0 };
+  }
+  // +5%/°C au-dessus de 20°C, +0.3%/point d'humidité au-dessus de 60%
+  // (air humide, moins évaporatif) — plafonné à +60% : au-delà, la limite
+  // devient la tolérance digestive/gastrique, pas le manque d'apport.
+  const majorationTemp = (temperatureC - 20) * 0.05;
+  const majorationHumidite = humiditePct > 60 ? (humiditePct - 60) * 0.003 : 0;
+  const majorationPct = Math.min(0.6, majorationTemp + majorationHumidite);
+  return {
+    min: Math.round(hydratationMlParH[0] * (1 + majorationPct)),
+    max: Math.round(hydratationMlParH[1] * (1 + majorationPct)),
+    majorationPct: Math.round(majorationPct * 100),
+  };
+}

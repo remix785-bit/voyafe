@@ -55,6 +55,48 @@ export function parseGpx(gpxText) {
   return points;
 }
 
+/** Point du tracé le plus proche (haversine) d'un lat/lon donné — sa distance
+ * cumulée sert à situer un repère externe (waypoint GPX) le long du parcours. */
+function projeterSurTrace(points, lat, lon) {
+  let meilleurIdx = 0;
+  let meilleureDistance = Infinity;
+  for (let i = 0; i < points.length; i++) {
+    const d = haversineDistanceM(points[i].lat, points[i].lon, lat, lon);
+    if (d < meilleureDistance) {
+      meilleureDistance = d;
+      meilleurIdx = i;
+    }
+  }
+  return points[meilleurIdx].distanceCumulee;
+}
+
+/**
+ * Parse les waypoints <wpt> d'un GPX (ravitos officiels du parcours,
+ * généralement fournis par l'organisateur) et les projette sur le tracé
+ * déjà parsé pour connaître leur distance cumulée — permet de caler les
+ * rappels nutrition sur les VRAIS points de ravitaillement du parcours
+ * plutôt que sur un simple intervalle de temps arbitraire quand le GPX les
+ * fournit (fusionnerNutritionPacing).
+ * @param {string} gpxText
+ * @param {{lat:number, lon:number, distanceCumulee:number}[]} pointsTrace tracé déjà parsé (parseGpx)
+ * @returns {{nom:string|null, distanceCumulee:number}[]} trié par distance croissante
+ */
+export function parseWaypointsGpx(gpxText, pointsTrace) {
+  if (!pointsTrace?.length) return [];
+  const doc = new DOMParser().parseFromString(gpxText, "application/xml");
+  const wptEls = Array.from(doc.getElementsByTagName("wpt"));
+  return wptEls
+    .map((el) => {
+      const lat = parseFloat(el.getAttribute("lat"));
+      const lon = parseFloat(el.getAttribute("lon"));
+      if (Number.isNaN(lat) || Number.isNaN(lon)) return null;
+      const nomEl = el.getElementsByTagName("name")[0];
+      return { nom: nomEl?.textContent?.trim() || null, distanceCumulee: projeterSurTrace(pointsTrace, lat, lon) };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.distanceCumulee - b.distanceCumulee);
+}
+
 /**
  * Lisse l'altitude par moyenne mobile — l'altitude GPS brute est bruitée
  * (±plusieurs mètres), un calcul de pente sans lissage produit des segments
@@ -245,6 +287,24 @@ export function facteurTechnicite(typeTerrain) {
   return FACTEURS_TECHNICITE[typeTerrain] ?? FACTEURS_TECHNICITE.roulant;
 }
 
+/**
+ * Résout la technicité applicable à un segment donné : soit une valeur
+ * globale unique (chaîne, comportement historique — un parcours homogène),
+ * soit `{defaut, zones}` où zones est une liste de portions du parcours
+ * {debutM, finM, type} déclarées par l'utilisateur (cas réel courant : un
+ * passage rocheux ou un pierrier isolé dans un tracé sinon roulant) — le
+ * milieu du segment décide de la zone applicable, repli sur `defaut` hors
+ * de toute zone déclarée.
+ * @param {{depart:number, fin:number}} segment
+ * @param {string|{defaut?:string, zones?:{debutM:number, finM:number, type:string}[]}} technicite
+ */
+export function technicitePourSegment(segment, technicite) {
+  if (typeof technicite === "string") return technicite;
+  const milieu = (segment.depart + segment.fin) / 2;
+  const zone = technicite?.zones?.find((z) => milieu >= z.debutM && milieu < z.finM);
+  return zone?.type ?? technicite?.defaut ?? "roulant";
+}
+
 // ---------------------------------------------------------------------
 // §4 — Seuil de bascule course/marche (power hiking).
 // ---------------------------------------------------------------------
@@ -326,8 +386,8 @@ export function allurePlatEquivalenteCible(distanceKm, dPlusM, tempsObjectifMin)
  * calculé et remonté dans `totals.deltaMin`, pas corrigé rétroactivement
  * (§10/§11 — « le plan de pacing est un guide d'effort, pas un chrono à
  * respecter au segment près »).
- * @param {{distance:number, denivele:number, penteMoyenne:number}[]} segments
- * @param {{flatEquivalentPaceMinKm:number, dplusParHeure:number, seuilMarchePct?:number, technicite?:string, facteurGapCalibre?:number}} runnerProfile
+ * @param {{distance:number, denivele:number, penteMoyenne:number, depart?:number, fin?:number}[]} segments
+ * @param {{flatEquivalentPaceMinKm:number, dplusParHeure:number, seuilMarchePct?:number, technicite?:string|{defaut?:string, zones?:object[]}, facteurGapCalibre?:number}} runnerProfile
  * @param {{tempsCibleSecondes:number}} raceCible
  * @returns {{segments:Array, totals:{predictedTimeMin:number, targetTimeMin:number, deltaMin:number}}}
  */
@@ -339,7 +399,6 @@ export function genererPlanPacing(segments, runnerProfile, raceCible) {
     technicite = "roulant",
     facteurGapCalibre = 1,
   } = runnerProfile;
-  const facteurTech = facteurTechnicite(technicite);
 
   let cumulMin = 0;
   const segmentsPlan = segments.map((s) => {
@@ -349,6 +408,10 @@ export function genererPlanPacing(segments, runnerProfile, raceCible) {
       mode === "hike"
         ? tempsMinSegmentHike(deniveleMontee, dplusParHeure)
         : (s.distance / 1000) * flatEquivalentPaceMinKm * coutGapDomaine(s.penteMoyenne, facteurGapCalibre);
+    // Technicité résolue par segment (portion rocheuse/pierrier isolée dans
+    // un parcours sinon roulant) plutôt qu'un facteur unique appliqué de
+    // façon uniforme à tout le tracé.
+    const facteurTech = facteurTechnicite(technicitePourSegment(s, technicite));
     const tempsSegmentMin = tempsBaseMin * facteurTech;
     cumulMin += tempsSegmentMin;
     return {
@@ -477,17 +540,33 @@ export function agregerPacingParKm(segmentsPlan, distanceTotaleM) {
  * régulier (ex. toutes les 30-40min).
  * @param {Array} segmentsPacing sortie de agregerPacingParKm
  * @param {{glucidesGParH:number, frequenceMin:number}} ravito produit/fréquence choisis par l'utilisateur
+ * @param {{nom:string|null, distanceCumulee:number}[]} [ravitosGpx] waypoints <wpt> du GPX (parseWaypointsGpx), triés par distance
  * @returns {{km:number, tempsCumule:number, allureCible:number, mode:"run"|"hike", actionNutrition:string|null}[]}
  */
-export function fusionnerNutritionPacing(segmentsPacing, ravito) {
+export function fusionnerNutritionPacing(segmentsPacing, ravito, ravitosGpx = []) {
   const timeline = [];
   let kmCumule = 0;
+  let distanceMCumulee = 0;
   let prochainRavitoMin = ravito ? ravito.frequenceMin : Infinity;
+  let prochainWptIdx = 0;
 
   for (const seg of segmentsPacing) {
+    distanceMCumulee += seg.distance;
     kmCumule += seg.distance / 1000;
     let actionNutrition = null;
-    if (ravito && seg.tempsCumuleMin >= prochainRavitoMin) {
+
+    // Un vrai ravito du parcours (waypoint GPX de l'organisateur) prime sur
+    // le simple rappel à intervalle de temps — une position réelle vaut
+    // mieux qu'une estimation, et repousse le prochain rappel générique
+    // pour ne pas re-solliciter juste après.
+    while (prochainWptIdx < ravitosGpx.length && ravitosGpx[prochainWptIdx].distanceCumulee <= distanceMCumulee) {
+      const wpt = ravitosGpx[prochainWptIdx];
+      actionNutrition = `Ravito parcours${wpt.nom ? " : " + wpt.nom : ""} (km ${(wpt.distanceCumulee / 1000).toFixed(1)})`;
+      prochainWptIdx++;
+      if (ravito) prochainRavitoMin = seg.tempsCumuleMin + ravito.frequenceMin;
+    }
+
+    if (!actionNutrition && ravito && seg.tempsCumuleMin >= prochainRavitoMin) {
       actionNutrition = `Ravitaillement : ~${Math.round(
         (ravito.glucidesGParH / 60) * ravito.frequenceMin
       )} g glucides`;
