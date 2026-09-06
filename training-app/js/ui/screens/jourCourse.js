@@ -13,7 +13,7 @@ import {
   detecterAlertesPlan,
 } from "../../engines/pacing.js";
 import { latLonADistance } from "../../engines/geoMap.js";
-import { parseDureeLabel, adjustPaceForAltitude } from "../../engines/vdot.js";
+import { parseDureeLabel, adjustPaceForAltitude, formatDureeCompacte } from "../../engines/vdot.js";
 import { PacingTimeline, ProfilCourseChart, RouteMapFallback, formatDureeHM } from "../components.js";
 
 let profilParcoursCourant = null;
@@ -185,6 +185,14 @@ function initierCarte(container, pointsProfil, timeline) {
 
 export async function render(container) {
   const { profil } = store.getState();
+  // Préremplit depuis l'objectif du plan actif (distance/temps/D+) quand il
+  // en a un — l'app les connaît déjà depuis Profil, pas de raison de les
+  // faire retaper à la main le jour J. Sans objectif chiffré sur le plan
+  // actif, retombe sur les valeurs par défaut historiques (marathon 3h30).
+  const planActif = store.planActif();
+  const aObjectifChiffre = planActif?.distanceObjectifM && planActif?.tempsObjectifS;
+  const distanceDefaut = aObjectifChiffre ? (planActif.distanceObjectifM / 1000).toFixed(3) : "42.195";
+  const tempsDefaut = aObjectifChiffre ? formatDureeCompacte(planActif.tempsObjectifS) : "3:30:00";
 
   container.innerHTML = `
     <div class="app-main">
@@ -196,18 +204,22 @@ export async function render(container) {
           <label class="btn" for="gpx-input" style="cursor:pointer; display:inline-flex;">Choisir un fichier GPX</label>
           <input type="file" id="gpx-input" accept=".gpx" style="display:none;" />
         </div>
-        <p id="gpx-status" class="muted">Aucun GPX importé — profil plat par défaut utilisé (mode dégradé).</p>
+        <p id="gpx-status" class="muted">${
+          aObjectifChiffre
+            ? `Aucun GPX importé — distance, temps${planActif.deniveleM ? " et D+" : ""} préremplis depuis l'objectif de ton plan (${escapeAttr(planActif.objectif ?? "")}), profil ${planActif.deniveleM ? "en montée/descente uniforme" : "plat"} par défaut sinon.`
+            : "Aucun GPX importé — profil plat par défaut utilisé (mode dégradé)."
+        }</p>
       </div>
 
       <div class="card">
         <div class="field-row">
           <div class="field">
             <label for="distance-course">Distance totale (km)</label>
-            <input type="number" id="distance-course" value="42.195" step="0.001" min="1" />
+            <input type="number" id="distance-course" value="${distanceDefaut}" step="0.001" min="1" />
           </div>
           <div class="field">
             <label for="temps-cible">Temps cible (hh:mm:ss)</label>
-            <input type="text" id="temps-cible" value="3:30:00" />
+            <input type="text" id="temps-cible" value="${tempsDefaut}" />
           </div>
         </div>
         <div class="field-row">
@@ -301,8 +313,10 @@ export async function render(container) {
     const frequenceMin = Number(container.querySelector("#ravito-freq").value);
 
     const distanceTotaleM = distanceKm * 1000;
-    const profilParcours = profilParcoursCourant ?? profilParcoursParDefaut(distanceTotaleM);
-    const facteurGapCalibre = store.planActif()?.profilCourant?.facteurGapCalibre ?? 1;
+    // Sans GPX importé, le D+ attendu de l'objectif (Profil) vaut mieux qu'un
+    // profil plat par défaut pour un objectif qui ne l'est pas.
+    const profilParcours = profilParcoursCourant ?? profilParcoursParDefaut(distanceTotaleM, planActif?.deniveleM ?? 0);
+    const facteurGapCalibre = planActif?.profilCourant?.facteurGapCalibre ?? 1;
 
     // §13 : allure plat-équivalente cible, calibrée une fois à partir de
     // l'objectif global (distance + D+/100 en km-équivalent), puis appliquée
@@ -370,4 +384,8 @@ export async function render(container) {
   });
 
   container.querySelector("#print-pacing").addEventListener("click", () => window.print());
+}
+
+function escapeAttr(str) {
+  return String(str ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 }

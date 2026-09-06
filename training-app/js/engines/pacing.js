@@ -174,13 +174,31 @@ export function decouperSegments(pointsLisses, options = {}) {
 
 /**
  * Profil de parcours par défaut (mode dégradé sans GPX importé) : un seul
- * segment plat sur toute la distance.
+ * segment plat sur toute la distance, sauf D+ attendu renseigné (objectif
+ * trail sans GPX importé — Profil connaît déjà le D+ visé) — dans ce cas,
+ * répartit ce D+ en une montée uniforme sur la 1ère moitié de la distance
+ * puis une descente symétrique sur la 2nde, plutôt que d'ignorer une
+ * information déjà connue et de fabriquer une fiche de pacing plate pour un
+ * objectif qui ne l'est pas. Reste une approximation grossière (pas le vrai
+ * profil de la course) tant qu'aucun GPX n'est importé.
  * @param {number} distanceM
+ * @param {number} [deniveleM] D+ total attendu (trail), 0 = comportement antérieur (plat)
  */
-export function profilParcoursParDefaut(distanceM) {
+export function profilParcoursParDefaut(distanceM, deniveleM = 0) {
+  if (!deniveleM) {
+    return {
+      segments: [{ distance: distanceM, denivele: 0, penteMoyenne: 0, depart: 0, fin: distanceM }],
+      source: "plat_par_defaut",
+    };
+  }
+  const moitie = distanceM / 2;
+  const pente = deniveleM / moitie;
   return {
-    segments: [{ distance: distanceM, denivele: 0, penteMoyenne: 0, depart: 0, fin: distanceM }],
-    source: "plat_par_defaut",
+    segments: [
+      { distance: moitie, denivele: deniveleM, penteMoyenne: pente, depart: 0, fin: moitie },
+      { distance: moitie, denivele: -deniveleM, penteMoyenne: -pente, depart: moitie, fin: distanceM },
+    ],
+    source: "denivele_uniforme_par_defaut",
   };
 }
 

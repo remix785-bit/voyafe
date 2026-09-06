@@ -34,6 +34,7 @@ import {
   genererPlanPacing,
   agregerPacingParKm,
   detecterAlertesPlan,
+  profilParcoursParDefaut,
 } from "../js/engines/pacing.js";
 import { evaluerBoucleAdaptative, detecterRetestImplicite } from "../js/engines/adaptiveLoop.js";
 
@@ -290,6 +291,28 @@ test("tempsMinSegmentHike — temps proportionnel au D+ et inversement proportio
 test("allurePlatEquivalenteCible — exemple appliqué du document (§13, Trail de Volvic 45km/1350m D+, objectif 4h30) : ≈4:37/km", () => {
   const allure = allurePlatEquivalenteCible(45, 1350, 270);
   assert.ok(Math.abs(allure - (4 + 37 / 60)) < 0.01, `attendu ~4:37/km (4.6167), obtenu ${allure}`);
+});
+
+test("profilParcoursParDefaut — sans D+, un seul segment plat (comportement antérieur préservé)", () => {
+  const profil = profilParcoursParDefaut(20000);
+  assert.equal(profil.source, "plat_par_defaut");
+  assert.equal(profil.segments.length, 1);
+  assert.equal(profil.segments[0].penteMoyenne, 0);
+});
+
+test("profilParcoursParDefaut — avec D+ renseigné, répartit en montée uniforme (1ère moitié) puis descente symétrique (2nde)", () => {
+  const profil = profilParcoursParDefaut(20000, 1000);
+  assert.equal(profil.source, "denivele_uniforme_par_defaut");
+  assert.equal(profil.segments.length, 2);
+  const [montee, descente] = profil.segments;
+  assert.equal(montee.distance, 10000);
+  assert.equal(montee.denivele, 1000);
+  assert.ok(Math.abs(montee.penteMoyenne - 0.1) < 1e-9);
+  assert.equal(descente.distance, 10000);
+  assert.equal(descente.denivele, -1000);
+  assert.ok(Math.abs(descente.penteMoyenne + 0.1) < 1e-9);
+  // Distance totale et D+ net cohérents avec les inputs.
+  assert.equal(montee.distance + descente.distance, 20000);
 });
 
 test("genererPlanPacing — segment plat (mode course) : temps = distance × allure plat-équivalente (facteur GAP = 1)", () => {
