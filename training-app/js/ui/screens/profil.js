@@ -310,6 +310,7 @@ export async function render(container) {
     const tempsS = labelVersSecondes(container.querySelector("#temps").value);
     const poids = Number(container.querySelector("#poids").value);
     const dispo = Number(container.querySelector("#dispo").value);
+    const referenceAvant = store.getState().profil?.performanceRef;
 
     let updated;
     if (indexEnCorrection != null) {
@@ -319,6 +320,13 @@ export async function render(container) {
     } else {
       updated = await store.enregistrerProfil({ distanceM, tempsS, dateTest: new Date().toISOString() }, poids, dispo);
     }
+    // Un retest (distance/temps réellement changés, pas juste poids/dispo)
+    // met aussi à jour le plan actif et, pour une saison, les blocs à venir —
+    // sans ça, seul un résultat de course déclenchait cette mise à jour, un
+    // retest classique laissait tout sur l'ancienne forme.
+    const performanceChangee =
+      !referenceAvant || referenceAvant.distanceM !== updated.performanceRef.distanceM || referenceAvant.tempsS !== updated.performanceRef.tempsS;
+    if (performanceChangee) await store.appliquerRetestAuPlanActif();
     renderZones(container, updated);
     renderHistory(container, updated);
   });
@@ -510,9 +518,46 @@ function initSaisonForm(container, saisonId, blocsIntermediairesExistants = []) 
         <div class="field"><label>Distance (km)</label><input type="number" step="0.001" min="0" data-int-distance value="${prefill?.distanceObjectifM ? prefill.distanceObjectifM / 1000 : ""}" placeholder="ex: 10" /></div>
         <div class="field"><label>Temps objectif (hh:mm:ss, optionnel)</label><input type="text" data-int-temps value="${prefill?.tempsObjectifS ? secondesVersLabel(prefill.tempsObjectifS) : ""}" /></div>
       </div>
-      <div class="field"><label>Date</label><input type="date" data-int-date value="${prefill?.dateEcheance?.slice(0, 10) ?? ""}" /></div>`;
+      <div class="field"><label>Date</label><input type="date" data-int-date value="${prefill?.dateEcheance?.slice(0, 10) ?? ""}" /></div>
+      <div class="field-row">
+        <div class="field">
+          <label>Priorité de la course</label>
+          <select data-int-priorite>
+            <option value="C" ${!prefill?.priorite || prefill.priorite === "C" ? "selected" : ""}>C — course d'étape (affûtage minimal)</option>
+            <option value="B" ${prefill?.priorite === "B" ? "selected" : ""}>B — course intermédiaire importante</option>
+            <option value="A" ${prefill?.priorite === "A" ? "selected" : ""}>A — aussi importante qu'un objectif final</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Jours de coupure après (optionnel)</label>
+          <input type="number" min="1" data-int-coupure value="${prefill?.joursDeCoupureBrut ?? ""}" placeholder="1 par défaut" />
+        </div>
+      </div>
+      <div class="field">
+        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-weight:normal;">
+          <input type="checkbox" data-int-perso-dispo ${prefill?.joursEntrainementPerso ? "checked" : ""} style="margin:0;" />
+          Jours d'entraînement/charge différents de la saison pour cet objectif
+        </label>
+      </div>
+      <div data-champ-dispo-perso ${prefill?.joursEntrainementPerso ? "" : "hidden"}>
+        <div class="field">
+          <label>Jours d'entraînement (cet objectif)</label>
+          ${renderJoursCheckboxes(prefill?.joursEntrainementPerso ?? joursParDefaut(5), "data-jour-int")}
+        </div>
+        <div class="field">
+          <label>Charge hebdo (cet objectif)</label>
+          <select data-int-charge>
+            <option value="faible" ${prefill?.chargeHebdoMoyenneActuellePerso === "faible" ? "selected" : ""}>Faible</option>
+            <option value="moderee" ${!prefill?.chargeHebdoMoyenneActuellePerso || prefill.chargeHebdoMoyenneActuellePerso === "moderee" ? "selected" : ""}>Modérée</option>
+            <option value="elevee" ${prefill?.chargeHebdoMoyenneActuellePerso === "elevee" ? "selected" : ""}>Élevée</option>
+          </select>
+        </div>
+      </div>`;
     liste.appendChild(div);
     div.querySelector("[data-remove-intermediaire]").addEventListener("click", () => div.remove());
+    div.querySelector("[data-int-perso-dispo]").addEventListener("change", (e) => {
+      div.querySelector("[data-champ-dispo-perso]").hidden = !e.target.checked;
+    });
   }
 
   for (const bloc of blocsIntermediairesExistants) ajouterLigneIntermediaire(bloc);
@@ -577,6 +622,8 @@ function initSaisonForm(container, saisonId, blocsIntermediairesExistants = []) 
       const tempsLabel = row.querySelector("[data-int-temps]").value.trim();
       const discipline = row.querySelector("[data-int-discipline]").value;
       const deniveleM = Number(row.querySelector("[data-int-denivele]").value) || null;
+      const perso = row.querySelector("[data-int-perso-dispo]").checked;
+      const joursCoupure = Number(row.querySelector("[data-int-coupure]").value) || null;
       return {
         nom: row.querySelector("[data-int-nom]").value,
         discipline,
@@ -584,6 +631,12 @@ function initSaisonForm(container, saisonId, blocsIntermediairesExistants = []) 
         distanceM: distanceKm ? distanceKm * 1000 : null,
         tempsS: tempsLabel ? labelVersSecondes(tempsLabel) : null,
         date: date ? new Date(date).toISOString() : null,
+        priorite: row.querySelector("[data-int-priorite]").value,
+        joursDeCoupure: joursCoupure,
+        joursEntrainement: perso
+          ? Array.from(row.querySelectorAll("[data-jour-int]:checked")).map((cb) => Number(cb.value))
+          : null,
+        chargeHebdoMoyenneActuelle: perso ? row.querySelector("[data-int-charge]").value : null,
       };
     });
     if (objectifsIntermediaires.some((o) => !o.date)) {

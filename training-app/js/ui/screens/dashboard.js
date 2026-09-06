@@ -92,16 +92,37 @@ export async function render(container) {
   const bandeauResultat = planResultatEnAttente ? renderBandeauResultat(planResultatEnAttente) : "";
 
   if (!plan) {
+    // Un plan en pause n'est jamais renvoyé par planActif() — sans ce cas
+    // particulier, l'utilisateur qui a mis son plan en pause (blessure...)
+    // retombait sur l'écran "crée ton premier plan", comme s'il n'en avait
+    // jamais eu, alors qu'il veut juste le reprendre.
+    const enPause = store.planEnPause();
+    const termine = !enPause ? store.dernierPlanTermine() : null;
     container.innerHTML = `
       <div class="app-main">
         ${bandeauResultat}
         <div class="card card--action">
-          <h1>Bienvenue</h1>
-          <p class="muted">Aucun plan actif. Commence par renseigner ton profil et générer ton premier plan.</p>
-          <a class="btn btn--primary" href="#/profil">Créer mon profil &amp; mon plan</a>
+          ${
+            enPause
+              ? `<h1>Plan en pause</h1>
+                 <p class="muted">${escapeAttr(enPause.objectif ?? "Ton plan")} est en pause — aucun rappel de séance ne sera envoyé tant qu'il n'est pas repris.</p>
+                 <button class="btn btn--primary" id="btn-reprendre-plan">Reprendre</button>`
+              : termine
+                ? `<h1>Objectif terminé</h1>
+                   <p class="muted">${escapeAttr(termine.objectif ?? "Ton plan")} est terminé. Consulte son bilan ou lance un nouvel objectif.</p>
+                   <a class="btn btn--primary" href="#/plan?planId=${termine.id}">Voir le bilan</a>
+                   <a class="btn btn--secondary" href="#/profil">Créer un nouvel objectif</a>`
+                : `<h1>Bienvenue</h1>
+                   <p class="muted">Aucun plan actif. Commence par renseigner ton profil et générer ton premier plan.</p>
+                   <a class="btn btn--primary" href="#/profil">Créer mon profil &amp; mon plan</a>`
+          }
         </div>
       </div>`;
     if (planResultatEnAttente) wireBandeauResultat(container, planResultatEnAttente);
+    container.querySelector("#btn-reprendre-plan")?.addEventListener("click", async () => {
+      await store.reprendrePlan(enPause.id);
+      render(container);
+    });
     return;
   }
 

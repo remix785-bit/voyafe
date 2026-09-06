@@ -845,6 +845,85 @@ test("genererSaison — accepte plusieurs objectifs intermédiaires (pas seuleme
   }
 });
 
+test("construireMacrocycle — priorite prime sur typeObjectif : A pas de plafond, B 2 semaines, C 1 semaine", () => {
+  const a = construireMacrocycle(16, "elevee", { typeObjectif: "intermediaire", priorite: "A" });
+  const b = construireMacrocycle(16, "elevee", { typeObjectif: "intermediaire", priorite: "B" });
+  const c = construireMacrocycle(16, "elevee", { typeObjectif: "intermediaire", priorite: "C" });
+  assert.equal(a.taper, 3, "priorite A -> aucun plafond, taper suit la charge (élevée -> 3)");
+  assert.equal(b.taper, 2, "priorite B -> plafonné à 2");
+  assert.equal(c.taper, 1, "priorite C -> plafonné à 1, comme l'ancien comportement 'intermediaire'");
+});
+
+test("genererSaison — priorite par objectif intermédiaire (A/B/C) pilote l'affûtage de son propre bloc, indépendamment des autres", () => {
+  const dateDebut = new Date("2026-01-05T00:00:00Z");
+  const objectifFinal = { nom: "Final", discipline: "route", distanceM: 42195, date: new Date(dateDebut.getTime() + 32 * 7 * 24 * 60 * 60 * 1000).toISOString() };
+  const objectifsIntermediaires = [
+    { nom: "Course A", priorite: "A", discipline: "route", distanceM: 21097, date: new Date(dateDebut.getTime() + 10 * 7 * 24 * 60 * 60 * 1000).toISOString() },
+    { nom: "Course C", discipline: "route", distanceM: 10000, date: new Date(dateDebut.getTime() + 20 * 7 * 24 * 60 * 60 * 1000).toISOString() }, // pas de priorite -> "C" par défaut
+  ];
+  const blocs = genererSaison({
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    chargeHebdoMoyenneActuelle: "elevee",
+    objectifFinal,
+    objectifsIntermediaires,
+  });
+  const [blocA, blocC, blocFinal] = blocs;
+  assert.equal(blocA.priorite, "A");
+  assert.equal(blocA.macrocycle.taper, 3, "priorite A -> affûtage complet comme un objectif final");
+  assert.equal(blocC.priorite, "C");
+  assert.equal(blocC.macrocycle.taper, 1, "sans priorite précisée -> C par défaut, affûtage minimal");
+  assert.equal(blocFinal.priorite, "A", "l'objectif final est toujours priorite A");
+});
+
+test("genererSaison — joursDeCoupure permet une pause plus longue que le jour de battement par défaut entre deux blocs", () => {
+  const dateDebut = new Date("2026-01-05T00:00:00Z");
+  const dateInter = new Date(dateDebut.getTime() + 10 * 7 * 24 * 60 * 60 * 1000);
+  const objectifsIntermediaires = [
+    { nom: "10km", discipline: "route", distanceM: 10000, date: dateInter.toISOString(), joursDeCoupure: 14 }, // 2 semaines de coupure
+  ];
+  const objectifFinal = { nom: "Final", discipline: "route", distanceM: 42195, date: new Date(dateInter.getTime() + 20 * 7 * 24 * 60 * 60 * 1000).toISOString() };
+  const blocs = genererSaison({
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    objectifFinal,
+    objectifsIntermediaires,
+  });
+  const [blocInter, blocFinal] = blocs;
+  assert.equal(
+    new Date(blocFinal.dateDebutPlan).getTime() - new Date(blocInter.dateEcheance).getTime(),
+    14 * 24 * 60 * 60 * 1000
+  );
+});
+
+test("genererSaison — chaque objectif peut avoir ses propres jours d'entraînement et sa propre charge, sinon hérite du réglage commun de la saison", () => {
+  const dateDebut = new Date("2026-01-05T00:00:00Z");
+  const objectifFinal = { nom: "Final", discipline: "route", distanceM: 42195, date: new Date(dateDebut.getTime() + 30 * 7 * 24 * 60 * 60 * 1000).toISOString() };
+  const objectifsIntermediaires = [
+    {
+      nom: "10km d'été",
+      discipline: "route",
+      distanceM: 10000,
+      date: new Date(dateDebut.getTime() + 10 * 7 * 24 * 60 * 60 * 1000).toISOString(),
+      joursEntrainement: [1, 2, 3, 4, 5, 6, 7], // plus de dispo l'été
+      chargeHebdoMoyenneActuelle: "elevee",
+    },
+  ];
+  const blocs = genererSaison({
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    joursEntrainement: [1, 3, 5, 7], // réglage commun de la saison
+    chargeHebdoMoyenneActuelle: "moderee",
+    objectifFinal,
+    objectifsIntermediaires,
+  });
+  const [blocEte, blocFinal] = blocs;
+  assert.equal(blocEte.joursEntrainement.length, 7, "le bloc d'été utilise ses propres jours, pas ceux de la saison");
+  assert.equal(blocEte.chargeHebdoMoyenneActuelle, "elevee");
+  assert.equal(blocFinal.joursEntrainement.length, 4, "sans réglage propre, le bloc final hérite du réglage commun de la saison");
+  assert.equal(blocFinal.chargeHebdoMoyenneActuelle, "moderee");
+});
+
 test("genererSemaines — absorbe le reste de semainesDisponibles (floor) dans la fenêtre de la 1ère semaine, sans changer le nombre de semaines par phase", () => {
   const m = construireMacrocycle(15, "moderee"); // 15 semaines pleines
   const semainesSansReste = genererSemaines(m, new Date("2026-09-01T00:00:00Z").toISOString());

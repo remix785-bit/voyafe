@@ -1,5 +1,5 @@
 import * as store from "../../store.js";
-import { WeekStrip, StatStrip, WeekTable, ZoneLegend } from "../components.js";
+import { WeekStrip, SeasonTimeline, StatStrip, WeekTable, ZoneLegend } from "../components.js";
 import { formatPace, riegelPredictAjuste, formatDureeCompacte, evaluerCoherenceObjectif, identifierAxeTravail } from "../../engines/vdot.js";
 import { genererIcs, telechargerIcs } from "../../data/icsExport.js";
 import { Icon } from "../icons.js";
@@ -9,7 +9,27 @@ export async function render(container, params) {
     ? store.getState().plans.find((p) => p.id === params.planId)
     : store.planActif();
   if (!plan) {
-    container.innerHTML = `<div class="app-main"><div class="card"><p class="muted">Aucun plan actif.</p><a class="btn btn--primary" href="#/profil">Créer un plan</a></div></div>`;
+    // Un plan en pause ou un objectif terminé ne sont jamais renvoyés par
+    // planActif() — sans ce cas particulier, l'utilisateur retombait sur un
+    // message générique "Aucun plan actif" sans aucun moyen de reprendre son
+    // plan en pause ni de revoir le bilan d'une saison pourtant achevée.
+    const enPause = store.planEnPause();
+    const termine = !enPause ? store.dernierPlanTermine() : null;
+    container.innerHTML = `<div class="app-main"><div class="card">
+      ${
+        enPause
+          ? `<p class="muted">${escapeAttr(enPause.objectif ?? "Ton plan")} est en pause.</p>
+             <button class="btn btn--primary" id="btn-reprendre-plan-vide">Reprendre</button>`
+          : termine
+            ? `<p class="muted">${escapeAttr(termine.objectif ?? "Ton plan")} est terminé.</p>
+               <a class="btn btn--primary" href="#/plan?planId=${termine.id}">Voir le bilan</a>`
+            : `<p class="muted">Aucun plan actif.</p><a class="btn btn--primary" href="#/profil">Créer un plan</a>`
+      }
+    </div></div>`;
+    container.querySelector("#btn-reprendre-plan-vide")?.addEventListener("click", async () => {
+      await store.reprendrePlan(enPause.id);
+      render(container, params);
+    });
     return;
   }
 
@@ -42,6 +62,7 @@ export async function render(container, params) {
   container.innerHTML = `
     <div class="app-main">
       ${blocsSaison ? renderFeuilleDeRoute(blocsSaison, plan.id) : ""}
+      ${blocsSaison?.length && blocsSaison.every((b) => b.statut === "termine") ? renderBilanSaison(blocsSaison) : ""}
 
       ${StatStrip([
         { label: "Distance", value: `${stats.totalDistance.toFixed(1)} km` },
@@ -56,8 +77,15 @@ export async function render(container, params) {
           <div class="row">
             <button class="btn btn--sm" id="export-ics">Exporter en .ics</button>
             ${plan.statut === "actif" || !plan.saisonId ? `<a class="btn btn--sm" href="#/profil">Modifier</a>` : ""}
+            ${plan.statut === "actif" ? `<button class="btn btn--sm" id="btn-pause-plan">Mettre en pause</button>` : ""}
+            ${plan.statut === "en_pause" ? `<button class="btn btn--sm btn--primary" id="btn-reprendre-plan">Reprendre</button>` : ""}
           </div>
         </div>
+        ${
+          plan.statut === "en_pause"
+            ? `<p class="badge-warning">Plan en pause — aucun rappel de séance ne sera envoyé tant qu'il n'est pas repris.</p>`
+            : ""
+        }
         <p class="muted">${escapeAttr(plan.objectif ?? "")} — échéance ${new Date(plan.dateEcheance).toLocaleDateString("fr-FR")}${plan.roleSaison === "intermediaire" ? " · objectif intermédiaire" : plan.roleSaison === "finale" ? " · objectif final de la saison" : ""}</p>
         ${plan.distanceObjectifM && plan.tempsObjectifS ? `<p class="row"><span class="data">${(plan.distanceObjectifM / 1000).toFixed(1)} km</span><span class="muted">en</span><span class="data">${secondesVersLabel(plan.tempsObjectifS)}</span><span class="muted">— allure objectif</span><span class="data">${formatPace(plan.objectifPaceMinParKm)}</span></p>` : ""}
         ${plan.deniveleM ? `<p class="muted">D+ <span class="data">${Math.round(plan.deniveleM)} m</span></p>` : ""}
@@ -96,6 +124,16 @@ export async function render(container, params) {
     telechargerIcs(ics, `voyafe-training-${plan.discipline}-${plan.id}.ics`);
   });
 
+  container.querySelector("#btn-pause-plan")?.addEventListener("click", async () => {
+    if (!confirm("Mettre ce plan en pause ? Plus aucun rappel de séance ne sera envoyé tant qu'il n'est pas repris.")) return;
+    await store.mettreEnPause(plan.id);
+    render(container, params);
+  });
+  container.querySelector("#btn-reprendre-plan")?.addEventListener("click", async () => {
+    await store.reprendrePlan(plan.id);
+    render(container, params);
+  });
+
   container.querySelector("#week-prev")?.addEventListener("click", () => {
     location.hash = `#/plan?semaine=${plan.semaines[idx - 1].numero}&planId=${plan.id}`;
   });
@@ -128,6 +166,7 @@ function renderFeuilleDeRoute(blocs, planCourantId) {
   return `
     <div class="card">
       <h2>Feuille de route de la saison</h2>
+      ${SeasonTimeline(blocs)}
       <div class="stack">
         ${blocs
           .map((b) => {
@@ -138,6 +177,7 @@ function renderFeuilleDeRoute(blocs, planCourantId) {
                 <span class="data" style="margin-right:8px;">${b.ordreSaison}/${blocs.length}</span>
                 <span>${escapeAttr(b.objectif || (b.roleSaison === "finale" ? "Objectif final" : "Objectif intermédiaire"))}</span>
                 ${b.roleSaison === "finale" ? `<span class="zone-badge" style="margin-left:6px;">final</span>` : ""}
+                ${b.priorite && b.priorite !== "C" ? `<span class="zone-badge" style="margin-left:6px;">${b.priorite}</span>` : ""}
               </div>
               <div class="row" style="gap:8px;">
                 <span class="muted">${new Date(b.dateEcheance).toLocaleDateString("fr-FR")}</span>
@@ -147,6 +187,38 @@ function renderFeuilleDeRoute(blocs, planCourantId) {
           })
           .join("")}
       </div>
+    </div>`;
+}
+
+/**
+ * Bilan de fin de saison — une fois tous les blocs terminés, rien ne
+ * résumait "tu visais X, tu as fait Y" sur l'ensemble des objectifs de la
+ * saison ; seul le résultat de chaque course restait visible bloc par bloc.
+ */
+function renderBilanSaison(blocs) {
+  const lignes = blocs.map((b) => {
+    const cible =
+      b.distanceObjectifM && b.tempsObjectifS
+        ? `${(b.distanceObjectifM / 1000).toFixed(1)} km en ${secondesVersLabel(b.tempsObjectifS)}`
+        : "objectif non chiffré";
+    if (!b.resultatReel) {
+      return `<div class="row" style="justify-content:space-between;">
+        <span>${escapeAttr(b.objectif ?? "")}</span>
+        <span class="muted">visé ${cible} — résultat non renseigné</span>
+      </div>`;
+    }
+    const reel = `${(b.resultatReel.distanceReelleM / 1000).toFixed(1)} km en ${secondesVersLabel(b.resultatReel.tempsS)}`;
+    const ecartS = b.tempsObjectifS ? b.resultatReel.tempsS - b.tempsObjectifS : null;
+    const ecartLabel = ecartS != null ? ` (${ecartS >= 0 ? "+" : "−"}${secondesVersLabel(Math.abs(ecartS))})` : "";
+    return `<div class="row" style="justify-content:space-between;">
+      <span>${escapeAttr(b.objectif ?? "")}</span>
+      <span class="muted">visé ${cible} — réel <span class="data">${reel}</span>${ecartLabel}</span>
+    </div>`;
+  });
+  return `
+    <div class="card">
+      <h2>Bilan de la saison</h2>
+      <div class="stack">${lignes.join("")}</div>
     </div>`;
 }
 

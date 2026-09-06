@@ -214,6 +214,57 @@ export function planActif() {
   return state.plans.find((p) => p.statut === "actif") ?? null;
 }
 
+/** Plan en pause (blessure, coupure...), s'il y en a un — jamais renvoyé par planActif(). */
+export function planEnPause() {
+  return state.plans.find((p) => p.statut === "en_pause") ?? null;
+}
+
+/**
+ * Dernier plan terminé (le plus récent par échéance), pour garder un accès
+ * à son bilan une fois qu'il n'y a plus aucun plan actif ni en pause — sans
+ * ça, une saison entièrement terminée devenait invisible (planActif()
+ * renvoie null, écran "Bienvenue" comme si l'utilisateur n'avait jamais eu
+ * de plan).
+ */
+export function dernierPlanTermine() {
+  const termines = state.plans.filter((p) => p.statut === "termine");
+  if (!termines.length) return null;
+  return termines.sort((a, b) => new Date(b.dateEcheance) - new Date(a.dateEcheance))[0];
+}
+
+/**
+ * Met un plan en pause (blessure, coupure imprévue...) — jusqu'ici, seules
+ * les décharges automatiques du générateur existaient ; rien ne permettait
+ * d'interrompre volontairement l'entraînement sans pour autant abandonner
+ * le plan (le supprimer) ni le laisser dériver hors de son échéance. Un
+ * plan en pause ne reçoit plus de rappel de séance (reminder.js filtre déjà
+ * sur statut === 'actif') et n'est plus renvoyé par planActif().
+ */
+export async function mettreEnPause(planId) {
+  const plan = state.plans.find((p) => p.id === planId);
+  if (!plan) throw new Error("Plan introuvable.");
+  plan.statut = "en_pause";
+  await db.put("plans", plan);
+  notify();
+  return plan;
+}
+
+/**
+ * Reprend un plan en pause. S'il existe déjà un autre plan actif entre
+ * temps, celui repris repasse 'en_attente' plutôt que de créer deux plans
+ * actifs à la fois — l'utilisateur peut alors le réactiver lui-même une
+ * fois l'autre terminé.
+ */
+export async function reprendrePlan(planId) {
+  const plan = state.plans.find((p) => p.id === planId);
+  if (!plan) throw new Error("Plan introuvable.");
+  const autreActif = state.plans.some((p) => p.id !== planId && p.statut === "actif");
+  plan.statut = autreActif ? "en_attente" : "actif";
+  await db.put("plans", plan);
+  notify();
+  return plan;
+}
+
 /**
  * Enregistre le profil (performance de référence, poids, disponibilité).
  * Journalise un nouveau point d'historique VDOT quand la performance de
@@ -491,7 +542,10 @@ function regenererBlocAvecProfil(ancienBloc, performanceRef) {
     deniveleM: ancienBloc.deniveleM,
     volumeHebdoMaxMin: ancienBloc.volumeHebdoMaxMin,
     facteurGapCalibre: ancienBloc.profilCourant?.facteurGapCalibre ?? 1,
-    typeObjectif: ancienBloc.roleSaison === "finale" ? "finale" : "intermediaire",
+    // Un plan standalone (roleSaison indéfini, hors saison) doit garder son
+    // affûtage complet — seul un bloc explicitement "intermediaire" est réduit.
+    typeObjectif: ancienBloc.roleSaison === "intermediaire" ? "intermediaire" : "finale",
+    priorite: ancienBloc.priorite,
   };
   const nouveau = genererPlanComplet(inputs);
   nouveau.id = ancienBloc.id;
@@ -500,6 +554,7 @@ function regenererBlocAvecProfil(ancienBloc, performanceRef) {
   nouveau.dateEcheance = ancienBloc.dateEcheance;
   nouveau.saisonId = ancienBloc.saisonId;
   nouveau.roleSaison = ancienBloc.roleSaison;
+  nouveau.priorite = ancienBloc.priorite;
   nouveau.ordreSaison = ancienBloc.ordreSaison;
   nouveau.statut = ancienBloc.statut;
 
@@ -521,6 +576,49 @@ function regenererBlocAvecProfil(ancienBloc, performanceRef) {
   nouveau.creeLe = ancienBloc.creeLe;
   nouveau.modifieLe = new Date().toISOString();
   return nouveau;
+}
+
+/**
+ * Régénère les blocs d'une saison qui suivent `apartirOrdre` (pas encore
+ * terminés — 'actif' inclus, avancerSaisons() a pu déjà promouvoir le
+ * suivant) avec un profilCourant à jour. Partagé par enregistrerResultatCourse
+ * (résultat de course réelle) ET enregistrerProfil (un simple retest hors
+ * course, saisi à la main dans Profil, doit profiter de la même mise à jour
+ * en cascade — jusqu'ici seul un résultat de course déclenchait la
+ * régénération, un retest classique laissait les blocs à venir sur l'ancienne
+ * forme sans rien de plus qu'un avertissement passif).
+ */
+async function regenererBlocsSaisonSuivants(saisonId, apartirOrdre, performanceRef) {
+  const blocsFuturs = blocsSaison(saisonId).filter((p) => p.ordreSaison > apartirOrdre && p.statut !== "termine");
+  for (const ancien of blocsFuturs) {
+    const regenere = regenererBlocAvecProfil(ancien, performanceRef);
+    const idx = state.plans.findIndex((p) => p.id === regenere.id);
+    state.plans[idx] = regenere;
+    await db.put("plans", regenere);
+  }
+}
+
+/**
+ * Applique un retest ad-hoc (saisi à la main dans Profil, hors résultat de
+ * course) au plan actif avec le profil courant — standalone (régénéré
+ * directement) ou bloc de saison (cascade sur les blocs à venir, comme
+ * enregistrerResultatCourse). Jusqu'ici seul un résultat de course
+ * déclenchait cette mise à jour ; un simple retest laissait le plan actif
+ * sur l'ancienne forme, avec pour seul signal un avertissement passif
+ * ("mets à jour le plan" sur Dashboard/Plan). Silencieux si aucun plan actif.
+ */
+export async function appliquerRetestAuPlanActif() {
+  const actif = planActif();
+  if (!actif || !state.profil) return;
+  if (actif.saisonId) {
+    await regenererBlocsSaisonSuivants(actif.saisonId, actif.ordreSaison - 1, state.profil.performanceRef);
+  } else {
+    const regenere = regenererBlocAvecProfil(actif, state.profil.performanceRef);
+    const idx = state.plans.findIndex((p) => p.id === regenere.id);
+    state.plans[idx] = regenere;
+    await db.put("plans", regenere);
+  }
+  notify();
 }
 
 /**
@@ -567,17 +665,7 @@ export async function enregistrerResultatCourse(planId, { tempsReelS, distanceRe
   await db.put("plans", plan);
 
   if (plan.saisonId) {
-    // 'actif' inclus : avancerSaisons() peut avoir déjà promu le bloc suivant
-    // si le résultat est saisi quelques jours après l'échéance du précédent.
-    const blocsFuturs = blocsSaison(plan.saisonId).filter(
-      (p) => p.ordreSaison > plan.ordreSaison && p.statut !== "termine"
-    );
-    for (const ancien of blocsFuturs) {
-      const regenere = regenererBlocAvecProfil(ancien, nouveauProfil.performanceRef);
-      const idx = state.plans.findIndex((p) => p.id === regenere.id);
-      state.plans[idx] = regenere;
-      await db.put("plans", regenere);
-    }
+    await regenererBlocsSaisonSuivants(plan.saisonId, plan.ordreSaison, nouveauProfil.performanceRef);
   }
 
   notify();

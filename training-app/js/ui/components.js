@@ -682,6 +682,49 @@ export function WeekStrip(semaines, semaineActuelleNumero) {
 }
 
 /**
+ * Timeline de saison — même code couleur que WeekStrip (base/développement/
+ * affûtage), mais étendue à PLUSIEURS blocs enchaînés (Partie II §9 étendue) :
+ * la feuille de route de la saison n'était jusqu'ici qu'une liste de blocs
+ * avec dates/statut, sans aucune vue d'ensemble des phases sur l'année.
+ * Chaque bloc reçoit une largeur proportionnelle à son nombre de semaines
+ * (flex-grow), chaque phase à l'intérieur du bloc de même — un bloc de 6
+ * semaines occupe donc moins de place qu'un bloc de 20 semaines.
+ * @param {Array<{semaines:Array, macrocycle:object, objectif?:string, roleSaison?:string}>} blocs
+ */
+export function SeasonTimeline(blocs) {
+  const blocsHtml = blocs
+    .map((b) => {
+      const { base = 0, developpement = 0, taper = 0 } = b.macrocycle ?? {};
+      const nom = escapeHtml(b.objectif || (b.roleSaison === "finale" ? "Objectif final" : "Objectif intermédiaire"));
+      const segs = [
+        base ? `<div class="season-timeline__seg season-timeline__seg--base" style="flex:${base};" title="${nom} — Base (${base} sem.)"></div>` : "",
+        developpement
+          ? `<div class="season-timeline__seg season-timeline__seg--developpement" style="flex:${developpement};" title="${nom} — Développement (${developpement} sem.)"></div>`
+          : "",
+        taper ? `<div class="season-timeline__seg season-timeline__seg--taper" style="flex:${taper};" title="${nom} — Affûtage (${taper} sem.)"></div>` : "",
+      ].join("");
+      const largeur = Math.max(b.semaines?.length ?? 1, 1);
+      return `<div class="season-timeline__bloc" style="flex:${largeur};" title="${nom}">${segs}</div>`;
+    })
+    .join("");
+  const labelsHtml = blocs
+    .map((b) => {
+      const largeur = Math.max(b.semaines?.length ?? 1, 1);
+      const nom = escapeHtml(b.objectif || (b.roleSaison === "finale" ? "Final" : "Intermédiaire"));
+      return `<div class="season-timeline__label" style="flex:${largeur};">${nom}</div>`;
+    })
+    .join("");
+  return `
+    <div class="season-timeline">${blocsHtml}</div>
+    <div class="season-timeline__labels">${labelsHtml}</div>
+    <div class="week-strip__legend" style="margin-top:6px;">
+      <span class="leg-base">Base</span>
+      <span class="leg-dev">Développement</span>
+      <span class="leg-taper">Affûtage</span>
+    </div>`;
+}
+
+/**
  * Formate une fourchette d'allure "rapide – cible" (ex: "4:41/km – 5:09/km").
  * Retombe sur la seule allure cible si la borne rapide n'est pas disponible.
  */

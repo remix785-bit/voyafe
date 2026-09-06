@@ -87,24 +87,33 @@ export function assignerDatesSeances(dateDebutSemaineISO, nbSeances, joursEntrai
 
 export const SEUIL_PLAN_COURT_SEMAINES = 6; // Point ouvert Partie II §10.1 — tranché ici par défaut
 
+/** Plafond d'affûtage (semaines) par priorité de course (Saison — Partie II §9
+ * étendue) : A = course qui compte autant qu'un objectif final (pas de
+ * plafond, l'affûtage suit la charge comme d'habitude), B = course
+ * intermédiaire importante (2 semaines max), C = course d'étape/entraînement
+ * déguisé (1 semaine max, ne doit quasiment pas interrompre la progression).
+ */
+const PLAFOND_TAPER_PAR_PRIORITE = { A: Infinity, B: 2, C: 1 };
+
 /**
  * @param {number} semainesDispo
  * @param {"faible"|"moderee"|"elevee"} chargeHebdoMoyenneActuelle
- * @param {{typeObjectif?:"finale"|"intermediaire"}} options `typeObjectif:"intermediaire"`
- *   (Saison — Partie II §9 étendue) plafonne l'affûtage à 1 semaine : une course
- *   d'étape qui sert un objectif final plus lointain ne doit pas interrompre la
- *   progression de charge comme le ferait l'affûtage complet d'un objectif final.
+ * @param {{typeObjectif?:"finale"|"intermediaire", priorite?:"A"|"B"|"C"}} options
+ *   `priorite` prime sur `typeObjectif` quand fourni (course A/B/C, cf. PLAFOND_TAPER_PAR_PRIORITE) ;
+ *   sans elle, `typeObjectif:"intermediaire"` retombe sur l'ancien plafond fixe à 1 semaine
+ *   (comportement antérieur préservé pour les appels qui ne connaissent pas encore la priorité).
  */
 export function construireMacrocycle(semainesDispo, chargeHebdoMoyenneActuelle = "moderee", options = {}) {
-  const { typeObjectif = "finale" } = options;
+  const { typeObjectif = "finale", priorite } = options;
   if (semainesDispo < SEUIL_PLAN_COURT_SEMAINES) {
-    return construirePlanCourt(semainesDispo, typeObjectif);
+    return construirePlanCourt(semainesDispo, typeObjectif, priorite);
   }
 
   let taperSemaines = 2;
   if (chargeHebdoMoyenneActuelle === "elevee") taperSemaines = 3;
   if (chargeHebdoMoyenneActuelle === "faible") taperSemaines = 1;
-  if (typeObjectif === "intermediaire") taperSemaines = Math.min(taperSemaines, 1);
+  const plafond = priorite ? PLAFOND_TAPER_PAR_PRIORITE[priorite] : typeObjectif === "intermediaire" ? 1 : Infinity;
+  taperSemaines = Math.min(taperSemaines, plafond);
 
   const semainesRestantes = semainesDispo - taperSemaines;
   const semainesBase = Math.round(semainesRestantes * 0.53);
@@ -122,9 +131,10 @@ export function construireMacrocycle(semainesDispo, chargeHebdoMoyenneActuelle =
  * Garde-fou plan court (<6 semaines) : pas de vraie phase Base, focus
  * maintien + affûtage (Partie II §9, point ouvert 1 — résolu par défaut ainsi).
  */
-function construirePlanCourt(semainesDispo, typeObjectif = "finale") {
+function construirePlanCourt(semainesDispo, typeObjectif = "finale", priorite) {
   let taperSemaines = semainesDispo <= 3 ? 1 : 2;
-  if (typeObjectif === "intermediaire") taperSemaines = Math.min(taperSemaines, 1);
+  const plafond = priorite ? PLAFOND_TAPER_PAR_PRIORITE[priorite] : typeObjectif === "intermediaire" ? 1 : Infinity;
+  taperSemaines = Math.min(taperSemaines, plafond);
   const developpement = Math.max(semainesDispo - taperSemaines, 0);
   return { mode: "court", base: 0, developpement, taper: taperSemaines };
 }
@@ -587,6 +597,7 @@ export function genererPlanComplet(inputs) {
   const semDispo = semainesDisponibles(inputs.dateEcheance, dateDebutPlan);
   const macrocycle = construireMacrocycle(semDispo, inputs.chargeHebdoMoyenneActuelle ?? "moderee", {
     typeObjectif: inputs.typeObjectif ?? "finale",
+    priorite: inputs.priorite,
   });
   // semDispo tronque à un nombre entier de semaines (floor) — le reste (0-6
   // jours) est absorbé dans la fenêtre de la 1ère semaine (genererSemaines)
@@ -690,6 +701,7 @@ export function genererPlanComplet(inputs) {
     volumeHebdoMaxMin: inputs.volumeHebdoMaxMin ?? null,
     chargeHebdoMoyenneActuelle: inputs.chargeHebdoMoyenneActuelle ?? "moderee",
     typeObjectif: inputs.typeObjectif ?? "finale",
+    priorite: inputs.priorite ?? null,
     statut: "en_attente",
   };
 }
@@ -727,9 +739,13 @@ export function genererSaison(inputs) {
   const intermediairesTries = [...objectifsIntermediaires].sort(
     (a, b) => new Date(a.date) - new Date(b.date)
   );
+  // priorite ("A"|"B"|"C", cf. PLAFOND_TAPER_PAR_PRIORITE) : une course
+  // intermédiaire aussi importante qu'un objectif final (A) garde un
+  // affûtage complet ; par défaut (C), c'est une course d'étape à
+  // affûtage minimal. L'objectif final est toujours "A".
   const blocsObjectifs = [
-    ...intermediairesTries.map((o) => ({ ...o, role: "intermediaire" })),
-    { ...objectifFinal, role: "finale" },
+    ...intermediairesTries.map((o) => ({ ...o, role: "intermediaire", priorite: o.priorite || "C" })),
+    { ...objectifFinal, role: "finale", priorite: "A" },
   ];
 
   let dateDebutCourante = profilCommun.dateDebut ?? new Date().toISOString();
@@ -753,6 +769,9 @@ export function genererSaison(inputs) {
       deniveleM: discipline === "trail" ? objectif.deniveleM ?? null : null,
       objectif: objectif.nom || profilCommun.objectif || null,
       typeObjectif: objectif.role,
+      priorite: objectif.priorite,
+      joursEntrainement: objectif.joursEntrainement ?? profilCommun.joursEntrainement,
+      chargeHebdoMoyenneActuelle: objectif.chargeHebdoMoyenneActuelle ?? profilCommun.chargeHebdoMoyenneActuelle,
     });
     // genererPlanComplet ne pose pas discipline/objectif/dateEcheance sur le
     // plan lui-même (habituellement posés par store.creerPlan) — nécessaires
@@ -761,12 +780,24 @@ export function genererSaison(inputs) {
     plan.objectif = objectif.nom || profilCommun.objectif || null;
     plan.dateEcheance = objectif.date;
     plan.roleSaison = objectif.role;
+    plan.priorite = objectif.priorite;
     plan.ordreSaison = i + 1;
+    // Marque explicitement une personnalisation par objectif (distincte d'un
+    // héritage du réglage commun de la saison) — sans ça, impossible de
+    // savoir, en relisant le plan généré, si joursEntrainement/
+    // chargeHebdoMoyenneActuelle viennent de cet objectif ou du réglage
+    // partagé (les deux produisent le même champ une fois résolus).
+    plan.joursEntrainementPerso = objectif.joursEntrainement ?? null;
+    plan.chargeHebdoMoyenneActuellePerso = objectif.chargeHebdoMoyenneActuelle ?? null;
+    plan.joursDeCoupureBrut = objectif.joursDeCoupure ?? null;
     plans.push(plan);
 
-    // Le bloc suivant démarre le lendemain de cette course (le taper réduit
-    // des intermédiaires laisse un jour de récupération avant de relancer).
-    dateDebutCourante = new Date(new Date(objectif.date).getTime() + JOUR_MS).toISOString();
+    // Le bloc suivant démarre le lendemain de cette course par défaut (le
+    // taper réduit des intermédiaires laisse un jour de récupération avant
+    // de relancer) — sauf coupure explicite plus longue demandée sur cet
+    // objectif (joursDeCoupure : vacances, pause volontaire entre deux blocs).
+    const joursCoupure = objectif.joursDeCoupure > 0 ? objectif.joursDeCoupure : 1;
+    dateDebutCourante = new Date(new Date(objectif.date).getTime() + joursCoupure * JOUR_MS).toISOString();
   }
 
   return plans;
