@@ -1,7 +1,7 @@
 import * as store from "../../store.js";
 import { vdotFromPerformance, paceZonesForVdot, formatPace, riegelPredictAjuste, formatDureeCompacte, evaluerCoherenceObjectif, identifierAxeTravail } from "../../engines/vdot.js";
 import { calculerAllureObjectif, semainesDisponibles } from "../../engines/planGenerator.js";
-import { SegmentedControl, attachSegmentedControl } from "../components.js";
+import { SegmentedControl, attachSegmentedControl, confirmerAction, afficherToast } from "../components.js";
 
 export async function render(container) {
   const { profil } = store.getState();
@@ -68,7 +68,9 @@ export async function render(container) {
 
         <div class="screen-segment active" data-segment-panel="simple" style="margin-top:16px;">
         ${planExistant ? `<p class="muted">Change la distance, le temps objectif ou l'échéance puis mets à jour — les séances déjà réalisées/manquées restent enregistrées.</p>` : ""}
+        <p class="badge-warning" id="profil-manquant-note" ${profil ? "hidden" : ""}>Renseigne d'abord ta performance de référence ci-dessus pour pouvoir générer un plan.</p>
         <form id="form-plan">
+          <h3>Objectif</h3>
           <div class="field">
             <label for="discipline">Discipline</label>
             <select id="discipline">
@@ -82,25 +84,28 @@ export async function render(container) {
           </div>
           <p class="muted" style="margin-top:-8px;">Ajuste le modèle théorique (Minetti) à ta sensibilité réelle aux pentes. 1.0 = modèle standard ; augmente si tu ralentis plus que prévu en montée/descente technique, diminue si tu t'en sors mieux que prévu. Sans effet en route.</p>
           <div class="field">
-            <label for="objectif">Objectif (libellé)</label>
+            <label for="objectif">Objectif (libellé, optionnel)</label>
             <input type="text" id="objectif" value="${escapeAttr(planExistant?.objectif ?? "")}" placeholder="ex: Marathon de Paris sub-3h30" />
           </div>
           <div class="field-row">
             <div class="field">
-              <label for="distance-objectif">Distance de la course (km)</label>
+              <label for="distance-objectif">Distance de la course (km, optionnel)</label>
               <input type="number" id="distance-objectif" step="0.001" min="0" value="${planExistant?.distanceObjectifM ? planExistant.distanceObjectifM / 1000 : ""}" placeholder="ex: 42.195" />
             </div>
             <div class="field">
-              <label for="temps-objectif">Temps objectif (hh:mm:ss)</label>
+              <label for="temps-objectif">Temps objectif (hh:mm:ss, optionnel)</label>
               <input type="text" id="temps-objectif" value="${planExistant?.tempsObjectifS ? secondesVersLabel(planExistant.tempsObjectifS) : ""}" placeholder="ex: 3:30:00" />
             </div>
           </div>
           <div class="field" id="champ-denivele-objectif" ${planExistant?.discipline === "trail" ? "" : "hidden"}>
-            <label for="denivele-objectif">D+ de la course (m, trail)</label>
+            <label for="denivele-objectif">D+ de la course (m, trail, optionnel)</label>
             <input type="number" id="denivele-objectif" min="0" value="${planExistant?.deniveleM ?? ""}" placeholder="ex: 2500" />
           </div>
           <p class="muted data" id="allure-objectif-preview"></p>
           <p class="muted" id="coherence-objectif-preview"></p>
+
+          <div class="contour-divider"></div>
+          <h3>Planning</h3>
           <div class="field-row">
             <div class="field">
               <label for="debut-plan">Date de début du plan</label>
@@ -108,7 +113,7 @@ export async function render(container) {
             </div>
             <div class="field">
               <label for="echeance">Date de la course</label>
-              <input type="date" id="echeance" value="${planExistant?.dateEcheance ? planExistant.dateEcheance.slice(0, 10) : ""}" />
+              <input type="date" id="echeance" required value="${planExistant?.dateEcheance ? planExistant.dateEcheance.slice(0, 10) : ""}" />
             </div>
           </div>
           <div class="field">
@@ -116,6 +121,8 @@ export async function render(container) {
             ${renderJoursCheckboxes(planExistant?.joursEntrainement ?? joursParDefaut(profil?.disponibiliteHebdo ?? 5))}
             <p class="muted" id="jours-count" style="margin-top:4px;"></p>
           </div>
+          <div class="contour-divider"></div>
+          <h3>Charge &amp; disponibilité</h3>
           <div class="field-row">
             <div class="field">
               <label for="charge">Charge hebdo actuelle</label>
@@ -132,7 +139,7 @@ export async function render(container) {
           </div>
           <p class="muted" style="margin-top:-8px;">Temps total dispo par semaine, toutes séances confondues — le plan réduit proportionnellement les séances pour rester dans ce budget plutôt que d'en supprimer.</p>
           <div class="row">
-            <button class="btn btn--primary" type="submit">${planExistant ? "Mettre à jour le plan" : "Générer le plan"}</button>
+            <button class="btn btn--primary" type="submit" id="submit-plan" ${profil ? "" : "disabled"}>${planExistant ? "Mettre à jour le plan" : "Générer le plan"}</button>
             ${planExistant ? `<button class="btn btn--sm" type="button" id="btn-nouveau-plan">Créer un nouveau plan à la place</button>` : ""}
           </div>
         </form>
@@ -141,6 +148,7 @@ export async function render(container) {
         <div class="screen-segment" data-segment-panel="saison" style="margin-top:16px;">
           <p class="muted">Structure ta saison quasi sur l'année : un objectif final (ta course cible) et, si besoin, des objectifs intermédiaires (courses d'étape) — chacun reçoit son propre bloc de plan, affûté à sa mesure, chaîné du début de saison jusqu'à l'objectif final pour que les courses intermédiaires servent la progression plutôt que de la casser.</p>
           ${blocFinalExistant ? `<p class="muted">Modifie n'importe quel champ puis mets à jour — les séances déjà réalisées/manquées restent enregistrées, bloc par bloc.</p>` : ""}
+          <p class="badge-warning" id="s-profil-manquant-note" ${profil ? "hidden" : ""}>Renseigne d'abord ta performance de référence ci-dessus pour pouvoir générer une saison.</p>
           <form id="form-saison">
             <div class="field">
               <label for="s-gap-calibre">Calibration GAP (trail, optionnel)</label>
@@ -155,7 +163,7 @@ export async function render(container) {
             <div class="contour-divider"></div>
             <h3>Objectif final</h3>
             <div class="field">
-              <label for="s-final-nom">Nom</label>
+              <label for="s-final-nom">Nom (optionnel)</label>
               <input type="text" id="s-final-nom" value="${escapeAttr(blocFinalExistant?.objectif ?? "")}" placeholder="ex: Marathon de Paris" />
             </div>
             <div class="field-row">
@@ -167,13 +175,13 @@ export async function render(container) {
                 </select>
               </div>
               <div class="field" data-champ-denivele ${blocFinalExistant?.discipline === "trail" ? "" : "hidden"}>
-                <label for="s-final-denivele">D+ de la course (m)</label>
+                <label for="s-final-denivele">D+ de la course (m, optionnel)</label>
                 <input type="number" id="s-final-denivele" min="0" value="${blocFinalExistant?.deniveleM ?? ""}" placeholder="ex: 2500" />
               </div>
             </div>
             <div class="field-row">
               <div class="field">
-                <label for="s-final-distance">Distance (km)</label>
+                <label for="s-final-distance">Distance (km, optionnel)</label>
                 <input type="number" id="s-final-distance" step="0.001" min="0" value="${blocFinalExistant?.distanceObjectifM ? blocFinalExistant.distanceObjectifM / 1000 : ""}" placeholder="ex: 42.195" />
               </div>
               <div class="field">
@@ -183,7 +191,7 @@ export async function render(container) {
             </div>
             <div class="field">
               <label for="s-final-date">Date de la course</label>
-              <input type="date" id="s-final-date" value="${blocFinalExistant?.dateEcheance?.slice(0, 10) ?? ""}" />
+              <input type="date" id="s-final-date" required value="${blocFinalExistant?.dateEcheance?.slice(0, 10) ?? ""}" />
             </div>
 
             <div class="contour-divider"></div>
@@ -215,7 +223,7 @@ export async function render(container) {
               </div>
             </div>
             <div class="row">
-              <button class="btn btn--primary" type="submit">${blocFinalExistant ? "Mettre à jour la saison" : "Générer la saison"}</button>
+              <button class="btn btn--primary" type="submit" id="submit-saison" ${profil ? "" : "disabled"}>${blocFinalExistant ? "Mettre à jour la saison" : "Générer la saison"}</button>
               ${blocFinalExistant ? `<button class="btn btn--sm" type="button" id="btn-supprimer-saison">Supprimer la saison</button>` : ""}
             </div>
           </form>
@@ -224,6 +232,7 @@ export async function render(container) {
     </div>`;
 
   let indexEnCorrection = null;
+  let refreshSaisonGating = null;
 
   function entrerModeCorrection(index, entree) {
     indexEnCorrection = index;
@@ -269,8 +278,8 @@ export async function render(container) {
             ${aDesBrutes ? `<span class="muted" style="margin-left:8px;">(${(distanceAffichee / 1000).toFixed(1)} km${suffixeDenivele} en ${secondesVersLabel(h.tempsS)})</span>` : ""}
           </div>
           <div class="row" style="gap:4px;">
-            ${aDesBrutes ? `<button type="button" class="btn btn--sm" data-edit-vdot="${i}" style="padding:2px 8px;" title="Corriger ce test">✎</button>` : ""}
-            ${hist.length > 1 ? `<button type="button" class="btn btn--sm" data-delete-vdot="${i}" style="padding:2px 8px;" title="Supprimer ce test">✕</button>` : ""}
+            ${aDesBrutes ? `<button type="button" class="btn btn--sm" data-edit-vdot="${i}" title="Corriger ce test">✎ Corriger</button>` : ""}
+            ${hist.length > 1 ? `<button type="button" class="btn btn--sm" data-delete-vdot="${i}" title="Supprimer ce test">✕ Supprimer</button>` : ""}
           </div>
         </div>`;
       })
@@ -286,14 +295,19 @@ export async function render(container) {
       btn.addEventListener("click", async () => {
         const idx = Number(btn.dataset.deleteVdot);
         const entree = hist[idx];
-        if (!confirm(`Supprimer le test du ${new Date(entree.date).toLocaleDateString("fr-FR")} (VDOT ${entree.vdot.toFixed(1)}) ?`)) return;
+        const confirme = await confirmerAction(`Supprimer le test du ${new Date(entree.date).toLocaleDateString("fr-FR")} (VDOT ${entree.vdot.toFixed(1)}) ?`, {
+          titre: "Supprimer ce test",
+          libelleConfirmer: "Supprimer",
+          danger: true,
+        });
+        if (!confirme) return;
         try {
           const updated = await store.supprimerTestVdot(idx);
           if (indexEnCorrection === idx) sortirModeCorrection();
           renderZones(container, updated);
           renderHistory(container, updated);
         } catch (err) {
-          alert(err.message);
+          afficherToast(err.message, { type: "error" });
         }
       });
     });
@@ -329,6 +343,8 @@ export async function render(container) {
     if (performanceChangee) await store.appliquerRetestAuPlanActif();
     renderZones(container, updated);
     renderHistory(container, updated);
+    updateSubmitPlanState();
+    refreshSaisonGating?.();
   });
 
   let modeCreationForcee = false;
@@ -405,10 +421,25 @@ export async function render(container) {
   updateDeniveleVisibility();
   updateAllurePreview();
 
+  // Gate le bouton "Générer/Mettre à jour le plan" en amont (profil renseigné
+  // ET au moins un jour d'entraînement coché) plutôt que de laisser
+  // remplir tout le formulaire avant de découvrir le blocage via un
+  // alert() au clic — l'utilisateur voit tout de suite pourquoi le bouton
+  // est inactif (note au-dessus + compteur de jours).
+  const updateSubmitPlanState = () => {
+    const hasProfil = !!store.getState().profil;
+    const hasJours = container.querySelectorAll("[data-jour]:checked").length > 0;
+    const note = container.querySelector("#profil-manquant-note");
+    if (note) note.hidden = hasProfil;
+    const btn = container.querySelector("#submit-plan");
+    if (btn) btn.disabled = !hasProfil || !hasJours;
+  };
+
   const updateJoursCount = () => {
     const n = container.querySelectorAll('[data-jour]:checked').length;
     container.querySelector("#jours-count").textContent =
       n === 0 ? "Choisis au moins un jour." : `${n} séance${n > 1 ? "s" : ""}/semaine.`;
+    updateSubmitPlanState();
   };
   container.querySelectorAll("[data-jour]").forEach((cb) => cb.addEventListener("change", updateJoursCount));
   updateJoursCount();
@@ -422,8 +453,11 @@ export async function render(container) {
   container.querySelector("#form-plan").addEventListener("submit", async (e) => {
     e.preventDefault();
     const { profil: p } = store.getState();
+    // Garde-fou de secours (le bouton est déjà désactivé en amont tant que
+    // ces conditions ne sont pas réunies, cf. updateSubmitPlanState) —
+    // toast plutôt que alert() bloquant si jamais atteint malgré tout.
     if (!p) {
-      alert("Renseigne d'abord ton profil (performance de référence).");
+      afficherToast("Renseigne d'abord ton profil (performance de référence).", { type: "error" });
       return;
     }
     const discipline = container.querySelector("#discipline").value;
@@ -438,11 +472,11 @@ export async function render(container) {
     const deniveleM = discipline === "trail" ? Number(container.querySelector("#denivele-objectif").value) || null : null;
     const joursEntrainement = Array.from(container.querySelectorAll("[data-jour]:checked")).map((cb) => Number(cb.value));
     if (!echeance) {
-      alert("Choisis une date de course.");
+      afficherToast("Choisis une date de course.", { type: "error" });
       return;
     }
     if (!joursEntrainement.length) {
-      alert("Choisis au moins un jour d'entraînement.");
+      afficherToast("Choisis au moins un jour d'entraînement.", { type: "error" });
       return;
     }
     const inputs = {
@@ -461,6 +495,17 @@ export async function render(container) {
     };
 
     if (planExistant && !modeCreationForcee) {
+      // Un plan déjà en cours (actif) modifie ses semaines à venir — les
+      // séances déjà réalisées/manquées restent enregistrées, mais le reste
+      // du plan change ; une saison en pause/en attente n'a pas cette
+      // incidence immédiate, pas besoin d'y ajouter un garde-fou.
+      if (planExistant.statut === "actif") {
+        const confirme = await confirmerAction(
+          "Ce plan est en cours — mettre à jour changera les semaines à venir (les séances déjà réalisées/manquées restent enregistrées). Continuer ?",
+          { titre: "Modifier le plan en cours", libelleConfirmer: "Mettre à jour" }
+        );
+        if (!confirme) return;
+      }
       await store.modifierPlan(planExistant.id, inputs);
     } else {
       await store.creerPlan(inputs);
@@ -469,7 +514,7 @@ export async function render(container) {
   });
 
   attachSegmentedControl(container);
-  initSaisonForm(container, saisonId, blocsIntermediairesExistants);
+  refreshSaisonGating = initSaisonForm(container, saisonId, blocsIntermediairesExistants);
 }
 
 /**
@@ -498,7 +543,7 @@ function initSaisonForm(container, saisonId, blocsIntermediairesExistants = []) 
         <button type="button" class="btn btn--sm" data-remove-intermediaire>Retirer</button>
       </div>
       <div class="field">
-        <label>Nom</label>
+        <label>Nom (optionnel)</label>
         <input type="text" data-int-nom value="${escapeAttr(prefill?.objectif ?? "")}" placeholder="ex: 10km de rentrée" />
       </div>
       <div class="field-row">
@@ -510,15 +555,15 @@ function initSaisonForm(container, saisonId, blocsIntermediairesExistants = []) 
           </select>
         </div>
         <div class="field" data-champ-denivele ${estTrail ? "" : "hidden"}>
-          <label>D+ de la course (m)</label>
+          <label>D+ de la course (m, optionnel)</label>
           <input type="number" min="0" data-int-denivele value="${prefill?.deniveleM ?? ""}" placeholder="ex: 800" />
         </div>
       </div>
       <div class="field-row">
-        <div class="field"><label>Distance (km)</label><input type="number" step="0.001" min="0" data-int-distance value="${prefill?.distanceObjectifM ? prefill.distanceObjectifM / 1000 : ""}" placeholder="ex: 10" /></div>
+        <div class="field"><label>Distance (km, optionnel)</label><input type="number" step="0.001" min="0" data-int-distance value="${prefill?.distanceObjectifM ? prefill.distanceObjectifM / 1000 : ""}" placeholder="ex: 10" /></div>
         <div class="field"><label>Temps objectif (hh:mm:ss, optionnel)</label><input type="text" data-int-temps value="${prefill?.tempsObjectifS ? secondesVersLabel(prefill.tempsObjectifS) : ""}" /></div>
       </div>
-      <div class="field"><label>Date</label><input type="date" data-int-date value="${prefill?.dateEcheance?.slice(0, 10) ?? ""}" /></div>
+      <div class="field"><label>Date</label><input type="date" required data-int-date value="${prefill?.dateEcheance?.slice(0, 10) ?? ""}" /></div>
       <div class="field-row">
         <div class="field">
           <label>Priorité de la course</label>
@@ -554,7 +599,24 @@ function initSaisonForm(container, saisonId, blocsIntermediairesExistants = []) 
         </div>
       </div>`;
     liste.appendChild(div);
-    div.querySelector("[data-remove-intermediaire]").addEventListener("click", () => div.remove());
+    div.querySelector("[data-remove-intermediaire]").addEventListener("click", async () => {
+      // Confirmation seulement si la ligne contient déjà une saisie —
+      // retirer une ligne vide qu'on vient d'ajouter par erreur ne mérite
+      // pas d'interruption, mais une ligne déjà remplie (nom, distance ou
+      // date) représente une vraie perte de saisie si le clic est accidentel.
+      const dejaRemplie = ["[data-int-nom]", "[data-int-distance]", "[data-int-date]"].some(
+        (sel) => div.querySelector(sel).value.trim() !== ""
+      );
+      if (dejaRemplie) {
+        const confirme = await confirmerAction("Retirer cet objectif intermédiaire ? La saisie de cette ligne sera perdue.", {
+          titre: "Retirer l'objectif",
+          libelleConfirmer: "Retirer",
+          danger: true,
+        });
+        if (!confirme) return;
+      }
+      div.remove();
+    });
     div.querySelector("[data-int-perso-dispo]").addEventListener("change", (e) => {
       div.querySelector("[data-champ-dispo-perso]").hidden = !e.target.checked;
     });
@@ -565,7 +627,12 @@ function initSaisonForm(container, saisonId, blocsIntermediairesExistants = []) 
   container.querySelector("#btn-ajouter-intermediaire").addEventListener("click", () => ajouterLigneIntermediaire());
 
   container.querySelector("#btn-supprimer-saison")?.addEventListener("click", async () => {
-    if (!confirm("Supprimer cette saison et tous ses blocs ? Cette action est irréversible.")) return;
+    const confirme = await confirmerAction("Supprimer cette saison et tous ses blocs ? Cette action est irréversible.", {
+      titre: "Supprimer la saison",
+      libelleConfirmer: "Supprimer",
+      danger: true,
+    });
+    if (!confirme) return;
     await store.supprimerSaison(saisonId);
     await render(container);
   });
@@ -579,10 +646,22 @@ function initSaisonForm(container, saisonId, blocsIntermediairesExistants = []) 
     if (champDenivele) champDenivele.hidden = e.target.value !== "trail";
   });
 
+  // Même logique de garde-fou en amont que le formulaire Plan simple
+  // (updateSubmitPlanState) : profil renseigné ET au moins un jour coché.
+  const updateSubmitSaisonState = () => {
+    const hasProfil = !!store.getState().profil;
+    const hasJours = container.querySelectorAll("[data-jour-saison]:checked").length > 0;
+    const note = container.querySelector("#s-profil-manquant-note");
+    if (note) note.hidden = hasProfil;
+    const btn = container.querySelector("#submit-saison");
+    if (btn) btn.disabled = !hasProfil || !hasJours;
+  };
+
   const updateJoursCountSaison = () => {
     const n = container.querySelectorAll("[data-jour-saison]:checked").length;
     container.querySelector("#s-jours-count").textContent =
       n === 0 ? "Choisis au moins un jour." : `${n} séance${n > 1 ? "s" : ""}/semaine.`;
+    updateSubmitSaisonState();
   };
   container.querySelectorAll("[data-jour-saison]").forEach((cb) => cb.addEventListener("change", updateJoursCountSaison));
   updateJoursCountSaison();
@@ -590,8 +669,10 @@ function initSaisonForm(container, saisonId, blocsIntermediairesExistants = []) 
   container.querySelector("#form-saison").addEventListener("submit", async (e) => {
     e.preventDefault();
     const { profil: p } = store.getState();
+    // Garde-fou de secours (le bouton est déjà désactivé en amont, cf.
+    // updateSubmitSaisonState) — toast plutôt qu'alert() bloquant.
     if (!p) {
-      alert("Renseigne d'abord ton profil (performance de référence).");
+      afficherToast("Renseigne d'abord ton profil (performance de référence).", { type: "error" });
       return;
     }
     const facteurGapCalibre = Number(container.querySelector("#s-gap-calibre").value) || 1;
@@ -608,11 +689,11 @@ function initSaisonForm(container, saisonId, blocsIntermediairesExistants = []) 
     const finalDate = container.querySelector("#s-final-date").value;
 
     if (!finalDate) {
-      alert("Choisis la date de l'objectif final.");
+      afficherToast("Choisis la date de l'objectif final.", { type: "error" });
       return;
     }
     if (!joursEntrainement.length) {
-      alert("Choisis au moins un jour d'entraînement.");
+      afficherToast("Choisis au moins un jour d'entraînement.", { type: "error" });
       return;
     }
 
@@ -640,7 +721,7 @@ function initSaisonForm(container, saisonId, blocsIntermediairesExistants = []) 
       };
     });
     if (objectifsIntermediaires.some((o) => !o.date)) {
-      alert("Chaque objectif intermédiaire a besoin d'une date (ou retire la ligne).");
+      afficherToast("Chaque objectif intermédiaire a besoin d'une date (ou retire la ligne).", { type: "error" });
       return;
     }
 
@@ -664,16 +745,29 @@ function initSaisonForm(container, saisonId, blocsIntermediairesExistants = []) 
 
     try {
       if (saisonId) {
+        // Même garde-fou que pour un plan simple en cours (updateSubmitPlanState
+        // / la confirmation du formulaire Plan) : une saison avec un bloc déjà
+        // actif régénère les semaines à venir de ce bloc, pas juste "à créer".
+        const aUnBlocActif = store.blocsSaison(saisonId).some((b) => b.statut === "actif");
+        if (aUnBlocActif) {
+          const confirme = await confirmerAction(
+            "Cette saison a un bloc en cours — mettre à jour changera les semaines à venir de ce bloc (les séances déjà réalisées/manquées restent enregistrées). Continuer ?",
+            { titre: "Modifier la saison en cours", libelleConfirmer: "Mettre à jour" }
+          );
+          if (!confirme) return;
+        }
         await store.modifierSaison(saisonId, inputs);
       } else {
         await store.creerSaison(inputs);
       }
     } catch (err) {
-      alert(err.message);
+      afficherToast(err.message, { type: "error" });
       return;
     }
     location.hash = "#/plan";
   });
+
+  return updateSubmitSaisonState;
 }
 
 function renderZones(container, profil) {

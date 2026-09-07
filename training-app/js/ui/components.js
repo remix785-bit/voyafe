@@ -1113,3 +1113,77 @@ export function RouteMapFallback(profilPoints, ravitosTimeline = []) {
     </svg>
     <p class="muted" style="margin-top:4px;">Carte schématique (hors-ligne ou fond de carte indisponible) — tracé GPS exact, sans rues ni relief. Point orange = ravitaillement.</p>`;
 }
+
+/**
+ * Notification transitoire (toast) — remplace window.alert() pour les
+ * messages informatifs/d'erreur qui ne demandent aucune décision : alert()
+ * est bloquant, rendu 100% natif sans thème, et casse le flux au clic sur
+ * mobile pour un simple message de validation.
+ * @param {string} message
+ * @param {{type?:"error"|"info", dureeMs?:number}} [options]
+ */
+export function afficherToast(message, options = {}) {
+  const { type = "info", dureeMs = 4000 } = options;
+  let hote = document.querySelector(".toast-host");
+  if (!hote) {
+    hote = document.createElement("div");
+    hote.className = "toast-host";
+    document.body.appendChild(hote);
+  }
+  const toast = document.createElement("div");
+  toast.className = `toast toast--${type}`;
+  toast.setAttribute("role", "status");
+  toast.textContent = message;
+  hote.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add("toast--visible"));
+  setTimeout(() => {
+    toast.classList.remove("toast--visible");
+    toast.addEventListener("transitionend", () => toast.remove(), { once: true });
+  }, dureeMs);
+}
+
+/**
+ * Modal de confirmation cohérente avec le design system — remplace
+ * window.confirm (rendu 100% natif du navigateur, sans thème, incohérent
+ * entre appareils et rupture visuelle avec le reste de l'appli). Basée sur
+ * <dialog> (natif : gère focus trap et backdrop sans librairie).
+ * @param {string} message
+ * @param {{titre?:string, libelleConfirmer?:string, libelleAnnuler?:string, danger?:boolean}} [options]
+ *   `danger` colore le bouton de confirmation en rouge (action destructrice) plutôt qu'en accent.
+ * @returns {Promise<boolean>} true si confirmé, false si annulé (bouton, Échap, ou clic hors modal)
+ */
+export function confirmerAction(message, options = {}) {
+  const { titre = "Confirmation", libelleConfirmer = "Confirmer", libelleAnnuler = "Annuler", danger = false } = options;
+  return new Promise((resolve) => {
+    const dialog = document.createElement("dialog");
+    dialog.className = "confirm-modal";
+    dialog.innerHTML = `
+      <form method="dialog" class="confirm-modal__form">
+        <h2>${escapeHtml(titre)}</h2>
+        <p>${escapeHtml(message)}</p>
+        <div class="row confirm-modal__actions">
+          <button type="button" class="btn" data-confirm-annuler>${escapeHtml(libelleAnnuler)}</button>
+          <button type="button" class="btn ${danger ? "btn--danger" : "btn--primary"}" data-confirm-ok>${escapeHtml(libelleConfirmer)}</button>
+        </div>
+      </form>`;
+    document.body.appendChild(dialog);
+
+    const fermer = (resultat) => {
+      dialog.close();
+      dialog.remove();
+      resolve(resultat);
+    };
+    dialog.querySelector("[data-confirm-ok]").addEventListener("click", () => fermer(true));
+    dialog.querySelector("[data-confirm-annuler]").addEventListener("click", () => fermer(false));
+    // Échap (natif <dialog>) et clic sur le backdrop (hors <form>, seul enfant direct positionné) -> annulation.
+    dialog.addEventListener("cancel", (e) => {
+      e.preventDefault();
+      fermer(false);
+    });
+    dialog.addEventListener("click", (e) => {
+      if (e.target === dialog) fermer(false);
+    });
+    dialog.showModal();
+    dialog.querySelector("[data-confirm-ok]").focus();
+  });
+}

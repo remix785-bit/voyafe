@@ -17,6 +17,7 @@ import {
   RecoveryTrend,
   ProgressBar,
   attachChartInteractions,
+  afficherToast,
 } from "../components.js";
 import { formatPace, formatDureeCompacte, riegelPredictAjuste, parseDureeLabel, ZONES } from "../../engines/vdot.js";
 import { statsPerformance, barresDistanceHebdo, barresDistanceMensuelle, barresDPlusMensuel, variationPct } from "../../engines/performance.js";
@@ -191,9 +192,13 @@ export async function render(container) {
         <div class="card card--action">
           <div class="card__header">
             <h1>Séance du jour</h1>
-            <span class="badge-warning" style="border-color: var(--color-accent); color: var(--color-accent);">${escapeAttr(plan.objectif ?? "")}</span>
+            <span class="badge-info">${escapeAttr(plan.objectif ?? "")}</span>
           </div>
-          ${seance ? SessionCard(seance, `#/seance?semaine=${semaineSeanceDuJour.numero}&idx=${semaineSeanceDuJour.seances.indexOf(seance)}&plan=${plan.id}`) : `<p class="muted">Aucune séance programmée aujourd'hui.</p>`}
+          ${
+            seance
+              ? SessionCard(seance, `#/seance?semaine=${semaineSeanceDuJour.numero}&idx=${semaineSeanceDuJour.seances.indexOf(seance)}&plan=${plan.id}`)
+              : `<p class="muted">Aucune séance programmée aujourd'hui. <a href="#/plan">Voir la semaine complète</a> ou <a href="#/journal">renseigner ton journal</a>.</p>`
+          }
         </div>
 
         <div class="card">
@@ -411,7 +416,7 @@ function wireBandeauResultat(container, plan) {
     e.preventDefault();
     const tempsReelS = parseDureeLabel(container.querySelector("#temps-reel-course").value);
     if (!tempsReelS) {
-      alert("Renseigne le temps réellement réalisé (hh:mm:ss).");
+      afficherToast("Renseigne le temps réellement réalisé (hh:mm:ss).", { type: "error" });
       return;
     }
     await store.enregistrerResultatCourse(plan.id, { tempsReelS });

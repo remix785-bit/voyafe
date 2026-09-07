@@ -1120,6 +1120,70 @@ a.card:hover {
   flex-wrap: wrap;
 }
 
+/* Toast (afficherToast, components.js) — remplace window.alert(). */
+.toast-host {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--space-4, 16px) + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(360px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.toast {
+  background: var(--color-text);
+  color: var(--color-bg);
+  border-radius: var(--radius-card);
+  padding: 10px 16px;
+  font-size: 0.85rem;
+  box-shadow: var(--shadow-card);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.toast--visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+.toast--error {
+  background: var(--color-warning);
+  color: var(--color-bg);
+}
+
+/* Modal de confirmation (confirmerAction, components.js) — <dialog> natif :
+   ::backdrop est un pseudo-élément séparé, pas un enfant du DOM normal. */
+.confirm-modal {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  padding: 0;
+  max-width: min(360px, calc(100vw - 32px));
+  width: 100%;
+}
+.confirm-modal::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+.confirm-modal__form {
+  padding: var(--space-4);
+}
+.confirm-modal__form h2 {
+  margin: 0 0 8px;
+  font-size: 1.05rem;
+}
+.confirm-modal__form p {
+  margin: 0 0 16px;
+  color: var(--color-text-muted);
+}
+.confirm-modal__actions {
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .badge-warning {
   display: inline-block;
   font-size: 0.75rem;
@@ -1134,6 +1198,19 @@ a.card:hover {
   font-size: 0.75rem;
   color: var(--color-success);
   border: 1px solid var(--color-success);
+  border-radius: var(--radius-pill);
+  padding: 2px 10px;
+}
+
+/* Étiquette neutre (ex. nom de l'objectif du plan) — jusqu'ici .badge-warning
+   détourné avec des couleurs réécrites en ligne pour une information qui
+   n'a rien d'un avertissement, brouillant la lecture des vrais avertissements
+   affichés juste à côté. */
+.badge-info {
+  display: inline-block;
+  font-size: 0.75rem;
+  color: var(--color-accent);
+  border: 1px solid var(--color-accent);
   border-radius: var(--radius-pill);
   padding: 2px 10px;
 }

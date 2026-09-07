@@ -1,5 +1,5 @@
 import * as store from "../../store.js";
-import { WeekStrip, SeasonTimeline, StatStrip, WeekTable, ZoneLegend } from "../components.js";
+import { WeekStrip, SeasonTimeline, StatStrip, WeekTable, ZoneLegend, confirmerAction, afficherToast } from "../components.js";
 import { formatPace, riegelPredictAjuste, formatDureeCompacte, evaluerCoherenceObjectif, identifierAxeTravail } from "../../engines/vdot.js";
 import { genererIcs, telechargerIcs } from "../../data/icsExport.js";
 import { Icon } from "../icons.js";
@@ -116,8 +116,9 @@ export async function render(container, params) {
   container.querySelector("#export-ics").addEventListener("click", () => {
     const { ics, nbEvenements } = genererIcs(plan);
     if (!nbEvenements) {
-      alert(
-        "Aucune séance datée dans ce plan — choisis tes jours d'entraînement (Profil) pour que chaque séance ait une date précise avant d'exporter."
+      afficherToast(
+        "Aucune séance datée dans ce plan — choisis tes jours d'entraînement (Profil) pour que chaque séance ait une date précise avant d'exporter.",
+        { type: "error" }
       );
       return;
     }
@@ -125,7 +126,11 @@ export async function render(container, params) {
   });
 
   container.querySelector("#btn-pause-plan")?.addEventListener("click", async () => {
-    if (!confirm("Mettre ce plan en pause ? Plus aucun rappel de séance ne sera envoyé tant qu'il n'est pas repris.")) return;
+    const confirme = await confirmerAction("Mettre ce plan en pause ? Plus aucun rappel de séance ne sera envoyé tant qu'il n'est pas repris.", {
+      titre: "Mettre en pause",
+      libelleConfirmer: "Mettre en pause",
+    });
+    if (!confirme) return;
     await store.mettreEnPause(plan.id);
     render(container, params);
   });
@@ -134,12 +139,18 @@ export async function render(container, params) {
     render(container, params);
   });
 
-  container.querySelector("#week-prev")?.addEventListener("click", () => {
-    location.hash = `#/plan?semaine=${plan.semaines[idx - 1].numero}&planId=${plan.id}`;
-  });
-  container.querySelector("#week-next")?.addEventListener("click", () => {
-    location.hash = `#/plan?semaine=${plan.semaines[idx + 1].numero}&planId=${plan.id}`;
-  });
+  // history.replaceState (pas location.hash =, qui EMPILE une entrée
+  // d'historique par semaine consultée) : le bouton retour du téléphone/
+  // navigateur sortait de l'écran Plan semaine par semaine au lieu de
+  // revenir directement à l'écran précédent — l'URL reste à jour (partage/
+  // rechargement), seul l'historique de navigation ne grossit plus.
+  const naviguerVersSemaine = (numero) => {
+    const nouveauxParams = { ...params, semaine: String(numero), planId: plan.id };
+    history.replaceState(null, "", `#/plan?semaine=${numero}&planId=${plan.id}`);
+    render(container, nouveauxParams);
+  };
+  container.querySelector("#week-prev")?.addEventListener("click", () => naviguerVersSemaine(plan.semaines[idx - 1].numero));
+  container.querySelector("#week-next")?.addEventListener("click", () => naviguerVersSemaine(plan.semaines[idx + 1].numero));
 
   // WeekTable rend des <tr> cliquables plutôt que des <a> (invalide en HTML
   // dans un <table>) — navigation gérée ici via l'attribut data-href.
