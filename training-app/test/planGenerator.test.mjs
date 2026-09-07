@@ -1078,6 +1078,47 @@ test("instancierSeance — fartlek résolu en nombre de relances précis, progre
   assert.notEqual(debutPhase.structureDetaillee.format, finPhase.structureDetaillee.format, "la prescription doit progresser avec la phase, pas rester figée");
 });
 
+test("instancierSeance — séance seuil fractionné (cruise intervals) : plus de récupération inversée, en-tête toujours cohérent avec le corps de séance même en semaine à faible volume", () => {
+  const template = trouverTemplate("route_seuil_cruise");
+  assert.equal(template.corpsDeSeance.ratioEffortRecup, "6:1", "récupération courte (effort:récup), pas 1:6 (récup 6x plus longue que l'effort — backwards pour des cruise intervals)");
+  const profilCourant = { allures: { T: { target: 4.85, fast: 4.6 } }, vdot: 50 };
+  // Semaine à faible volume (ex. décharge/début de phase) — c'est ce cas
+  // précis qui produisait "1 × 8 min" en corps de séance alors que l'en-tête
+  // affichait un volume/distance bien plus grand (calculé indépendamment,
+  // avant l'arrondi du nombre de répétitions à un entier).
+  const semaineContexte = { numero: 1, phase: "developpement", statut: "normale" };
+  const s = instancierSeance(template, profilCourant, semaineContexte, {}, null, { facteurPhase: 0.75 });
+  const attendu = s.structureDetaillee.nbRepsResolu * (s.structureDetaillee.repDureeMinResolu + (s.structureDetaillee.recupMinResolu ?? 0));
+  assert.ok(Math.abs(s.volumeSeanceMin - attendu) < 0.01, `l'en-tête (${s.volumeSeanceMin} min) doit correspondre exactement au corps de séance résolu (${attendu} min)`);
+  assert.ok(Math.abs(s.distanceKm - s.volumeSeanceMin / s.allureCibleMinParKm) < 0.01, "la distance en-tête doit elle aussi refléter le volume réel, pas le volume cible d'avant arrondi");
+});
+
+test("instancierSeance — pour toute séance à répétitions HORS spécificité trail (qui porte son propre boost de progression continu, testé séparément), l'en-tête (volume/distance) correspond exactement au corps de séance résolu, quel que soit le volume de la semaine", () => {
+  // trail_cotes_courtes/longues et trail_descente_technique (TRAIL_SPECIFICITE_IDS)
+  // sont délibérément exclues : leur volumeSeanceMin porte le boostSpecificiteTrail
+  // (progression continue avec l'ambition de l'objectif), plus fin qu'un nombre
+  // entier de répétitions ne peut l'exprimer — cf. le test boostSpecificiteTrail.
+  const idsRepetitions = ["route_seuil_cruise", "route_interval", "route_repetition"];
+  const profilRoute = { allures: { T: { target: 4.85, fast: 4.6 }, I: { target: 4, fast: 3.8 }, R: { target: 3.3, fast: 3.1 } }, vdot: 50 };
+  for (const id of idsRepetitions) {
+    const template = trouverTemplate(id);
+    const profilCourant = profilRoute;
+    // Balaie plusieurs facteurs de phase (début/milieu/fin de phase, et une
+    // décharge) — la classe de bug touchait spécifiquement les volumes
+    // faibles (début de phase, décharge).
+    for (const facteurPhase of [0.75, 1, 1.15]) {
+      const semaineContexte = { numero: 1, phase: "developpement", statut: "normale" };
+      const s = instancierSeance(template, profilCourant, semaineContexte, {}, null, { facteurPhase });
+      if (s.structureDetaillee.nbRepsResolu == null) continue; // ratio "n/a" (trail_descente_technique) : nbReps indépendant du volume, rien à vérifier ici
+      const attendu = s.structureDetaillee.nbRepsResolu * (s.structureDetaillee.repDureeMinResolu + (s.structureDetaillee.recupMinResolu ?? 0));
+      assert.ok(
+        Math.abs(s.volumeSeanceMin - attendu) < 0.01,
+        `${id} @ facteurPhase=${facteurPhase} : en-tête ${s.volumeSeanceMin} min ≠ corps de séance résolu ${attendu} min`
+      );
+    }
+  }
+});
+
 test("instancierSeance — endurance fondamentale : lignes droites seulement en phase Développement", () => {
   const template = trouverTemplate("route_endurance_fondamentale");
   const profilCourant = { allures: { E: { target: 5, fast: 4.5, slow: 5.5 } }, vdot: 50 };

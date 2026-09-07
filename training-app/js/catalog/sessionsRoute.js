@@ -119,8 +119,19 @@ export const SESSIONS_ROUTE = [
       type: "repetitions",
       repDureeMinRange: [6, 10],
       nbRepsRange: [3, 5],
+      // Volume total cible (Partie I §5, dureeMin) — sans lui, instancierSeance()
+      // retombait sur un volume générique de 30 min sans lien avec cette séance
+      // (3-5 × 6-10 min + récup ≈ 28-46 min réels), produisant parfois un
+      // nombre de répétitions écrasé (jusqu'à 1 seule) et donc une prescription
+      // ("1 × 8 min") très inférieure au volume/distance affichés en en-tête.
+      dureeMin: [28, 46],
       contrainteVolume: "≤10% du volume hebdo",
-      ratioEffortRecup: "1:6",
+      // "Cruise intervals" (Daniels) : récupération COURTE (≈1 min), pas
+      // proportionnellement longue — "1:6" (6× la durée de l'effort, ~48 min
+      // de récup pour un effort de 8 min) était inversé par rapport à la
+      // convention effort:récup du reste du catalogue (ex. côtes longues
+      // "5:1") et à l'esprit même des cruise intervals.
+      ratioEffortRecup: "6:1",
       recupLabel: "trot",
     },
     frequenceRecommandee: "Alternative au tempo continu, notamment quand l'axe de travail est l'endurance/durabilité aérobie",
@@ -158,6 +169,10 @@ export const SESSIONS_ROUTE = [
       type: "repetitions",
       repDureeMinRange: [3, 5],
       nbRepsRange: [4, 6],
+      // Volume total cible (4-6 × 3-5 min + récup ≈ 32-48 min réels) — sans
+      // lui, retombait sur un volume générique de 30 min sans lien direct
+      // avec cette séance (cf. route_seuil_cruise, même bug).
+      dureeMin: [32, 48],
       contrainteVolume: "≤8% du volume hebdo — au-delà, le risque dépasse le bénéfice marginal",
       ratioEffortRecup: "1:1",
       recupLabel: "trot",
@@ -179,6 +194,10 @@ export const SESSIONS_ROUTE = [
       type: "repetitions",
       repDistanceKmRange: [0.2, 0.4],
       nbRepsRange: [8, 12],
+      // Volume total cible (8-12 × 200-400 m + récup ≈ 28-42 min réels) —
+      // sans lui, retombait sur un volume générique de 30 min sans lien
+      // direct avec cette séance (cf. route_seuil_cruise, même bug).
+      dureeMin: [28, 42],
       contrainteVolume: "≤5% du volume hebdo",
       ratioEffortRecup: "1:2 à 1:3",
       recupLabel: "marche/trot",

@@ -103,6 +103,15 @@ export function resoudreStructureDetaillee(corpsDeSeance, volumeSeanceMin, allur
     : resoudreRepetitionsDuree(corpsDeSeance, volumeSeanceMin);
   return {
     ...corpsDeSeance,
+    // Exposés (en plus du texte `format`) pour que l'appelant (instancierSeance,
+    // planGenerator.js) puisse recalculer le volume/distance RÉELS de la séance
+    // à partir du nombre de répétitions effectivement arrondi, plutôt que de
+    // garder le volume cible d'avant arrondi (qui peut s'en écarter nettement
+    // quand l'arrondi tombe loin, ex. nbReps plafonné à 1) — la fiche affichée
+    // doit toujours décrire une seule et même séance cohérente.
+    nbRepsResolu: structure.nbReps,
+    repDureeMinResolu: structure.repDureeMin,
+    recupMinResolu: structure.recupMin,
     format: formaterStructure(structure, corpsDeSeance.contexteLabel, corpsDeSeance.recupLabel),
   };
 }

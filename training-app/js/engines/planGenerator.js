@@ -656,6 +656,38 @@ export function instancierSeance(
     distanceKm = allureCible ? volumeSeanceMin / allureCible : null;
   }
 
+  let structureDetaillee;
+  if (suggererCourseMarche) {
+    structureDetaillee = { ...template.corpsDeSeance, format: "Alterner 4 min course / 1 min marche active sur l'ensemble de la sortie" };
+  } else if (blocObjectifDureeMin != null) {
+    structureDetaillee = { ...template.corpsDeSeance, format: formaterBlocObjectif(blocObjectifDureeMin) };
+  } else if (template.corpsDeSeance.type === "fartlek") {
+    structureDetaillee = resoudreFartlek(template.corpsDeSeance, progressionContext?.facteurPhase ?? 1);
+  } else if (template.corpsDeSeance.type === "progressif") {
+    structureDetaillee = resoudreProgressif(template.corpsDeSeance, volumeSeanceMin);
+  } else if (template.corpsDeSeance.type === "endurance_fondamentale") {
+    structureDetaillee = resoudreEnduranceFondamentale(template.corpsDeSeance, semaineContexte.phase);
+  } else {
+    structureDetaillee = resoudreStructureDetaillee(template.corpsDeSeance, volumeSeanceMin, allureCible);
+    // Une séance à répétitions arrondit son nombre de répétitions à un entier
+    // (resoudreRepetitions{Duree,Distance} ci-dessus) — sans recalculer
+    // volumeSeanceMin/distanceKm à partir de CE nombre arrondi, l'en-tête de
+    // la fiche (calculé indépendamment, avant arrondi) pouvait afficher un
+    // volume/distance sans rapport avec le corps de séance réellement décrit
+    // (ex. en-tête "19 min" pour un corps résolu à "1 × 8 min" quand
+    // l'arrondi tombait à la baisse) — la fiche doit toujours décrire UNE
+    // séance cohérente avec elle-même, jamais deux volumes différents.
+    // Exclut TRAIL_SPECIFICITE_IDS (côtes, descente technique) : pour ces
+    // séances, volumeSeanceMin porte le boostSpecificiteTrail (progression
+    // continue avec l'ambition de l'objectif, cf. genererPlanComplet) — un
+    // signal plus fin que ce que peut exprimer un nombre entier de
+    // répétitions. Recalculer depuis nbReps écraserait cette progression.
+    if (structureDetaillee.nbRepsResolu != null && !TRAIL_SPECIFICITE_IDS.includes(template.id)) {
+      volumeSeanceMin = structureDetaillee.nbRepsResolu * (structureDetaillee.repDureeMinResolu + (structureDetaillee.recupMinResolu ?? 0));
+      distanceKm = allureCible ? volumeSeanceMin / allureCible : distanceKm;
+    }
+  }
+
   return {
     templateId: template.id,
     nom: template.nom,
@@ -667,18 +699,7 @@ export function instancierSeance(
     blocObjectifDureeMin,
     volumeSeanceMin,
     distanceKm,
-    structureDetaillee:
-      suggererCourseMarche
-        ? { ...template.corpsDeSeance, format: "Alterner 4 min course / 1 min marche active sur l'ensemble de la sortie" }
-        : blocObjectifDureeMin != null
-          ? { ...template.corpsDeSeance, format: formaterBlocObjectif(blocObjectifDureeMin) }
-          : template.corpsDeSeance.type === "fartlek"
-            ? resoudreFartlek(template.corpsDeSeance, progressionContext?.facteurPhase ?? 1)
-            : template.corpsDeSeance.type === "progressif"
-              ? resoudreProgressif(template.corpsDeSeance, volumeSeanceMin)
-              : template.corpsDeSeance.type === "endurance_fondamentale"
-                ? resoudreEnduranceFondamentale(template.corpsDeSeance, semaineContexte.phase)
-                : resoudreStructureDetaillee(template.corpsDeSeance, volumeSeanceMin, allureCible),
+    structureDetaillee,
     protocoleEchauffement: template.protocoleEchauffement ?? false,
     precautions: [
       template.precautions,
@@ -710,18 +731,30 @@ export function appliquerPlafondsHebdo(seances) {
     if (!plafond) return s;
     const part = s.volumeSeanceMin / volumeTotal;
     if (part > plafond) {
-      const volumeSeanceMin = volumeTotal * plafond;
+      let volumeSeanceMin = volumeTotal * plafond;
+      // Le volume vient de changer : une structure à répétitions déjà résolue
+      // (4 × 4 min...) doit être re-résolue sur ce nouveau volume, sous peine
+      // d'afficher une prescription précise mais incohérente avec la durée
+      // réelle de la séance écrêtée.
+      const structureDetaillee = s.structureDetaillee
+        ? resoudreStructureDetaillee(s.structureDetaillee, volumeSeanceMin, s.allureCibleMinParKm)
+        : s.structureDetaillee;
+      // Le nombre de répétitions vient d'être ré-arrondi sur ce volume écrêté
+      // (ci-dessus) — le volume/distance affichés doivent refléter CE nombre
+      // arrondi, pas le plafond brut d'avant arrondi, sous peine de rouvrir le
+      // même écart en-tête/corps de séance corrigé à l'instanciation
+      // (instancierSeance). Contrairement à plafonnerVolumeHebdoTotal (budget
+      // hebdo dur, promesse faite à l'utilisateur), ce plafond par zone est une
+      // marge de sécurité interne — un léger dépassement dû à l'arrondi est
+      // largement préférable à une fiche qui se contredit elle-même.
+      if (structureDetaillee?.nbRepsResolu != null && !TRAIL_SPECIFICITE_IDS.includes(s.templateId)) {
+        volumeSeanceMin = structureDetaillee.nbRepsResolu * (structureDetaillee.repDureeMinResolu + (structureDetaillee.recupMinResolu ?? 0));
+      }
       return {
         ...s,
         volumeSeanceMin,
         distanceKm: s.allureCibleMinParKm ? volumeSeanceMin / s.allureCibleMinParKm : s.distanceKm,
-        // Le volume vient de changer : une structure à répétitions déjà résolue
-        // (4 × 4 min...) doit être re-résolue sur ce nouveau volume, sous peine
-        // d'afficher une prescription précise mais incohérente avec la durée
-        // réelle de la séance écrêtée.
-        structureDetaillee: s.structureDetaillee
-          ? resoudreStructureDetaillee(s.structureDetaillee, volumeSeanceMin, s.allureCibleMinParKm)
-          : s.structureDetaillee,
+        structureDetaillee,
         avertissementPlafond: `Volume écrêté au plafond hebdo ${zoneCibleLabel(s.zoneDaniels)} (${Math.round(plafond * 100)}%) — excédent reconverti en E.`,
       };
     }

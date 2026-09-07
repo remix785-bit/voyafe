@@ -14,6 +14,10 @@ export const SESSIONS_TRAIL = [
       type: "repetitions",
       repDureeMinRange: [1, 2],
       nbRepsRange: [8, 12],
+      // Volume total cible (8-12 × 1-2 min + récup ≈ 24-36 min réels) — sans
+      // lui, retombait sur un volume générique de 30 min sans lien direct
+      // avec cette séance (même bug que route_seuil_cruise).
+      dureeMin: [24, 36],
       contexteLabel: "montée forte pente",
       contrainteVolume: "≤8% du volume hebdo (règle I-pace)",
       ratioEffortRecup: "1:1",
@@ -35,6 +39,10 @@ export const SESSIONS_TRAIL = [
       type: "repetitions",
       repDureeMinRange: [6, 10],
       nbRepsRange: [3, 5],
+      // Volume total cible (3-5 × 6-10 min + récup ≈ 29-48 min réels) — sans
+      // lui, retombait sur un volume générique de 30 min sans lien direct
+      // avec cette séance (même bug que route_seuil_cruise).
+      dureeMin: [29, 48],
       contexteLabel: "montée pente modérée",
       contrainteVolume: "≤10% du volume hebdo",
       ratioEffortRecup: "5:1",
@@ -74,6 +82,11 @@ export const SESSIONS_TRAIL = [
       type: "repetitions",
       repDureeMinRange: [3, 5],
       nbRepsRange: [5, 8],
+      // Le nombre de répétitions ne dépend pas du volume ici (ratioEffortRecup
+      // "n/a" -> résolu au milieu de nbRepsRange, cf. resoudreRepetitionsDuree),
+      // mais dureeMin pilote quand même le volume/distance affichés en
+      // en-tête — sans lui, retombait sur un volume générique de 30 min.
+      dureeMin: [30, 45],
       contexteLabel: "segments techniques en descente",
       contrainteVolume: "Volume croissant progressivement",
       ratioEffortRecup: "n/a",
