@@ -14,6 +14,7 @@ import {
   calculerDistanceSortieLongue,
   plafonnerVolumeHebdoTotal,
   assignerDatesSeances,
+  trouverTemplate,
 } from "../js/engines/planGenerator.js";
 
 test("Macrocycle — exemple chiffré du dossier: 16 semaines, charge modérée -> taper 2, base 7, dev 7", () => {
@@ -1065,6 +1066,25 @@ test("instancierSeance — la réduction de taper dépend de la priorité de la 
   const volDefaut = instancierSeance(template, profilCourant, semaineTaper, {}, null, { facteurPhase: 1 }).volumeSeanceMin;
   assert.ok(volA < volB && volB < volC, `taper progressivement plus léger de A à C, obtenu A=${volA} B=${volB} C=${volC}`);
   assert.equal(volDefaut, volA, "sans priorité connue (plan autonome), comportement historique (-50%) préservé");
+});
+
+test("instancierSeance — fartlek résolu en nombre de relances précis, progressif avec facteurPhase (pas la même fourchette à chaque séance)", () => {
+  const template = trouverTemplate("route_fartlek");
+  const profilCourant = { allures: { E: { target: 5, fast: 4.5, slow: 5.5 } }, vdot: 50 };
+  const semaineContexte = { numero: 1, phase: "base", statut: "normale" };
+  const debutPhase = instancierSeance(template, profilCourant, semaineContexte, {}, null, { facteurPhase: 0.75 });
+  const finPhase = instancierSeance(template, profilCourant, semaineContexte, {}, null, { facteurPhase: 1.15 });
+  assert.match(debutPhase.structureDetaillee.format, /^\d+ relances de /);
+  assert.notEqual(debutPhase.structureDetaillee.format, finPhase.structureDetaillee.format, "la prescription doit progresser avec la phase, pas rester figée");
+});
+
+test("instancierSeance — endurance fondamentale : lignes droites seulement en phase Développement", () => {
+  const template = trouverTemplate("route_endurance_fondamentale");
+  const profilCourant = { allures: { E: { target: 5, fast: 4.5, slow: 5.5 } }, vdot: 50 };
+  const dev = instancierSeance(template, profilCourant, { numero: 1, phase: "developpement", statut: "normale" }, {}, null, { facteurPhase: 1 });
+  const base = instancierSeance(template, profilCourant, { numero: 1, phase: "base", statut: "normale" }, {}, null, { facteurPhase: 1 });
+  assert.match(dev.structureDetaillee.format, /lignes droites/);
+  assert.doesNotMatch(base.structureDetaillee.format, /lignes droites/);
 });
 
 test("genererPlanComplet — croiseRecommande présent chaque semaine (base/développement/entretien), absent en taper", () => {

@@ -14,7 +14,7 @@ export function parserRatioRecuperation(ratioTexte) {
   return ratios.reduce((a, b) => a + b, 0) / ratios.length;
 }
 
-function arrondirVersPas(valeur, pas) {
+export function arrondirVersPas(valeur, pas) {
   // Le *1e6/1e6 nettoie le bruit flottant de l'arrondi (ex. 6*0.05 -> 0.30000000000000004)
   // — sans effet sur la précision réelle utile ici (minutes/km arrondis à 0.05-1 près).
   return Math.round((Math.round(valeur / pas) * pas) * 1e6) / 1e6;
@@ -105,4 +105,66 @@ export function resoudreStructureDetaillee(corpsDeSeance, volumeSeanceMin, allur
     ...corpsDeSeance,
     format: formaterStructure(structure, corpsDeSeance.contexteLabel, corpsDeSeance.recupLabel),
   };
+}
+
+/**
+ * Résout un fartlek (relances libres ponctuant une sortie par ailleurs
+ * continue) en un nombre ET une durée de relance PRÉCIS — plutôt que la
+ * fourchette catalogue ("8-12 relances de 30 s à 2 min") laissée telle
+ * quelle à chaque séance, sans aucune trace de progression d'une semaine à
+ * l'autre. Contrairement à une vraie séance à répétitions (resoudreRepetitions*
+ * ci-dessus), les relances ne constituent qu'une PONCTUATION du volume
+ * continu, pas la totalité de la séance : leur nombre est donc calé sur la
+ * progression au sein de la PHASE (facteurPhase — calculerFacteurProgression,
+ * planGenerator.js, même 0.75x début -> 1.15x fin de phase que le volume
+ * global) plutôt que sur volumeSeanceMin — semaine après semaine, le coureur
+ * fait mesurablement plus/plus longtemps de relances, pas un simple "8 à 12"
+ * livré à son interprétation à chaque fois.
+ * @param {object} corpsDeSeance {type:"fartlek", relancesNbRange:[min,max], relanceDureeMinRange:[min,max]}
+ * @param {number} facteurPhase 0.75 (début de phase) à 1.15 (fin de phase), cf. calculerFacteurProgression
+ */
+export function resoudreFartlek(corpsDeSeance, facteurPhase = 1) {
+  if (corpsDeSeance.type !== "fartlek") return corpsDeSeance;
+  const [nbMin, nbMax] = corpsDeSeance.relancesNbRange;
+  const [dureeMin, dureeMax] = corpsDeSeance.relanceDureeMinRange;
+  // Ramène facteurPhase (0.75-1.15, bornes de calculerFacteurProgression) sur 0-1.
+  const t = Math.min(Math.max((facteurPhase - 0.75) / 0.4, 0), 1);
+  const nb = Math.round(nbMin + (nbMax - nbMin) * t);
+  const duree = arrondirVersPas(dureeMin + (dureeMax - dureeMin) * t, 0.25);
+  return {
+    ...corpsDeSeance,
+    format: `${nb} relances de ${formatDureeCourte(duree)} à allure libre et soutenue (ressentie, pas chronométrée), récupération trot égale à l'effort entre chaque`,
+  };
+}
+
+/**
+ * Résout une sortie progressive (négative split) en repères de temps PRÉCIS
+ * ("0-27 min en E, puis... jusqu'à 37 min") plutôt que des fractions
+ * qualitatives ("1ère moitié", "dernier tiers") laissées à l'interprétation.
+ * Contrairement à resoudreFartlek, calé sur volumeSeanceMin (le temps EST la
+ * matière de la séance ici) : peut donc être rappelée en toute sécurité si un
+ * plafond hebdo réduit le volume après une première résolution (idempotente,
+ * même principe que resoudreStructureDetaillee).
+ * @param {object} corpsDeSeance {type:"progressif", finPhaseEFraction, debutPhaseSeuilFraction}
+ */
+export function resoudreProgressif(corpsDeSeance, volumeSeanceMin) {
+  if (corpsDeSeance.type !== "progressif") return corpsDeSeance;
+  const finE = arrondirVersPas(volumeSeanceMin * corpsDeSeance.finPhaseEFraction, 1);
+  const debutSeuil = arrondirVersPas(volumeSeanceMin * corpsDeSeance.debutPhaseSeuilFraction, 1);
+  return {
+    ...corpsDeSeance,
+    format: `Progressif sur ${formatDureeCourte(volumeSeanceMin)} : continu en endurance (E) jusqu'à ${formatDureeCourte(finE)}, puis accélération continue jusqu'à l'allure Seuil (T) atteinte vers ${formatDureeCourte(debutSeuil)} et maintenue jusqu'à la fin.`,
+  };
+}
+
+/**
+ * Ajoute la variante "lignes droites" (strides) au texte d'une endurance
+ * fondamentale, réservée à la phase Développement (Partie I §6.1) — le texte
+ * catalogue l'annonçait jusqu'ici de façon permanente ("variante développement"),
+ * y compris en Base ou en Affûtage où cette variante ne s'applique pas.
+ */
+export function resoudreEnduranceFondamentale(corpsDeSeance, phase) {
+  if (corpsDeSeance.type !== "endurance_fondamentale") return corpsDeSeance;
+  const format = phase === "developpement" ? "Continu, avec 5 lignes droites de 18 s à allure R en fin de séance" : "Continu";
+  return { ...corpsDeSeance, format };
 }

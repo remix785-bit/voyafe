@@ -3,7 +3,13 @@
 
 import { vdotFromPerformance, paceZonesForVdot, evaluerCoherenceObjectif, identifierAxeTravail } from "./vdot.js";
 import { gapFactor, flatEquivalentToRealPace } from "./gap.js";
-import { resoudreStructureDetaillee, formatDureeCourte } from "./structureSeance.js";
+import {
+  resoudreStructureDetaillee,
+  resoudreFartlek,
+  resoudreProgressif,
+  resoudreEnduranceFondamentale,
+  formatDureeCourte,
+} from "./structureSeance.js";
 import { SESSIONS_ROUTE } from "../catalog/sessionsRoute.js";
 import { SESSIONS_TRAIL } from "../catalog/sessionsTrail.js";
 import { renfoPourPhase } from "../catalog/renfo.js";
@@ -666,7 +672,13 @@ export function instancierSeance(
         ? { ...template.corpsDeSeance, format: "Alterner 4 min course / 1 min marche active sur l'ensemble de la sortie" }
         : blocObjectifDureeMin != null
           ? { ...template.corpsDeSeance, format: formaterBlocObjectif(blocObjectifDureeMin) }
-          : resoudreStructureDetaillee(template.corpsDeSeance, volumeSeanceMin, allureCible),
+          : template.corpsDeSeance.type === "fartlek"
+            ? resoudreFartlek(template.corpsDeSeance, progressionContext?.facteurPhase ?? 1)
+            : template.corpsDeSeance.type === "progressif"
+              ? resoudreProgressif(template.corpsDeSeance, volumeSeanceMin)
+              : template.corpsDeSeance.type === "endurance_fondamentale"
+                ? resoudreEnduranceFondamentale(template.corpsDeSeance, semaineContexte.phase)
+                : resoudreStructureDetaillee(template.corpsDeSeance, volumeSeanceMin, allureCible),
     protocoleEchauffement: template.protocoleEchauffement ?? false,
     precautions: [
       template.precautions,
@@ -754,9 +766,16 @@ export function plafonnerVolumeHebdoTotal(seances, volumeHebdoMaxMin) {
       structureDetaillee:
         blocObjectifDureeMin != null
           ? { ...s.structureDetaillee, format: formaterBlocObjectif(blocObjectifDureeMin) }
-          : s.structureDetaillee
-            ? resoudreStructureDetaillee(s.structureDetaillee, volumeSeanceMin, s.allureCibleMinParKm)
-            : s.structureDetaillee,
+          : s.structureDetaillee?.type === "progressif"
+            ? // Contrairement au fartlek (calé sur la progression de phase, pas
+              // rejouable ici faute de connaître facteurPhase), une sortie
+              // progressive est calée sur le volume — ré-résoudre ses repères de
+              // temps sur le volume réduit les garde cohérents avec la séance
+              // écrêtée plutôt que de laisser des minutages devenus invalides.
+              resoudreProgressif(s.structureDetaillee, volumeSeanceMin)
+            : s.structureDetaillee
+              ? resoudreStructureDetaillee(s.structureDetaillee, volumeSeanceMin, s.allureCibleMinParKm)
+              : s.structureDetaillee,
       avertissementVolumeHebdo: `Volume réduit pour respecter ton volume hebdo maximum disponible (${(volumeHebdoMaxMin / 60).toFixed(1)} h).`,
     };
   });

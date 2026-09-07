@@ -66,14 +66,7 @@ export async function render(container, params) {
         }
       </div>
 
-      ${seance.protocoleEchauffement ? renderEchauffement(plan.profilCourant.allures) : ""}
-
-      <div class="card">
-        <h2>Corps de séance</h2>
-        ${renderProgrammeDuJour(seance)}
-      </div>
-
-      ${renderRetourCalme(plan.profilCourant.allures)}
+      ${renderFicheSeance(seance, plan.profilCourant.allures)}
 
       <div class="card" id="timer-card">
         <h2>Mode entraînement</h2>
@@ -182,11 +175,11 @@ function renderProgrammeDuJour(seance) {
   const allure = seance.allureCibleMinParKm
     ? ` — à <span class="data">${formatFourchettePace(seance.allureRapideMinParKm, seance.allureCibleMinParKm)}</span>`
     : "";
-  // Pour une séance à répétitions résolue (structureSeance.js), la
-  // récupération précise est déjà intégrée au texte de `format` ci-dessus —
-  // afficher aussi le ratio brut (ex. "5:1") ferait doublon.
+  // Pour une séance à répétitions ou un fartlek résolus (structureSeance.js),
+  // la récupération précise est déjà intégrée au texte de `format` ci-dessus
+  // — afficher aussi le ratio brut (ex. "5:1", "1:1") ferait doublon.
   const recup =
-    seance.structureDetaillee?.type !== "repetitions" &&
+    !["repetitions", "fartlek"].includes(seance.structureDetaillee?.type) &&
     seance.structureDetaillee?.ratioEffortRecup &&
     seance.structureDetaillee.ratioEffortRecup !== "n/a"
       ? ` (récup ${escapeAttr(seance.structureDetaillee.ratioEffortRecup)})`
@@ -197,6 +190,28 @@ function renderProgrammeDuJour(seance) {
   return `<p>${format}${allure}${recup}</p>${blocObjectif}`;
 }
 
+/**
+ * Fiche de séance — UN SEUL encart pour tout ce qu'il faut savoir pour courir
+ * aujourd'hui (échauffement, corps de séance précis, après séance), plutôt
+ * que 3 cartes séparées : la séance est un seul déroulé chronologique
+ * continu, pas 3 sujets indépendants. Chaque section garde son propre titre
+ * (h3) et un séparateur discret, pour rester scannable sans perdre la
+ * continuité du déroulé.
+ */
+function renderFicheSeance(seance, allures) {
+  const sections = [];
+  if (seance.protocoleEchauffement) sections.push(renderEchauffement(allures));
+  sections.push(renderCorpsDeSeance(seance));
+  sections.push(renderApresSeance(allures));
+  return `
+    <div class="card">
+      <h2>Fiche de séance</h2>
+      <div class="stack">
+        ${sections.join(`<div class="contour-divider"></div>`)}
+      </div>
+    </div>`;
+}
+
 function renderEchauffement(allures) {
   // "Footing en zone E basse (60-65% VO2max)" (Partie I §5.1) : le bas de la
   // fourchette E déjà calculé par le moteur VDOT (borne à 59% VO2max), pas
@@ -205,8 +220,8 @@ function renderEchauffement(allures) {
   const paceEBasse = allures?.E?.slow;
   const paceR = allures?.R?.target;
   return `
-    <div class="card">
-      <h2>Échauffement (${ECHAUFFEMENT_INTENSITE.dureeTotaleMin.join("-")} min)</h2>
+    <div>
+      <h3>Échauffement (${ECHAUFFEMENT_INTENSITE.dureeTotaleMin.join("-")} min)</h3>
       <div class="stack">
         ${ECHAUFFEMENT_INTENSITE.phases
           .map((p, i) => {
@@ -220,13 +235,24 @@ function renderEchauffement(allures) {
     </div>`;
 }
 
-function renderRetourCalme(allures) {
+/** Corps de séance : le format déjà résolu en une prescription précise
+ * (nombre de répétitions/relances, durée, allure — jamais une fourchette,
+ * cf. structureSeance.js) plutôt qu'une méta-info à interpréter. */
+function renderCorpsDeSeance(seance) {
+  return `
+    <div>
+      <h3>Corps de séance${seance.distanceKm ? ` (${seance.distanceKm.toFixed(1)} km, ${Math.round(seance.volumeSeanceMin)} min)` : ` (${Math.round(seance.volumeSeanceMin)} min)`}</h3>
+      ${renderProgrammeDuJour(seance)}
+    </div>`;
+}
+
+function renderApresSeance(allures) {
   // "Zone E basse / récupération" (Partie I §5.2) : même borne basse de la
   // zone E que pour l'échauffement.
   const paceEBasse = allures?.E?.slow;
   return `
-    <div class="card">
-      <h2>Retour au calme</h2>
+    <div>
+      <h3>Après séance</h3>
       <div class="stack">
         ${RETOUR_AU_CALME.phases
           .map((p, i) => {

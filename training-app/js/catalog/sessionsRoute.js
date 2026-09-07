@@ -30,7 +30,12 @@ export const SESSIONS_ROUTE = [
     zoneCiblePct: { min: 0.65, max: 0.74 },
     rpe: "3-4",
     corpsDeSeance: {
-      format: "Continu, variante développement : 5 lignes droites de 18 s à allure R en fin de séance",
+      // La variante "lignes droites" ne s'applique qu'en phase Développement
+      // (Partie I §6.1) — résolue dynamiquement selon la phase de la semaine,
+      // voir resoudreEnduranceFondamentale (structureSeance.js). Auparavant
+      // annoncée en dur pour toutes les phases (Base, Affûtage y compris),
+      // ce qui ne correspondait pas à la fiche.
+      type: "endurance_fondamentale",
       dureeMin: [45, 150],
       contrainteVolume: "≤30% du volume hebdo si volume hebdo <64 km",
       ratioEffortRecup: "n/a",
@@ -66,7 +71,12 @@ export const SESSIONS_ROUTE = [
     zoneCiblePct: { min: 0.7, max: 1.0 },
     rpe: "4-6",
     corpsDeSeance: {
-      format: "Continu en E, ponctué de 8-12 relances libres de 30 s à 2 min (allure ressentie, pas chronométrée), récupération trot égale à l'effort",
+      // Résolu en une prescription précise (nombre ET durée de relance),
+      // progressive avec la position dans la phase — voir resoudreFartlek
+      // (structureSeance.js) et son appel dans instancierSeance.
+      type: "fartlek",
+      relancesNbRange: [8, 12],
+      relanceDureeMinRange: [0.5, 2],
       dureeMin: [40, 60],
       contrainteVolume: "≤15% du volume hebdo",
       ratioEffortRecup: "1:1",
@@ -84,7 +94,11 @@ export const SESSIONS_ROUTE = [
     zoneCiblePct: { min: 0.65, max: 0.88 },
     rpe: "4-7",
     corpsDeSeance: {
-      format: "Progressif : 1ère moitié en E, accélération continue ensuite jusqu'à l'allure seuil (T) sur le dernier tiers",
+      // Résolu en repères de temps précis (0-X min en E, accélération jusqu'à
+      // Y min) — voir resoudreProgressif (structureSeance.js).
+      type: "progressif",
+      finPhaseEFraction: 0.5,
+      debutPhaseSeuilFraction: 0.67,
       dureeMin: [40, 70],
       contrainteVolume: "≤20% du volume hebdo",
       ratioEffortRecup: "n/a",

@@ -7,6 +7,9 @@ import {
   formatDureeCourte,
   formaterStructure,
   resoudreStructureDetaillee,
+  resoudreFartlek,
+  resoudreProgressif,
+  resoudreEnduranceFondamentale,
 } from "../js/engines/structureSeance.js";
 
 test("parserRatioRecuperation — ratio simple, fourchette (moyenne des bornes), et texte non parsable", () => {
@@ -111,4 +114,51 @@ test("resoudreStructureDetaillee — idempotente/re-résolvable : appelée une s
   const reResolution = resoudreStructureDetaillee(premiereResolution, volumeEcrete, null);
   assert.notEqual(reResolution.format, premiereResolution.format, "le format doit refléter le nouveau volume, pas rester celui de la première résolution");
   assert.ok(/^\d+ ×/.test(reResolution.format), `un nombre entier de répétitions est attendu en tête, obtenu : "${reResolution.format}"`);
+});
+
+test("resoudreFartlek — résout en un nombre ET une durée de relance PRÉCIS (jamais de fourchette dans le texte final)", () => {
+  const corps = { type: "fartlek", relancesNbRange: [8, 12], relanceDureeMinRange: [0.5, 2] };
+  const resolu = resoudreFartlek(corps, 1);
+  assert.match(resolu.format, /^\d+ relances de /, `un nombre entier de relances est attendu en tête, obtenu : "${resolu.format}"`);
+  assert.ok(!resolu.format.includes("8-12") && !resolu.format.includes("30 s à 2"), "aucune fourchette dans le texte final");
+});
+
+test("resoudreFartlek — progressif avec la position dans la phase (facteurPhase 0.75 début -> 1.15 fin, calculerFacteurProgression) : plus de relances et plus longues en fin de phase qu'en début", () => {
+  const corps = { type: "fartlek", relancesNbRange: [8, 12], relanceDureeMinRange: [0.5, 2] };
+  const debut = resoudreFartlek(corps, 0.75);
+  const fin = resoudreFartlek(corps, 1.15);
+  const nbDebut = Number(debut.format.match(/^(\d+)/)[1]);
+  const nbFin = Number(fin.format.match(/^(\d+)/)[1]);
+  assert.equal(nbDebut, 8, "début de phase -> bas de la fourchette (8)");
+  assert.equal(nbFin, 12, "fin de phase -> haut de la fourchette (12)");
+  assert.notEqual(debut.format, fin.format, "la durée de relance doit aussi progresser, pas seulement le nombre");
+});
+
+test("resoudreFartlek — type différent renvoyé inchangé (comme resoudreStructureDetaillee)", () => {
+  const corps = { type: "repetitions" };
+  assert.equal(resoudreFartlek(corps, 1), corps);
+});
+
+test("resoudreProgressif — résout en repères de temps PRÉCIS, jamais de fraction qualitative dans le texte final", () => {
+  const corps = { type: "progressif", finPhaseEFraction: 0.5, debutPhaseSeuilFraction: 0.67 };
+  const resolu = resoudreProgressif(corps, 60);
+  assert.ok(!resolu.format.includes("moitié") && !resolu.format.includes("tiers"), "aucune fraction qualitative dans le texte final");
+  assert.match(resolu.format, /30 min/, "50% de 60 min = 30 min attendu");
+  assert.match(resolu.format, /40 min/, "67% de 60 min ≈ 40 min attendu");
+});
+
+test("resoudreProgressif — idempotente/re-résolvable sur un volume réduit (plafond hebdo appliqué après coup)", () => {
+  const corps = { type: "progressif", finPhaseEFraction: 0.5, debutPhaseSeuilFraction: 0.67 };
+  const premiereResolution = resoudreProgressif(corps, 60);
+  const reResolution = resoudreProgressif(premiereResolution, 30);
+  assert.notEqual(reResolution.format, premiereResolution.format);
+  assert.match(reResolution.format, /15 min/, "50% de 30 min = 15 min attendu après re-résolution");
+});
+
+test("resoudreEnduranceFondamentale — variante lignes droites uniquement en phase Développement, pas en Base/Affûtage/Entretien", () => {
+  const corps = { type: "endurance_fondamentale" };
+  assert.match(resoudreEnduranceFondamentale(corps, "developpement").format, /lignes droites/);
+  for (const phase of ["base", "taper", "entretien"]) {
+    assert.doesNotMatch(resoudreEnduranceFondamentale(corps, phase).format, /lignes droites/, `pas de lignes droites en phase ${phase}`);
+  }
 });
