@@ -105,6 +105,7 @@ export async function render(container, params) {
         </div>
         ${idx === plan.semaines.length - 1 ? renderJourJ(plan) : ""}
         ${semaine.renfoRecommande?.length ? renderRenfo(semaine.renfoRecommande) : ""}
+        ${semaine.croiseRecommande?.length ? renderCroise(semaine.croiseRecommande) : ""}
       </div>
 
       <div class="card">
@@ -376,6 +377,21 @@ function renderRenfo(renfoList) {
         )
         .join("")}
       <a class="btn btn--sm" href="#/renfo">Voir le détail</a>
+    </div>`;
+}
+
+function renderCroise(croiseList) {
+  return `
+    <div class="contour-divider"></div>
+    <h3>Croisé conseillé cette semaine</h3>
+    <div class="stack">
+      ${croiseList
+        .map(
+          (c) =>
+            `<div class="row"><span class="zone-badge zone-badge--croise">C</span><span>${escapeAttr(c.nom)} — ${c.dureeMinRange[0]}-${c.dureeMinRange[1]} min, intensité basse (${escapeAttr(c.exemples.join(", "))})</span></div>`
+        )
+        .join("")}
+      <p class="muted" style="margin:0;">${escapeAttr(croiseList[0].note)}</p>
     </div>`;
 }
 

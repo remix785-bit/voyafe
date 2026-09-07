@@ -974,13 +974,18 @@ test("construireMacrocycle — la part de Base dépend de la charge actuelle (pr
   assert.equal(moderee.base, 7, "moderee reste l'exemple chiffré du dossier (16 semaines -> base 7)");
 });
 
-test("composerSemaine — phase entretien : pas de fractionné, une touche seuil/côtes 1 semaine sur 3 seulement", () => {
-  const avecTouche = composerSemaine("entretien", "route", 5, 3); // 3 % 3 === 0
-  const sansTouche = composerSemaine("entretien", "route", 5, 4); // 4 % 3 !== 0
-  assert.ok(avecTouche.some((s) => s.catalogueId === "route_seuil"));
-  assert.ok(!sansTouche.some((s) => s.catalogueId === "route_seuil"));
-  assert.ok(!avecTouche.some((s) => ["route_interval", "route_repetition"].includes(s.catalogueId)), "jamais de fractionné en entretien");
-  assert.equal(avecTouche[avecTouche.length - 1].catalogueId, "route_sortie_longue", "sortie longue toujours en dernier");
+test("composerSemaine — phase entretien : touche vitesse (fartlek/répétition) chaque semaine, jamais de I ni de T (seuil réservé au bloc spécifique)", () => {
+  const semaineImpaire = composerSemaine("entretien", "route", 5, 3); // 3 % 2 !== 0 -> fartlek
+  const semainePaire = composerSemaine("entretien", "route", 5, 4); // 4 % 2 === 0 -> répétition
+  assert.ok(semaineImpaire.some((s) => s.catalogueId === "route_fartlek"), "semaine impaire -> fartlek");
+  assert.ok(semainePaire.some((s) => s.catalogueId === "route_repetition"), "semaine paire -> répétition");
+  for (const semaine of [semaineImpaire, semainePaire]) {
+    assert.ok(
+      !semaine.some((s) => ["route_interval", "route_seuil"].includes(s.catalogueId)),
+      "jamais de I (VO2max) ni de T (seuil, réservé au bloc spécifique) en entretien"
+    );
+    assert.equal(semaine[semaine.length - 1].catalogueId, "route_sortie_longue", "sortie longue toujours en dernier");
+  }
 });
 
 test("genererPlanComplet — semaines d'entretien : sortie longue à plat (valeur de départ de la rampe), pas de progression vers le pic", () => {
@@ -1060,6 +1065,27 @@ test("instancierSeance — la réduction de taper dépend de la priorité de la 
   const volDefaut = instancierSeance(template, profilCourant, semaineTaper, {}, null, { facteurPhase: 1 }).volumeSeanceMin;
   assert.ok(volA < volB && volB < volC, `taper progressivement plus léger de A à C, obtenu A=${volA} B=${volB} C=${volC}`);
   assert.equal(volDefaut, volA, "sans priorité connue (plan autonome), comportement historique (-50%) préservé");
+});
+
+test("genererPlanComplet — croiseRecommande présent chaque semaine (base/développement/entretien), absent en taper", () => {
+  const dateDebut = new Date();
+  const plan = genererPlanComplet({
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: new Date(dateDebut.getTime() + 30 * 7 * 24 * 60 * 60 * 1000).toISOString(),
+    nbSeancesHebdo: 5,
+    distanceObjectifM: 42195,
+    tempsObjectifS: 3.5 * 3600,
+  });
+  for (const semaine of plan.semaines) {
+    if (semaine.phase === "taper") {
+      assert.equal(semaine.croiseRecommande.length, 0, "pas de croisé en taper (Le Coaching du Coureur — disparaît en fin de préparation)");
+    } else {
+      assert.ok(semaine.croiseRecommande.length > 0, `croisé attendu en phase ${semaine.phase}`);
+      assert.equal(semaine.croiseRecommande[0].id, "croise_endurance");
+    }
+  }
 });
 
 test("genererSaison — priorite par objectif intermédiaire (A/B/C) pilote l'affûtage de son propre bloc, indépendamment des autres", () => {

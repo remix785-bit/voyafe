@@ -7,6 +7,7 @@ import { resoudreStructureDetaillee, formatDureeCourte } from "./structureSeance
 import { SESSIONS_ROUTE } from "../catalog/sessionsRoute.js";
 import { SESSIONS_TRAIL } from "../catalog/sessionsTrail.js";
 import { renfoPourPhase } from "../catalog/renfo.js";
+import { croisePourPhase } from "../catalog/croise.js";
 
 const JOUR_MS = 24 * 60 * 60 * 1000;
 
@@ -266,8 +267,11 @@ const PLAFONDS_VOLUME_HEBDO = { T: 0.1, I: 0.08, R: 0.05 };
  * - Développement route : T chaque semaine + I/R en alternance semaine par semaine,
  *   biaisé par `axeTravail` (identifierAxeTravail, vdot.js) quand fourni.
  * - Entretien (au-delà de la fenêtre de préparation utile, cf.
- *   FENETRE_UTILE_SEMAINES) : maintien de la forme, touche de qualité
- *   occasionnelle, PAS de rampe vers un pic — voir genererPlanComplet.
+ *   FENETRE_UTILE_SEMAINES) : reprise/préparation générale (running-addict.fr —
+ *   "25 semaines de préparation marathon"), PAS un simple maintien passif —
+ *   une touche VITESSE chaque semaine (fartlek/répétition, jamais de I ni de
+ *   T réservés au bloc spécifique qui suit), PAS de rampe vers un pic — voir
+ *   genererPlanComplet.
  *
  * `estRepetitionGenerale` marque la dernière semaine hors affûtage (trail).
  * `axeTravail` ("vitesse"|"equilibre"|"endurance", identifierAxeTravail) biaise
@@ -302,17 +306,29 @@ export function composerSemaine(
   const slotsRestants = Math.max(0, nbSeancesDispo - slotsPourLongue);
 
   if (isEntretien) {
-    // Fenêtre au-delà de la préparation spécifique utile : on maintient la
-    // forme (endurance de fond + une touche de qualité de temps en temps)
-    // sans construire vers un pic — pas de rampe de sortie longue (gérée à
-    // plat par genererPlanComplet), pas d'alternance I/R hebdomadaire,
-    // pour ne pas "cramer" la fraîcheur avant le vrai bloc spécifique.
-    const toucheQualite = semaineNumero % 3 === 0;
-    const idQualite = discipline === "route" ? "route_seuil" : "trail_cotes_longues";
+    // Fenêtre au-delà de la préparation spécifique utile : reprise/préparation
+    // générale, pas un maintien passif (running-addict.fr — "25 semaines de
+    // préparation marathon", "Construire son plan d'entraînement course à
+    // pied sans se tromper"). Ces semaines sont le moment de construire une
+    // base de VITESSE (travail neuromusculaire, PAS la filière aérobie —
+    // "on ne peut pas être plus éloigné de l'allure marathon que ça") sur
+    // plusieurs mois, avant de la convertir en endurance/seuil dans le bloc
+    // spécifique qui suit (Développement) — d'où une touche CHAQUE semaine
+    // (pas occasionnelle : "la vitesse est travaillée pendant 3 mois"),
+    // jamais de I (VO2max, coûteux en fraîcheur) ni de T (seuil, réservé au
+    // bloc spécifique), alternée entre fartlek et répétition (zone R, coût
+    // aérobie minime) pour varier le stimulus. Toujours pas de rampe de
+    // sortie longue (gérée à plat par genererPlanComplet).
+    const idQualite =
+      discipline === "route"
+        ? semaineNumero % 2 === 0
+          ? "route_repetition"
+          : "route_fartlek"
+        : "trail_cotes_courtes";
     const idFiller = discipline === "route" ? "route_endurance_fondamentale" : "trail_sortie_dplus_progressif";
     const idLongue = discipline === "route" ? "route_sortie_longue" : "trail_sortie_dplus_progressif";
-    if (toucheQualite) slots.push({ catalogueId: idQualite, jour: "mardi" });
-    const nbFillers = Math.max(0, slotsRestants - (toucheQualite ? 1 : 0));
+    if (slotsRestants > 0) slots.push({ catalogueId: idQualite, jour: "mardi" });
+    const nbFillers = Math.max(0, slotsRestants - 1);
     for (let i = 0; i < nbFillers; i++) slots.push({ catalogueId: idFiller, jour: "libre" });
     if (slotsPourLongue > 0) slots.push({ catalogueId: idLongue, jour: "dimanche" });
     return slots.slice(0, nbSeancesDispo);
@@ -880,7 +896,8 @@ export function genererPlanComplet(inputs) {
     );
     const seancesDatees = seancesWithCaps.map((s, i) => ({ ...s, date: dates[i] }));
 
-    return { ...semaineContexte, seances: seancesDatees, renfoRecommande: renfo };
+    const croise = croisePourPhase(semaineContexte.phase);
+    return { ...semaineContexte, seances: seancesDatees, renfoRecommande: renfo, croiseRecommande: croise };
   });
 
   return {

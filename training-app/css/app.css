@@ -648,6 +648,10 @@ a.card:hover {
   background: var(--color-text-muted);
   color: var(--ink);
 }
+.zone-badge--croise {
+  background: var(--color-functional-strong);
+  color: var(--ink);
+}
 .zone-badge--run {
   background: var(--color-accent-strong);
 }
