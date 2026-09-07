@@ -313,6 +313,7 @@ textarea {
 /* ---------- StatStrip / StatTile ---------- */
 
 .stat-strip {
+  position: relative;
   display: flex;
   gap: 1px;
   background: var(--color-border);
@@ -322,9 +323,27 @@ textarea {
   margin-bottom: var(--space-3);
 }
 
+/* Ajoutée par attachStatStripHints() (components.js) seulement quand le
+   contenu déborde réellement ET qu'il reste du contenu à faire défiler à
+   droite — un mot très long (ex. "Développement", 13 caractères) peut
+   dépasser sa tuile même à taille de police réduite (stat-tile__value--
+   compact) sur un écran étroit. Un dégradé vers `transparent` (et non une
+   flèche/icône) signale sobrement "il y a plus à droite" sans dépendre d'une
+   couleur de fond figée pour rester lisible dans les deux thèmes. */
+.stat-strip--scrollable::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 24px;
+  background: linear-gradient(to right, transparent, var(--color-surface));
+  pointer-events: none;
+}
+
 .stat-tile {
-  flex: 1 0 auto;
-  min-width: 92px;
+  flex: 1 1 0;
+  min-width: 78px;
   background: var(--color-surface);
   padding: 10px 12px;
 }
@@ -334,6 +353,10 @@ textarea {
   font-weight: 600;
   color: var(--color-text);
   white-space: nowrap;
+}
+
+.stat-tile__value--compact {
+  font-size: 0.85rem;
 }
 
 .stat-tile__label {

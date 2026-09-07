@@ -1,6 +1,6 @@
 import * as store from "../../store.js";
 import { dailyMacros, preRaceCarbLoad, raceFuelingTargets } from "../../engines/nutrition.js";
-import { StatStrip } from "../components.js";
+import { StatStrip, attachStatStripHints } from "../components.js";
 
 export async function render(container) {
   const { profil } = store.getState();
@@ -88,6 +88,7 @@ export async function render(container) {
         ? { label: "Glucides/h course", value: `${targets.glucidesGParH.join("-")} g` }
         : { label: "Glucides/h course", value: "—" },
     ]);
+    attachStatStripHints(container);
   };
 
   const updateFueling = () => {

@@ -26,10 +26,38 @@ export function StatStrip(tiles) {
   return `<div class="stat-strip">${tiles.map(StatTile).join("")}</div>`;
 }
 
+/**
+ * À appeler après avoir injecté un StatStrip dans le DOM (innerHTML) : sur un
+ * écran étroit, un mot long (ex. "Développement") peut dépasser sa tuile même
+ * réduit (stat-tile__value--compact) — la bande défile déjà (overflow-x:auto)
+ * mais rien ne le signalait visuellement, un contenu qui déborde en franc-bord
+ * étant indiscernable d'un texte cassé/tronqué. Bascule une classe CSS
+ * (dégradé de bord, voir app.css) uniquement quand il reste vraiment quelque
+ * chose à faire défiler — recalculée au scroll pour disparaître une fois la
+ * fin de la bande atteinte.
+ * @param {ParentNode} container
+ */
+export function attachStatStripHints(container) {
+  container.querySelectorAll(".stat-strip").forEach((strip) => {
+    const maj = () => {
+      const resteAScroller = strip.scrollWidth > strip.clientWidth + 1 && strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 1;
+      strip.classList.toggle("stat-strip--scrollable", resteAScroller);
+    };
+    maj();
+    strip.addEventListener("scroll", maj, { passive: true });
+  });
+}
+
 function StatTile({ label, value, sub, tone, history }) {
+  // Une valeur longue (ex. "Développement", 13 caractères, un seul mot donc
+  // jamais coupé par un retour à la ligne) déborde du tile à taille de police
+  // normale sur un viewport mobile étroit — au lieu de se couper silencieusement
+  // hors de la bande (recouverte par overflow-x:auto sans aucun indice visuel
+  // qu'il faut la faire défiler), elle passe à une taille réduite qui tient.
+  const valeurLongue = String(value ?? "").length > 7;
   return `
     <div class="stat-tile${tone ? ` stat-tile--${tone}` : ""}">
-      <div class="stat-tile__value data">${escapeHtml(value)}</div>
+      <div class="stat-tile__value data${valeurLongue ? " stat-tile__value--compact" : ""}">${escapeHtml(value)}</div>
       <div class="stat-tile__label">${escapeHtml(label)}</div>
       ${sub ? `<div class="stat-tile__sub">${escapeHtml(sub)}</div>` : ""}
       ${history?.length > 1 ? miniSparkline(history, tone) : ""}
@@ -679,6 +707,18 @@ export function LoadGauge(loadSummary) {
     <div class="load-gauge__disclaimer">${escapeHtml(loadSummary.disclaimer)}</div>`;
 }
 
+/** Libellé français affiché pour une phase de macrocycle — les clés internes
+ * (base/developpement/entretien/taper) ne sont pas des libellés présentables
+ * (pas d'accent, "taper" reste en anglais alors que le reste de l'appli dit
+ * "Affûtage") : centralisé ici pour rester cohérent partout où une phase est
+ * montrée à l'utilisateur (StatStrip, en-têtes de semaine, tooltips) plutôt
+ * que d'afficher la clé interne brute comme c'était le cas jusqu'ici.
+ */
+const LIBELLES_PHASE = { entretien: "Entretien", base: "Base", developpement: "Développement", taper: "Affûtage" };
+export function libellePhase(phase) {
+  return LIBELLES_PHASE[phase] ?? phase;
+}
+
 /** WeekStrip — bande de visualisation du macrocycle (phases). */
 export function WeekStrip(semaines, semaineActuelleNumero) {
   const segs = semaines
@@ -686,7 +726,7 @@ export function WeekStrip(semaines, semaineActuelleNumero) {
       const classes = ["week-strip__seg", `week-strip__seg--${s.phase}`];
       if (s.numero === semaineActuelleNumero) classes.push("week-strip__seg--current");
       if (s.statut === "decharge") classes.push("week-strip__seg--decharge");
-      return `<div class="${classes.join(" ")}" title="Semaine ${s.numero} — ${s.phase}${s.statut === "decharge" ? " (décharge)" : ""}"></div>`;
+      return `<div class="${classes.join(" ")}" title="Semaine ${s.numero} — ${libellePhase(s.phase)}${s.statut === "decharge" ? " (décharge)" : ""}"></div>`;
     })
     .join("");
   return `

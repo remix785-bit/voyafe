@@ -18,6 +18,8 @@ import {
   ProgressBar,
   attachChartInteractions,
   afficherToast,
+  libellePhase,
+  attachStatStripHints,
 } from "../components.js";
 import { formatPace, formatDureeCompacte, riegelPredictAjuste, parseDureeLabel, ZONES } from "../../engines/vdot.js";
 import { statsPerformance, barresDistanceHebdo, barresDistanceMensuelle, barresDPlusMensuel, variationPct } from "../../engines/performance.js";
@@ -228,7 +230,7 @@ export async function render(container) {
             centreLabel: jours > 1 ? "jours restants" : "jour restant",
             centreSous: new Date(plan.dateEcheance).toLocaleDateString("fr-FR", { day: "numeric", month: "short" }),
           })}
-          <p class="muted" style="text-align:center; margin-top:4px;">Semaine ${semaineActuelle.numero}/${semainesTotal} — phase ${semaineActuelle.phase}${semaineActuelle.statut === "decharge" ? " (décharge)" : ""}</p>
+          <p class="muted" style="text-align:center; margin-top:4px;">Semaine ${semaineActuelle.numero}/${semainesTotal} — phase ${libellePhase(semaineActuelle.phase)}${semaineActuelle.statut === "decharge" ? " (décharge)" : ""}</p>
           ${plan.distanceObjectifM && plan.tempsObjectifS ? `<p class="row" style="justify-content:center; margin-top:8px;"><span class="data">${(plan.distanceObjectifM / 1000).toFixed(1)} km</span><span class="muted">en</span><span class="data">${secondesVersLabel(plan.tempsObjectifS)}</span><span class="muted">— allure objectif</span><span class="data">${formatPace(plan.objectifPaceMinParKm)}</span></p>` : ""}
           <div style="margin-top:16px;">${WeekStrip(plan.semaines, semaineActuelle.numero)}</div>
         </div>
@@ -352,6 +354,7 @@ export async function render(container) {
         </div>
       </div>
     </div>`;
+  attachStatStripHints(container);
 
   attachSegmentedControl(container);
 

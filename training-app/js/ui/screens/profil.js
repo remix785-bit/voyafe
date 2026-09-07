@@ -191,6 +191,11 @@ export async function render(container) {
     <div class="app-main">
       <div class="card">
         <h1>Profil &amp; Tests</h1>
+        ${
+          !profil
+            ? `<p class="muted">Champs pré-remplis à titre d'exemple (10 km en 40 min, 70 kg, 5 séances/sem.) — remplace-les par ta propre performance de référence avant d'enregistrer.</p>`
+            : ""
+        }
         <form id="form-profil">
           <div class="field-row">
             <div class="field">

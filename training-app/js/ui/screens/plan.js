@@ -1,5 +1,5 @@
 import * as store from "../../store.js";
-import { WeekStrip, SeasonTimeline, StatStrip, WeekTable, ZoneLegend, confirmerAction, afficherToast } from "../components.js";
+import { WeekStrip, SeasonTimeline, StatStrip, WeekTable, ZoneLegend, confirmerAction, afficherToast, libellePhase, attachStatStripHints } from "../components.js";
 import { formatPace, riegelPredictAjuste, formatDureeCompacte, evaluerCoherenceObjectif, identifierAxeTravail } from "../../engines/vdot.js";
 import { genererIcs, telechargerIcs } from "../../data/icsExport.js";
 import { Icon } from "../icons.js";
@@ -68,7 +68,7 @@ export async function render(container, params) {
         { label: "Distance", value: `${stats.totalDistance.toFixed(1)} km` },
         { label: "Durée", value: `${Math.round(stats.totalDuree)} min` },
         { label: "Séances", value: `${stats.realisees}/${stats.total}`, sub: "réalisées" },
-        { label: "Phase", value: semaine.phase, sub: semaine.statut === "decharge" ? "décharge" : undefined },
+        { label: "Phase", value: libellePhase(semaine.phase), sub: semaine.statut === "decharge" ? "décharge" : undefined },
       ])}
 
       <div class="card">
@@ -97,7 +97,7 @@ export async function render(container, params) {
       <div class="card">
         <div class="card__header">
           <button class="btn btn--sm" id="week-prev" ${idx === 0 ? "disabled" : ""}>&larr; Semaine préc.</button>
-          <h2>Semaine ${semaine.numero} — ${semaine.phase}${semaine.statut === "decharge" ? " · décharge" : ""}</h2>
+          <h2>Semaine ${semaine.numero} — ${libellePhase(semaine.phase)}${semaine.statut === "decharge" ? " · décharge" : ""}</h2>
           <button class="btn btn--sm" id="week-next" ${idx === plan.semaines.length - 1 ? "disabled" : ""}>Semaine suiv. &rarr;</button>
         </div>
         <div style="overflow-x:auto;">
@@ -113,6 +113,7 @@ export async function render(container, params) {
         ${ZoneLegend(plan.profilCourant.vdot)}
       </div>
     </div>`;
+  attachStatStripHints(container);
 
   container.querySelector("#export-ics").addEventListener("click", () => {
     const { ics, nbEvenements } = genererIcs(plan);

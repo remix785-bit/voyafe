@@ -50,7 +50,7 @@ export async function render(container, params) {
   container.innerHTML = `
     <div class="app-main">
       <div class="card">
-        <div class="card__header">
+        <div class="row" style="margin-bottom:var(--space-3);">
           ${ZoneBadge(seance.zoneDaniels)}
           <h1 style="margin:0;">${escapeAttr(seance.nom)}</h1>
         </div>
