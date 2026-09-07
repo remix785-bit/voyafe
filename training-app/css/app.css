@@ -1155,6 +1155,22 @@ a.card:hover {
 
 /* Modal de confirmation (confirmerAction, components.js) — <dialog> natif :
    ::backdrop est un pseudo-élément séparé, pas un enfant du DOM normal. */
+/* Wizard à étapes (activerEtapesFormulaire, profil.js). */
+.form-step-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: var(--space-3, 12px);
+  padding-bottom: var(--space-3, 12px);
+  border-bottom: 1px solid var(--color-border);
+}
+.form-step-nav__compteur {
+  margin: 0;
+}
+.form-step-nav__actions {
+  justify-content: space-between;
+}
+
 .confirm-modal {
   background: var(--color-surface);
   color: var(--color-text);

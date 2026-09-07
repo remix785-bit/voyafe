@@ -3,6 +3,175 @@ import { vdotFromPerformance, paceZonesForVdot, formatPace, riegelPredictAjuste,
 import { calculerAllureObjectif, semainesDisponibles } from "../../engines/planGenerator.js";
 import { SegmentedControl, attachSegmentedControl, confirmerAction, afficherToast } from "../components.js";
 
+/**
+ * Bloc de champs "objectif course" (discipline, nom, distance, temps
+ * objectif, D+) — partagé entre le formulaire Plan simple et le bloc
+ * "Objectif final" de la Saison, jusqu'ici deux copies HTML quasi
+ * identiques à maintenir en double (source de libellés "optionnel"
+ * incohérents entre les deux). `idPrefix` doit être unique sur la page
+ * (ex. "obj-" pour le plan simple, "s-final-" pour la saison) : les deux
+ * formulaires coexistent toujours dans le DOM (onglets Plan simple/Saison),
+ * des ids partagés seraient ambigus pour querySelector.
+ * @param {string} idPrefix
+ * @param {{discipline?:string, objectif?:string, distanceObjectifM?:number, tempsObjectifS?:number, deniveleM?:number}} prefill
+ */
+function champsObjectifHTML(idPrefix, prefill = {}) {
+  const estTrail = prefill?.discipline === "trail";
+  return `
+    <div class="field-row">
+      <div class="field">
+        <label for="${idPrefix}discipline">Discipline</label>
+        <select id="${idPrefix}discipline" data-objectif-discipline>
+          <option value="route" ${estTrail ? "" : "selected"}>Route</option>
+          <option value="trail" ${estTrail ? "selected" : ""}>Trail</option>
+        </select>
+      </div>
+      <div class="field" data-champ-denivele ${estTrail ? "" : "hidden"}>
+        <label for="${idPrefix}denivele">D+ de la course (m, optionnel)</label>
+        <input type="number" id="${idPrefix}denivele" min="0" value="${prefill?.deniveleM ?? ""}" placeholder="ex: 2500" />
+      </div>
+    </div>
+    <div class="field">
+      <label for="${idPrefix}nom">Objectif (libellé, optionnel)</label>
+      <input type="text" id="${idPrefix}nom" value="${escapeAttr(prefill?.objectif ?? "")}" placeholder="ex: Marathon de Paris sub-3h30" />
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label for="${idPrefix}distance">Distance de la course (km, optionnel)</label>
+        <input type="number" id="${idPrefix}distance" step="0.001" min="0" value="${prefill?.distanceObjectifM ? prefill.distanceObjectifM / 1000 : ""}" placeholder="ex: 42.195" />
+      </div>
+      <div class="field">
+        <label for="${idPrefix}temps">Temps objectif (hh:mm:ss, optionnel)</label>
+        <input type="text" id="${idPrefix}temps" value="${prefill?.tempsObjectifS ? secondesVersLabel(prefill.tempsObjectifS) : ""}" placeholder="ex: 3:30:00" />
+      </div>
+    </div>`;
+}
+
+/** Lit le bloc généré par champsObjectifHTML(idPrefix, ...) — renvoie une
+ * forme neutre, à chaque appelant de la mapper vers ses propres clés
+ * d'input (ex. distanceObjectifM pour un plan, distanceM pour un objectif
+ * de saison). */
+function lireChampsObjectif(container, idPrefix) {
+  const discipline = container.querySelector(`#${idPrefix}discipline`).value;
+  const distanceKm = Number(container.querySelector(`#${idPrefix}distance`).value) || null;
+  const tempsLabel = container.querySelector(`#${idPrefix}temps`).value.trim();
+  const deniveleBrut = Number(container.querySelector(`#${idPrefix}denivele`).value) || null;
+  return {
+    discipline,
+    nom: container.querySelector(`#${idPrefix}nom`).value,
+    distanceM: distanceKm ? distanceKm * 1000 : null,
+    tempsS: tempsLabel ? labelVersSecondes(tempsLabel) : null,
+    deniveleM: discipline === "trail" ? deniveleBrut : null,
+  };
+}
+
+/**
+ * Bloc "jours d'entraînement + charge hebdo + volume max" — partagé entre
+ * le formulaire Plan simple (idPrefix "", jourAttr "data-jour") et le
+ * réglage commun de la Saison (idPrefix "s-", jourAttr "data-jour-saison").
+ * @param {string} idPrefix
+ * @param {string} jourAttr
+ * @param {{joursEntrainement?:number[], chargeHebdoMoyenneActuelle?:string, volumeHebdoMaxMin?:number}} prefill
+ * @param {number} profilDispoDefaut séances/semaine du profil, pour préremplir sans saisie existante
+ */
+function champsDisponibiliteHTML(idPrefix, jourAttr, prefill, profilDispoDefaut) {
+  return `
+    <div class="field">
+      <label>Jours d'entraînement</label>
+      ${renderJoursCheckboxes(prefill?.joursEntrainement ?? joursParDefaut(profilDispoDefaut), jourAttr)}
+      <p class="muted" id="${idPrefix}jours-count" style="margin-top:4px;"></p>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label for="${idPrefix}charge">Charge hebdo actuelle</label>
+        <select id="${idPrefix}charge">
+          <option value="faible" ${prefill?.chargeHebdoMoyenneActuelle === "faible" ? "selected" : ""}>Faible</option>
+          <option value="moderee" ${!prefill || prefill.chargeHebdoMoyenneActuelle === "moderee" ? "selected" : ""}>Modérée</option>
+          <option value="elevee" ${prefill?.chargeHebdoMoyenneActuelle === "elevee" ? "selected" : ""}>Élevée</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="${idPrefix}volume-hebdo-max">Volume hebdo max (h, optionnel)</label>
+        <input type="number" step="0.5" min="1" id="${idPrefix}volume-hebdo-max" value="${prefill?.volumeHebdoMaxMin ? (prefill.volumeHebdoMaxMin / 60).toFixed(1) : ""}" placeholder="ex: 6" />
+      </div>
+    </div>
+    <p class="muted" style="margin-top:-8px;">Temps total dispo par semaine, toutes séances confondues — le plan réduit proportionnellement les séances pour rester dans ce budget plutôt que d'en supprimer.</p>`;
+}
+
+/**
+ * Gate un bouton de soumission (profil renseigné ET au moins un jour
+ * d'entraînement coché) — même logique pour le formulaire Plan simple et
+ * le formulaire Saison, jusqu'ici dupliquée entre les deux. Met aussi à
+ * jour le compteur "N séances/semaine" à chaque changement de case.
+ * @returns {() => void} fonction à rappeler après un événement externe (ex.
+ *   le profil vient d'être enregistré plus haut sur la page) pour
+ *   ré-évaluer l'état du bouton sans toucher au compteur de jours.
+ */
+function creerGatingFormulaire(container, { noteId, submitId, jourAttr, countId }) {
+  const update = () => {
+    const hasProfil = !!store.getState().profil;
+    const hasJours = container.querySelectorAll(`[${jourAttr}]:checked`).length > 0;
+    const note = container.querySelector(`#${noteId}`);
+    if (note) note.hidden = hasProfil;
+    const btn = container.querySelector(`#${submitId}`);
+    if (btn) btn.disabled = !hasProfil || !hasJours;
+  };
+  const updateCount = () => {
+    const n = container.querySelectorAll(`[${jourAttr}]:checked`).length;
+    const el = container.querySelector(`#${countId}`);
+    if (el) el.textContent = n === 0 ? "Choisis au moins un jour." : `${n} séance${n > 1 ? "s" : ""}/semaine.`;
+    update();
+  };
+  container.querySelectorAll(`[${jourAttr}]`).forEach((cb) => cb.addEventListener("change", updateCount));
+  updateCount();
+  return update;
+}
+
+/**
+ * Transforme un formulaire découpé en <div class="form-step"> en mini-
+ * wizard à étapes (Suivant/Précédent, compteur "Étape X/N") plutôt qu'un
+ * unique long scroll — chaque étape reste un simple <div> à l'intérieur du
+ * MÊME <form>, la soumission finale lit donc l'ensemble des champs sans
+ * rien changer côté validation/données (un champ dans une étape masquée
+ * (hidden) reste lisible en JS, seule la validation native HTML l'ignore —
+ * les contrôles JS explicites du submit restent le vrai garde-fou).
+ * Les boutons d'action (data-form-actions) ne sont visibles qu'à la
+ * dernière étape.
+ * @param {HTMLFormElement} form
+ */
+function activerEtapesFormulaire(form) {
+  const etapes = Array.from(form.querySelectorAll(".form-step"));
+  if (etapes.length < 2) return;
+  let etapeCourante = 0;
+  const actions = form.querySelector("[data-form-actions]");
+
+  const nav = document.createElement("div");
+  nav.className = "form-step-nav";
+  form.insertBefore(nav, etapes[0]);
+
+  const majAffichage = () => {
+    etapes.forEach((etape, i) => (etape.hidden = i !== etapeCourante));
+    if (actions) actions.hidden = etapeCourante !== etapes.length - 1;
+    nav.innerHTML = `
+      <p class="muted form-step-nav__compteur">Étape ${etapeCourante + 1}/${etapes.length}</p>
+      <div class="row form-step-nav__actions">
+        ${etapeCourante > 0 ? `<button type="button" class="btn btn--sm" data-step-precedent>&larr; Précédent</button>` : ""}
+        ${etapeCourante < etapes.length - 1 ? `<button type="button" class="btn btn--sm btn--primary" data-step-suivant>Suivant &rarr;</button>` : ""}
+      </div>`;
+    nav.querySelector("[data-step-precedent]")?.addEventListener("click", () => {
+      etapeCourante--;
+      majAffichage();
+      form.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    nav.querySelector("[data-step-suivant]")?.addEventListener("click", () => {
+      etapeCourante++;
+      majAffichage();
+      form.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
+  majAffichage();
+}
+
 export async function render(container) {
   const { profil } = store.getState();
   const planExistant = store.planActif() ?? store.getState().plans[store.getState().plans.length - 1] ?? null;
@@ -70,75 +239,38 @@ export async function render(container) {
         ${planExistant ? `<p class="muted">Change la distance, le temps objectif ou l'échéance puis mets à jour — les séances déjà réalisées/manquées restent enregistrées.</p>` : ""}
         <p class="badge-warning" id="profil-manquant-note" ${profil ? "hidden" : ""}>Renseigne d'abord ta performance de référence ci-dessus pour pouvoir générer un plan.</p>
         <form id="form-plan">
-          <h3>Objectif</h3>
-          <div class="field">
-            <label for="discipline">Discipline</label>
-            <select id="discipline">
-              <option value="route" ${planExistant?.discipline === "trail" ? "" : "selected"}>Route</option>
-              <option value="trail" ${planExistant?.discipline === "trail" ? "selected" : ""}>Trail</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="gap-calibre">Calibration GAP (trail, optionnel)</label>
-            <input type="number" id="gap-calibre" step="0.05" min="0.5" max="2" value="${planExistant?.profilCourant?.facteurGapCalibre ?? 1}" />
-          </div>
-          <p class="muted" style="margin-top:-8px;">Ajuste le modèle théorique (Minetti) à ta sensibilité réelle aux pentes. 1.0 = modèle standard ; augmente si tu ralentis plus que prévu en montée/descente technique, diminue si tu t'en sors mieux que prévu. Sans effet en route.</p>
-          <div class="field">
-            <label for="objectif">Objectif (libellé, optionnel)</label>
-            <input type="text" id="objectif" value="${escapeAttr(planExistant?.objectif ?? "")}" placeholder="ex: Marathon de Paris sub-3h30" />
-          </div>
-          <div class="field-row">
+          <div class="form-step" data-step-titre="Objectif">
+            <h3>Objectif</h3>
+            ${champsObjectifHTML("obj-", planExistant)}
             <div class="field">
-              <label for="distance-objectif">Distance de la course (km, optionnel)</label>
-              <input type="number" id="distance-objectif" step="0.001" min="0" value="${planExistant?.distanceObjectifM ? planExistant.distanceObjectifM / 1000 : ""}" placeholder="ex: 42.195" />
+              <label for="gap-calibre">Calibration GAP (trail, optionnel)</label>
+              <input type="number" id="gap-calibre" step="0.05" min="0.5" max="2" value="${planExistant?.profilCourant?.facteurGapCalibre ?? 1}" />
             </div>
-            <div class="field">
-              <label for="temps-objectif">Temps objectif (hh:mm:ss, optionnel)</label>
-              <input type="text" id="temps-objectif" value="${planExistant?.tempsObjectifS ? secondesVersLabel(planExistant.tempsObjectifS) : ""}" placeholder="ex: 3:30:00" />
-            </div>
+            <p class="muted" style="margin-top:-8px;">Ajuste le modèle théorique (Minetti) à ta sensibilité réelle aux pentes. 1.0 = modèle standard ; augmente si tu ralentis plus que prévu en montée/descente technique, diminue si tu t'en sors mieux que prévu. Sans effet en route.</p>
+            <p class="muted data" id="allure-objectif-preview"></p>
+            <p class="muted" id="coherence-objectif-preview"></p>
           </div>
-          <div class="field" id="champ-denivele-objectif" ${planExistant?.discipline === "trail" ? "" : "hidden"}>
-            <label for="denivele-objectif">D+ de la course (m, trail, optionnel)</label>
-            <input type="number" id="denivele-objectif" min="0" value="${planExistant?.deniveleM ?? ""}" placeholder="ex: 2500" />
-          </div>
-          <p class="muted data" id="allure-objectif-preview"></p>
-          <p class="muted" id="coherence-objectif-preview"></p>
 
-          <div class="contour-divider"></div>
-          <h3>Planning</h3>
-          <div class="field-row">
-            <div class="field">
-              <label for="debut-plan">Date de début du plan</label>
-              <input type="date" id="debut-plan" value="${(planExistant?.dateDebutPlan ?? new Date().toISOString()).slice(0, 10)}" />
-            </div>
-            <div class="field">
-              <label for="echeance">Date de la course</label>
-              <input type="date" id="echeance" required value="${planExistant?.dateEcheance ? planExistant.dateEcheance.slice(0, 10) : ""}" />
-            </div>
-          </div>
-          <div class="field">
-            <label>Jours d'entraînement</label>
-            ${renderJoursCheckboxes(planExistant?.joursEntrainement ?? joursParDefaut(profil?.disponibiliteHebdo ?? 5))}
-            <p class="muted" id="jours-count" style="margin-top:4px;"></p>
-          </div>
-          <div class="contour-divider"></div>
-          <h3>Charge &amp; disponibilité</h3>
-          <div class="field-row">
-            <div class="field">
-              <label for="charge">Charge hebdo actuelle</label>
-              <select id="charge">
-                <option value="faible" ${planExistant?.chargeHebdoMoyenneActuelle === "faible" ? "selected" : ""}>Faible</option>
-                <option value="moderee" ${!planExistant || planExistant.chargeHebdoMoyenneActuelle === "moderee" ? "selected" : ""}>Modérée</option>
-                <option value="elevee" ${planExistant?.chargeHebdoMoyenneActuelle === "elevee" ? "selected" : ""}>Élevée</option>
-              </select>
-            </div>
-            <div class="field">
-              <label for="volume-hebdo-max">Volume hebdo max (h, optionnel)</label>
-              <input type="number" id="volume-hebdo-max" step="0.5" min="1" value="${planExistant?.volumeHebdoMaxMin ? (planExistant.volumeHebdoMaxMin / 60).toFixed(1) : ""}" placeholder="ex: 6" />
+          <div class="form-step" data-step-titre="Planning" hidden>
+            <h3>Planning</h3>
+            <div class="field-row">
+              <div class="field">
+                <label for="debut-plan">Date de début du plan</label>
+                <input type="date" id="debut-plan" value="${(planExistant?.dateDebutPlan ?? new Date().toISOString()).slice(0, 10)}" />
+              </div>
+              <div class="field">
+                <label for="echeance">Date de la course</label>
+                <input type="date" id="echeance" required value="${planExistant?.dateEcheance ? planExistant.dateEcheance.slice(0, 10) : ""}" />
+              </div>
             </div>
           </div>
-          <p class="muted" style="margin-top:-8px;">Temps total dispo par semaine, toutes séances confondues — le plan réduit proportionnellement les séances pour rester dans ce budget plutôt que d'en supprimer.</p>
-          <div class="row">
+
+          <div class="form-step" data-step-titre="Charge & disponibilité" hidden>
+            <h3>Charge &amp; disponibilité</h3>
+            ${champsDisponibiliteHTML("", "data-jour", planExistant, profil?.disponibiliteHebdo ?? 5)}
+          </div>
+
+          <div class="row" data-form-actions>
             <button class="btn btn--primary" type="submit" id="submit-plan" ${profil ? "" : "disabled"}>${planExistant ? "Mettre à jour le plan" : "Générer le plan"}</button>
             ${planExistant ? `<button class="btn btn--sm" type="button" id="btn-nouveau-plan">Créer un nouveau plan à la place</button>` : ""}
           </div>
@@ -150,79 +282,43 @@ export async function render(container) {
           ${blocFinalExistant ? `<p class="muted">Modifie n'importe quel champ puis mets à jour — les séances déjà réalisées/manquées restent enregistrées, bloc par bloc.</p>` : ""}
           <p class="badge-warning" id="s-profil-manquant-note" ${profil ? "hidden" : ""}>Renseigne d'abord ta performance de référence ci-dessus pour pouvoir générer une saison.</p>
           <form id="form-saison">
-            <div class="field">
-              <label for="s-gap-calibre">Calibration GAP (trail, optionnel)</label>
-              <input type="number" id="s-gap-calibre" step="0.05" min="0.5" max="2" value="${blocFinalExistant?.profilCourant?.facteurGapCalibre ?? 1}" />
-            </div>
-            <p class="muted" style="margin-top:-8px;">Ajuste le modèle théorique (Minetti) à ta sensibilité réelle aux pentes — commun à toute la saison, quelle que soit la discipline de chaque objectif.</p>
-            <div class="field">
-              <label for="s-debut">Date de début de la saison</label>
-              <input type="date" id="s-debut" value="${(blocsIntermediairesExistants[0] ?? blocFinalExistant)?.dateDebutPlan?.slice(0, 10) ?? new Date().toISOString().slice(0, 10)}" />
+            <div class="form-step" data-step-titre="Réglages généraux">
+              <h3>Réglages généraux</h3>
+              <div class="field">
+                <label for="s-gap-calibre">Calibration GAP (trail, optionnel)</label>
+                <input type="number" id="s-gap-calibre" step="0.05" min="0.5" max="2" value="${blocFinalExistant?.profilCourant?.facteurGapCalibre ?? 1}" />
+              </div>
+              <p class="muted" style="margin-top:-8px;">Ajuste le modèle théorique (Minetti) à ta sensibilité réelle aux pentes — commun à toute la saison, quelle que soit la discipline de chaque objectif.</p>
+              <div class="field">
+                <label for="s-debut">Date de début de la saison</label>
+                <input type="date" id="s-debut" value="${(blocsIntermediairesExistants[0] ?? blocFinalExistant)?.dateDebutPlan?.slice(0, 10) ?? new Date().toISOString().slice(0, 10)}" />
+              </div>
             </div>
 
-            <div class="contour-divider"></div>
-            <h3>Objectif final</h3>
-            <div class="field">
-              <label for="s-final-nom">Nom (optionnel)</label>
-              <input type="text" id="s-final-nom" value="${escapeAttr(blocFinalExistant?.objectif ?? "")}" placeholder="ex: Marathon de Paris" />
-            </div>
-            <div class="field-row">
+            <div class="form-step" data-step-titre="Objectif final" hidden>
+              <h3>Objectif final</h3>
+              ${champsObjectifHTML("s-final-", blocFinalExistant)}
               <div class="field">
-                <label for="s-final-discipline">Discipline</label>
-                <select id="s-final-discipline" data-objectif-discipline>
-                  <option value="route" ${blocFinalExistant?.discipline === "trail" ? "" : "selected"}>Route</option>
-                  <option value="trail" ${blocFinalExistant?.discipline === "trail" ? "selected" : ""}>Trail</option>
-                </select>
+                <label for="s-final-date">Date de la course</label>
+                <input type="date" id="s-final-date" required value="${blocFinalExistant?.dateEcheance?.slice(0, 10) ?? ""}" />
               </div>
-              <div class="field" data-champ-denivele ${blocFinalExistant?.discipline === "trail" ? "" : "hidden"}>
-                <label for="s-final-denivele">D+ de la course (m, optionnel)</label>
-                <input type="number" id="s-final-denivele" min="0" value="${blocFinalExistant?.deniveleM ?? ""}" placeholder="ex: 2500" />
-              </div>
-            </div>
-            <div class="field-row">
-              <div class="field">
-                <label for="s-final-distance">Distance (km, optionnel)</label>
-                <input type="number" id="s-final-distance" step="0.001" min="0" value="${blocFinalExistant?.distanceObjectifM ? blocFinalExistant.distanceObjectifM / 1000 : ""}" placeholder="ex: 42.195" />
-              </div>
-              <div class="field">
-                <label for="s-final-temps">Temps objectif (hh:mm:ss, optionnel)</label>
-                <input type="text" id="s-final-temps" value="${blocFinalExistant?.tempsObjectifS ? secondesVersLabel(blocFinalExistant.tempsObjectifS) : ""}" placeholder="ex: 3:30:00" />
-              </div>
-            </div>
-            <div class="field">
-              <label for="s-final-date">Date de la course</label>
-              <input type="date" id="s-final-date" required value="${blocFinalExistant?.dateEcheance?.slice(0, 10) ?? ""}" />
             </div>
 
-            <div class="contour-divider"></div>
-            <div class="card__header">
-              <h3>Objectifs intermédiaires</h3>
-              <button class="btn btn--sm" type="button" id="btn-ajouter-intermediaire">+ Ajouter</button>
+            <div class="form-step" data-step-titre="Objectifs intermédiaires" hidden>
+              <div class="card__header">
+                <h3>Objectifs intermédiaires</h3>
+                <button class="btn btn--sm" type="button" id="btn-ajouter-intermediaire">+ Ajouter</button>
+              </div>
+              <p class="muted" style="margin-top:-8px;">Optionnel — des courses d'étape avant l'objectif final, chacune avec sa propre discipline (route ou trail, avec son D+), avec un affûtage minimal pour ne pas interrompre la progression.</p>
+              <div id="intermediaires-list" class="stack"></div>
             </div>
-            <p class="muted" style="margin-top:-8px;">Optionnel — des courses d'étape avant l'objectif final, chacune avec sa propre discipline (route ou trail, avec son D+), avec un affûtage minimal pour ne pas interrompre la progression.</p>
-            <div id="intermediaires-list" class="stack"></div>
 
-            <div class="contour-divider"></div>
-            <div class="field">
-              <label>Jours d'entraînement</label>
-              ${renderJoursCheckboxes(blocFinalExistant?.joursEntrainement ?? joursParDefaut(profil?.disponibiliteHebdo ?? 5), "data-jour-saison")}
-              <p class="muted" id="s-jours-count" style="margin-top:4px;"></p>
+            <div class="form-step" data-step-titre="Jours & disponibilité" hidden>
+              <h3>Jours &amp; disponibilité</h3>
+              ${champsDisponibiliteHTML("s-", "data-jour-saison", blocFinalExistant, profil?.disponibiliteHebdo ?? 5)}
             </div>
-            <div class="field-row">
-              <div class="field">
-                <label for="s-charge">Charge hebdo actuelle</label>
-                <select id="s-charge">
-                  <option value="faible" ${blocFinalExistant?.chargeHebdoMoyenneActuelle === "faible" ? "selected" : ""}>Faible</option>
-                  <option value="moderee" ${!blocFinalExistant || blocFinalExistant.chargeHebdoMoyenneActuelle === "moderee" ? "selected" : ""}>Modérée</option>
-                  <option value="elevee" ${blocFinalExistant?.chargeHebdoMoyenneActuelle === "elevee" ? "selected" : ""}>Élevée</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="s-volume-hebdo-max">Volume hebdo max (h, optionnel)</label>
-                <input type="number" id="s-volume-hebdo-max" step="0.5" min="1" value="${blocFinalExistant?.volumeHebdoMaxMin ? (blocFinalExistant.volumeHebdoMaxMin / 60).toFixed(1) : ""}" placeholder="ex: 6" />
-              </div>
-            </div>
-            <div class="row">
+
+            <div class="row" data-form-actions>
               <button class="btn btn--primary" type="submit" id="submit-saison" ${profil ? "" : "disabled"}>${blocFinalExistant ? "Mettre à jour la saison" : "Générer la saison"}</button>
               ${blocFinalExistant ? `<button class="btn btn--sm" type="button" id="btn-supprimer-saison">Supprimer la saison</button>` : ""}
             </div>
@@ -350,8 +446,8 @@ export async function render(container) {
   let modeCreationForcee = false;
 
   const updateAllurePreview = () => {
-    const distanceKm = Number(container.querySelector("#distance-objectif").value);
-    const tempsLabel = container.querySelector("#temps-objectif").value.trim();
+    const distanceKm = Number(container.querySelector("#obj-distance").value);
+    const tempsLabel = container.querySelector("#obj-temps").value.trim();
     const preview = container.querySelector("#allure-objectif-preview");
     const coherencePreview = container.querySelector("#coherence-objectif-preview");
     if (!distanceKm || !tempsLabel) {
@@ -361,8 +457,8 @@ export async function render(container) {
     }
     const distanceM = distanceKm * 1000;
     const tempsS = labelVersSecondes(tempsLabel);
-    const estTrail = container.querySelector("#discipline").value === "trail";
-    const deniveleM = estTrail ? Number(container.querySelector("#denivele-objectif").value) || 0 : 0;
+    const estTrail = container.querySelector("#obj-discipline").value === "trail";
+    const deniveleM = estTrail ? Number(container.querySelector("#obj-denivele").value) || 0 : 0;
     const allure = calculerAllureObjectif(distanceM, tempsS);
     preview.textContent = allure ? `Allure objectif : ${formatPace(allure)} — utilisée pour les blocs allure course (zone M) du plan.` : "";
 
@@ -405,44 +501,36 @@ export async function render(container) {
     }
     coherencePreview.textContent = texte;
   };
-  container.querySelector("#distance-objectif").addEventListener("input", updateAllurePreview);
-  container.querySelector("#temps-objectif").addEventListener("input", updateAllurePreview);
-  container.querySelector("#denivele-objectif").addEventListener("input", updateAllurePreview);
+  container.querySelector("#obj-distance").addEventListener("input", updateAllurePreview);
+  container.querySelector("#obj-temps").addEventListener("input", updateAllurePreview);
+  container.querySelector("#obj-denivele").addEventListener("input", updateAllurePreview);
+  container.querySelector("#obj-discipline").addEventListener("change", updateAllurePreview);
   container.querySelector("#debut-plan").addEventListener("input", updateAllurePreview);
   container.querySelector("#echeance").addEventListener("input", updateAllurePreview);
-
-  const updateDeniveleVisibility = () => {
-    container.querySelector("#champ-denivele-objectif").hidden = container.querySelector("#discipline").value !== "trail";
-  };
-  container.querySelector("#discipline").addEventListener("change", () => {
-    updateDeniveleVisibility();
-    updateAllurePreview();
-  });
-  updateDeniveleVisibility();
   updateAllurePreview();
+
+  // Le champ D+ n'a de sens qu'en trail — masqué/affiché selon la discipline
+  // choisie, pour TOUT champ objectif de la page (plan simple, objectif
+  // final de la saison, chaque ligne intermédiaire) via un seul écouteur
+  // délégué au niveau du conteneur, plutôt qu'une logique par formulaire.
+  container.addEventListener("change", (e) => {
+    if (!e.target.matches("[data-objectif-discipline]")) return;
+    const champDenivele = e.target.closest(".field-row")?.querySelector("[data-champ-denivele]");
+    if (champDenivele) champDenivele.hidden = e.target.value !== "trail";
+  });
 
   // Gate le bouton "Générer/Mettre à jour le plan" en amont (profil renseigné
   // ET au moins un jour d'entraînement coché) plutôt que de laisser
   // remplir tout le formulaire avant de découvrir le blocage via un
   // alert() au clic — l'utilisateur voit tout de suite pourquoi le bouton
   // est inactif (note au-dessus + compteur de jours).
-  const updateSubmitPlanState = () => {
-    const hasProfil = !!store.getState().profil;
-    const hasJours = container.querySelectorAll("[data-jour]:checked").length > 0;
-    const note = container.querySelector("#profil-manquant-note");
-    if (note) note.hidden = hasProfil;
-    const btn = container.querySelector("#submit-plan");
-    if (btn) btn.disabled = !hasProfil || !hasJours;
-  };
-
-  const updateJoursCount = () => {
-    const n = container.querySelectorAll('[data-jour]:checked').length;
-    container.querySelector("#jours-count").textContent =
-      n === 0 ? "Choisis au moins un jour." : `${n} séance${n > 1 ? "s" : ""}/semaine.`;
-    updateSubmitPlanState();
-  };
-  container.querySelectorAll("[data-jour]").forEach((cb) => cb.addEventListener("change", updateJoursCount));
-  updateJoursCount();
+  const updateSubmitPlanState = creerGatingFormulaire(container, {
+    noteId: "profil-manquant-note",
+    submitId: "submit-plan",
+    jourAttr: "data-jour",
+    countId: "jours-count",
+  });
+  activerEtapesFormulaire(container.querySelector("#form-plan"));
 
   container.querySelector("#btn-nouveau-plan")?.addEventListener("click", () => {
     modeCreationForcee = true;
@@ -460,16 +548,12 @@ export async function render(container) {
       afficherToast("Renseigne d'abord ton profil (performance de référence).", { type: "error" });
       return;
     }
-    const discipline = container.querySelector("#discipline").value;
-    const objectif = container.querySelector("#objectif").value;
-    const distanceKm = Number(container.querySelector("#distance-objectif").value) || null;
-    const tempsLabel = container.querySelector("#temps-objectif").value.trim();
+    const objectifChamps = lireChampsObjectif(container, "obj-");
     const debutPlan = container.querySelector("#debut-plan").value;
     const echeance = container.querySelector("#echeance").value;
     const charge = container.querySelector("#charge").value;
     const volumeHebdoMaxH = Number(container.querySelector("#volume-hebdo-max").value) || null;
     const facteurGapCalibre = Number(container.querySelector("#gap-calibre").value) || 1;
-    const deniveleM = discipline === "trail" ? Number(container.querySelector("#denivele-objectif").value) || null : null;
     const joursEntrainement = Array.from(container.querySelectorAll("[data-jour]:checked")).map((cb) => Number(cb.value));
     if (!echeance) {
       afficherToast("Choisis une date de course.", { type: "error" });
@@ -480,16 +564,16 @@ export async function render(container) {
       return;
     }
     const inputs = {
-      discipline,
-      objectif,
+      discipline: objectifChamps.discipline,
+      objectif: objectifChamps.nom,
       dateEcheance: new Date(echeance).toISOString(),
       dateDebut: debutPlan ? new Date(debutPlan).toISOString() : new Date().toISOString(),
       performanceRef: p.performanceRef,
       joursEntrainement,
       chargeHebdoMoyenneActuelle: charge,
-      distanceObjectifM: distanceKm ? distanceKm * 1000 : null,
-      tempsObjectifS: tempsLabel ? labelVersSecondes(tempsLabel) : null,
-      deniveleM,
+      distanceObjectifM: objectifChamps.distanceM,
+      tempsObjectifS: objectifChamps.tempsS,
+      deniveleM: objectifChamps.deniveleM,
       volumeHebdoMaxMin: volumeHebdoMaxH ? volumeHebdoMaxH * 60 : null,
       facteurGapCalibre,
     };
@@ -637,34 +721,19 @@ function initSaisonForm(container, saisonId, blocsIntermediairesExistants = []) 
     await render(container);
   });
 
-  // Le champ D+ n'a de sens qu'en trail — masqué/affiché selon la discipline
-  // choisie, pour l'objectif final comme pour chaque ligne intermédiaire
-  // (déléguation : couvre aussi les lignes ajoutées dynamiquement).
-  container.querySelector("#form-saison").addEventListener("change", (e) => {
-    if (!e.target.matches("[data-objectif-discipline]")) return;
-    const champDenivele = e.target.closest(".field-row")?.querySelector("[data-champ-denivele]");
-    if (champDenivele) champDenivele.hidden = e.target.value !== "trail";
-  });
+  // Le champ D+ n'a de sens qu'en trail (objectif final, lignes
+  // intermédiaires) — géré par l'écouteur délégué unique posé sur le
+  // conteneur dans render() (couvre aussi le plan simple).
 
   // Même logique de garde-fou en amont que le formulaire Plan simple
   // (updateSubmitPlanState) : profil renseigné ET au moins un jour coché.
-  const updateSubmitSaisonState = () => {
-    const hasProfil = !!store.getState().profil;
-    const hasJours = container.querySelectorAll("[data-jour-saison]:checked").length > 0;
-    const note = container.querySelector("#s-profil-manquant-note");
-    if (note) note.hidden = hasProfil;
-    const btn = container.querySelector("#submit-saison");
-    if (btn) btn.disabled = !hasProfil || !hasJours;
-  };
-
-  const updateJoursCountSaison = () => {
-    const n = container.querySelectorAll("[data-jour-saison]:checked").length;
-    container.querySelector("#s-jours-count").textContent =
-      n === 0 ? "Choisis au moins un jour." : `${n} séance${n > 1 ? "s" : ""}/semaine.`;
-    updateSubmitSaisonState();
-  };
-  container.querySelectorAll("[data-jour-saison]").forEach((cb) => cb.addEventListener("change", updateJoursCountSaison));
-  updateJoursCountSaison();
+  const updateSubmitSaisonState = creerGatingFormulaire(container, {
+    noteId: "s-profil-manquant-note",
+    submitId: "submit-saison",
+    jourAttr: "data-jour-saison",
+    countId: "s-jours-count",
+  });
+  activerEtapesFormulaire(container.querySelector("#form-saison"));
 
   container.querySelector("#form-saison").addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -681,11 +750,7 @@ function initSaisonForm(container, saisonId, blocsIntermediairesExistants = []) 
     const volumeHebdoMaxH = Number(container.querySelector("#s-volume-hebdo-max").value) || null;
     const joursEntrainement = Array.from(container.querySelectorAll("[data-jour-saison]:checked")).map((cb) => Number(cb.value));
 
-    const finalNom = container.querySelector("#s-final-nom").value;
-    const finalDiscipline = container.querySelector("#s-final-discipline").value;
-    const finalDeniveleM = Number(container.querySelector("#s-final-denivele").value) || null;
-    const finalDistanceKm = Number(container.querySelector("#s-final-distance").value) || null;
-    const finalTempsLabel = container.querySelector("#s-final-temps").value.trim();
+    const finalChamps = lireChampsObjectif(container, "s-final-");
     const finalDate = container.querySelector("#s-final-date").value;
 
     if (!finalDate) {
@@ -733,11 +798,11 @@ function initSaisonForm(container, saisonId, blocsIntermediairesExistants = []) 
       facteurGapCalibre,
       dateDebut: debut ? new Date(debut).toISOString() : new Date().toISOString(),
       objectifFinal: {
-        nom: finalNom,
-        discipline: finalDiscipline,
-        deniveleM: finalDiscipline === "trail" ? finalDeniveleM : null,
-        distanceM: finalDistanceKm ? finalDistanceKm * 1000 : null,
-        tempsS: finalTempsLabel ? labelVersSecondes(finalTempsLabel) : null,
+        nom: finalChamps.nom,
+        discipline: finalChamps.discipline,
+        deniveleM: finalChamps.deniveleM,
+        distanceM: finalChamps.distanceM,
+        tempsS: finalChamps.tempsS,
         date: new Date(finalDate).toISOString(),
       },
       objectifsIntermediaires,
