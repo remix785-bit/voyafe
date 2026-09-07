@@ -6,7 +6,7 @@ export const RENFO_CATALOG = [
   {
     id: "renfo_force_max",
     nom: "Force max / renfo lourd",
-    phase: ["base"],
+    phase: ["base", "entretien"],
     priorite: 1,
     frequenceParSemaine: 2,
     exercices: [
@@ -49,7 +49,7 @@ export const RENFO_CATALOG = [
   {
     id: "renfo_maintenance",
     nom: "Renfo maintenance",
-    phase: ["affutage"],
+    phase: ["taper"],
     priorite: 4,
     frequenceParSemaine: 1,
     exercices: [{ nom: "Gainage + proprioception légère", format: "Volume -50% vs phase Développement" }],

@@ -711,9 +711,12 @@ export function WeekStrip(semaines, semaineActuelleNumero) {
 export function SeasonTimeline(blocs) {
   const blocsHtml = blocs
     .map((b) => {
-      const { base = 0, developpement = 0, taper = 0 } = b.macrocycle ?? {};
+      const { entretien = 0, base = 0, developpement = 0, taper = 0 } = b.macrocycle ?? {};
       const nom = escapeHtml(b.objectif || (b.roleSaison === "finale" ? "Objectif final" : "Objectif intermédiaire"));
       const segs = [
+        entretien
+          ? `<div class="season-timeline__seg season-timeline__seg--entretien" style="flex:${entretien};" title="${nom} — Entretien (${entretien} sem.)"></div>`
+          : "",
         base ? `<div class="season-timeline__seg season-timeline__seg--base" style="flex:${base};" title="${nom} — Base (${base} sem.)"></div>` : "",
         developpement
           ? `<div class="season-timeline__seg season-timeline__seg--developpement" style="flex:${developpement};" title="${nom} — Développement (${developpement} sem.)"></div>`

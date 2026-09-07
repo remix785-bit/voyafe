@@ -777,6 +777,9 @@ a.card:hover {
   position: relative;
 }
 
+.week-strip__seg--entretien {
+  background: var(--color-border);
+}
 .week-strip__seg--base {
   background: var(--color-structural);
 }
@@ -852,6 +855,9 @@ a.card:hover {
   min-width: 2px;
 }
 
+.season-timeline__seg--entretien {
+  background: var(--color-border);
+}
 .season-timeline__seg--base {
   background: var(--color-structural);
 }

@@ -854,6 +854,127 @@ test("construireMacrocycle — priorite prime sur typeObjectif : A pas de plafon
   assert.equal(c.taper, 1, "priorite C -> plafonné à 1, comme l'ancien comportement 'intermediaire'");
 });
 
+test("construireMacrocycle — au-delà de la fenêtre utile (18 semaines route), le surplus devient une phase d'entretien plutôt que d'étirer base/développement", () => {
+  const court = construireMacrocycle(16, "moderee", { discipline: "route" });
+  assert.equal(court.entretien, 0, "sous la fenêtre utile, pas d'entretien");
+
+  const long = construireMacrocycle(30, "moderee", { discipline: "route" });
+  assert.equal(long.entretien, 12, "30 - 18 (fenêtre utile route) = 12 semaines d'entretien");
+  assert.equal(long.entretien + long.base + long.developpement + long.taper, 30, "le total de semaines reste inchangé");
+  // La partie "utile" (18 semaines) se découpe exactement comme un plan de
+  // 18 semaines autonome — le surplus ne dilue pas le macrocycle spécifique.
+  const equivalent18 = construireMacrocycle(18, "moderee", { discipline: "route" });
+  assert.equal(long.base, equivalent18.base);
+  assert.equal(long.developpement, equivalent18.developpement);
+  assert.equal(long.taper, equivalent18.taper);
+});
+
+test("construireMacrocycle — le trail tolère une fenêtre utile plus longue (22 semaines) avant d'ajouter de l'entretien", () => {
+  const route20 = construireMacrocycle(20, "moderee", { discipline: "route" });
+  const trail20 = construireMacrocycle(20, "moderee", { discipline: "trail" });
+  assert.ok(route20.entretien > 0, "20 semaines dépasse déjà la fenêtre utile route (18)");
+  assert.equal(trail20.entretien, 0, "20 semaines reste sous la fenêtre utile trail (22)");
+});
+
+test("construireMacrocycle — la part de Base dépend de la charge actuelle (proxy de niveau), sauf 'moderee' qui reste l'exemple chiffré du dossier", () => {
+  const faible = construireMacrocycle(16, "faible");
+  const moderee = construireMacrocycle(16, "moderee");
+  const elevee = construireMacrocycle(16, "elevee");
+  // Charges de taper différentes (1/2/3) -> comparer le RATIO base/(base+dev), pas les valeurs brutes.
+  const ratio = (m) => m.base / (m.base + m.developpement);
+  assert.ok(ratio(faible) > ratio(moderee), "charge faible (reprise) -> base proportionnellement plus longue");
+  assert.ok(ratio(elevee) < ratio(moderee), "charge élevée (déjà bien entraîné) -> base proportionnellement plus courte");
+  assert.equal(moderee.base, 7, "moderee reste l'exemple chiffré du dossier (16 semaines -> base 7)");
+});
+
+test("composerSemaine — phase entretien : pas de fractionné, une touche seuil/côtes 1 semaine sur 3 seulement", () => {
+  const avecTouche = composerSemaine("entretien", "route", 5, 3); // 3 % 3 === 0
+  const sansTouche = composerSemaine("entretien", "route", 5, 4); // 4 % 3 !== 0
+  assert.ok(avecTouche.some((s) => s.catalogueId === "route_seuil"));
+  assert.ok(!sansTouche.some((s) => s.catalogueId === "route_seuil"));
+  assert.ok(!avecTouche.some((s) => ["route_interval", "route_repetition"].includes(s.catalogueId)), "jamais de fractionné en entretien");
+  assert.equal(avecTouche[avecTouche.length - 1].catalogueId, "route_sortie_longue", "sortie longue toujours en dernier");
+});
+
+test("genererPlanComplet — semaines d'entretien : sortie longue à plat (valeur de départ de la rampe), pas de progression vers le pic", () => {
+  const dateDebut = new Date();
+  const plan = genererPlanComplet({
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: new Date(dateDebut.getTime() + 30 * 7 * 24 * 60 * 60 * 1000).toISOString(),
+    nbSeancesHebdo: 5,
+    distanceObjectifM: 42195,
+    tempsObjectifS: 3.5 * 3600,
+  });
+  // Semaines normales seulement — une semaine de décharge (entretien ou pas)
+  // réduit le volume comme partout ailleurs, ce n'est pas ce que ce test vérifie.
+  const semainesEntretien = plan.semaines.filter((s) => s.phase === "entretien" && s.statut === "normale");
+  assert.ok(semainesEntretien.length > 0);
+  const distances = semainesEntretien.map((s) => s.seances.find((se) => se.templateId === "route_sortie_longue")?.distanceKm);
+  const premiereSemaineBase = plan.semaines.find((s) => s.phase === "base" && s.statut === "normale");
+  const distanceDebutRampe = premiereSemaineBase.seances.find((se) => se.templateId === "route_sortie_longue")?.distanceKm;
+  for (const d of distances) {
+    assert.ok(Math.abs(d - distanceDebutRampe) < 0.5, `sortie longue d'entretien attendue ~plate à la valeur de départ (${distanceDebutRampe}), obtenu ${d}`);
+  }
+});
+
+test("composerSemaine — axeTravail 'endurance' en Développement route : 2 séances seuil (dont cruise intervals), pas de R/I", () => {
+  const semaine = composerSemaine("developpement", "route", 5, 2, false, "endurance");
+  const ids = semaine.map((s) => s.catalogueId);
+  assert.ok(ids.includes("route_seuil"));
+  assert.ok(ids.includes("route_seuil_cruise"));
+  assert.ok(!ids.includes("route_interval") && !ids.includes("route_repetition"));
+});
+
+test("composerSemaine — axeTravail 'vitesse' en Développement route : répétitions plutôt qu'interval en alternance", () => {
+  const semainePaire = composerSemaine("developpement", "route", 5, 2, false, "vitesse");
+  const semaineImpaire = composerSemaine("developpement", "route", 5, 3, false, "vitesse");
+  assert.ok(semainePaire.some((s) => s.catalogueId === "route_repetition"));
+  assert.ok(semaineImpaire.some((s) => s.catalogueId === "route_repetition"));
+  assert.ok(!semainePaire.some((s) => s.catalogueId === "route_interval"), "axe vitesse ne dilue pas en interval alterné");
+});
+
+test("composerSemaine — axeTravail 'vitesse'/'endurance' en Développement trail : côtes courtes/longues systématiques, plus d'alternance", () => {
+  const vitesse = composerSemaine("developpement", "trail", 5, 1, false, "vitesse");
+  const endurance = composerSemaine("developpement", "trail", 5, 1, false, "endurance");
+  assert.equal(vitesse.filter((s) => s.catalogueId === "trail_cotes_courtes").length, 2);
+  assert.equal(endurance.filter((s) => s.catalogueId === "trail_cotes_longues").length, 2);
+});
+
+test("composerSemaine — sans axeTravail (équilibre), le comportement historique route/trail est inchangé", () => {
+  const route = composerSemaine("developpement", "route", 5, 2);
+  assert.ok(route.some((s) => s.catalogueId === "route_seuil") && route.some((s) => s.catalogueId === "route_interval"));
+  const trail = composerSemaine("developpement", "trail", 5, 1);
+  assert.ok(trail.some((s) => s.catalogueId === "trail_cotes_longues") && trail.some((s) => s.catalogueId === "trail_cotes_courtes"));
+});
+
+test("composerSemaine — Base route, variété en semaine impaire 4k+3 (fartlek/progressif), toujours rien en 4k+1", () => {
+  const semaine1 = composerSemaine("base", "route", 5, 1); // 1 % 4 === 1
+  const semaine3 = composerSemaine("base", "route", 5, 3); // 3 % 4 === 3
+  assert.ok(!semaine1.some((s) => ["route_fartlek", "route_progressif", "route_seuil"].includes(s.catalogueId)));
+  assert.ok(semaine3.some((s) => ["route_fartlek", "route_progressif"].includes(s.catalogueId)));
+});
+
+test("composerSemaine — taper trail garde une touche de côtes courtes à volume réduit, miroir du taper route", () => {
+  const taperRoute = composerSemaine("taper", "route", 4, 1);
+  const taperTrail = composerSemaine("taper", "trail", 4, 1);
+  assert.ok(taperRoute.some((s) => s.catalogueId === "route_interval" && s.volumeReduit));
+  assert.ok(taperTrail.some((s) => s.catalogueId === "trail_cotes_courtes" && s.volumeReduit), "le taper trail perdait jusqu'ici toute côte");
+});
+
+test("instancierSeance — la réduction de taper dépend de la priorité de la course (A -50%, B -20%, C -10%)", () => {
+  const template = { zoneDaniels: "T", discipline: "route", corpsDeSeance: { dureeMin: [40, 40] } };
+  const profilCourant = { allures: { T: { target: 4, fast: 3.8 } } };
+  const semaineTaper = { numero: 1, phase: "taper", statut: "normale" };
+  const volA = instancierSeance(template, profilCourant, semaineTaper, {}, null, { facteurPhase: 1, priorite: "A" }).volumeSeanceMin;
+  const volB = instancierSeance(template, profilCourant, semaineTaper, {}, null, { facteurPhase: 1, priorite: "B" }).volumeSeanceMin;
+  const volC = instancierSeance(template, profilCourant, semaineTaper, {}, null, { facteurPhase: 1, priorite: "C" }).volumeSeanceMin;
+  const volDefaut = instancierSeance(template, profilCourant, semaineTaper, {}, null, { facteurPhase: 1 }).volumeSeanceMin;
+  assert.ok(volA < volB && volB < volC, `taper progressivement plus léger de A à C, obtenu A=${volA} B=${volB} C=${volC}`);
+  assert.equal(volDefaut, volA, "sans priorité connue (plan autonome), comportement historique (-50%) préservé");
+});
+
 test("genererSaison — priorite par objectif intermédiaire (A/B/C) pilote l'affûtage de son propre bloc, indépendamment des autres", () => {
   const dateDebut = new Date("2026-01-05T00:00:00Z");
   const objectifFinal = { nom: "Final", discipline: "route", distanceM: 42195, date: new Date(dateDebut.getTime() + 32 * 7 * 24 * 60 * 60 * 1000).toISOString() };

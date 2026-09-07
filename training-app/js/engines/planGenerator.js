@@ -1,7 +1,7 @@
 // Générateur de plan — Étapes ①→④, Partie II.
 // ① Normalisation du profil · ② Macrocycle · ③ Microcycle · ④ Instanciation des séances.
 
-import { vdotFromPerformance, paceZonesForVdot, evaluerCoherenceObjectif } from "./vdot.js";
+import { vdotFromPerformance, paceZonesForVdot, evaluerCoherenceObjectif, identifierAxeTravail } from "./vdot.js";
 import { gapFactor, flatEquivalentToRealPace } from "./gap.js";
 import { resoudreStructureDetaillee, formatDureeCourte } from "./structureSeance.js";
 import { SESSIONS_ROUTE } from "../catalog/sessionsRoute.js";
@@ -96,18 +96,59 @@ export const SEUIL_PLAN_COURT_SEMAINES = 6; // Point ouvert Partie II §10.1 —
 const PLAFOND_TAPER_PAR_PRIORITE = { A: Infinity, B: 2, C: 1 };
 
 /**
+ * Part de base dans les semaines "utiles" (hors taper), selon la charge
+ * hebdo ACTUELLE déclarée (Partie I §1) — utilisée comme proxy du niveau de
+ * préparation du coureur, faute d'autre signal disponible à la génération :
+ * une charge "faible" (reprise, coupure récente) a besoin d'une base plus
+ * longue avant d'attaquer le travail spécifique ; une charge "élevée" (déjà
+ * bien entraîné) peut basculer plus tôt en Développement. "moderee" reste
+ * la valeur historique (0.53, exemple chiffré du dossier à 16 semaines).
+ */
+const RATIO_BASE_PAR_CHARGE = { faible: 0.62, moderee: 0.53, elevee: 0.45 };
+
+/**
+ * Fenêtre de préparation "utile" (Base + Développement + taper) au-delà de
+ * laquelle étirer un macrocycle unique dilue le stimulus spécifique et use
+ * la motivation avant le vrai bloc — le surplus est traité comme une phase
+ * d'ENTRETIEN (endurance de fond, touche de qualité occasionnelle, PAS de
+ * rampe progressive vers le pic) plutôt que comme une "sur-longue" base
+ * périodisée. Le trail tolère une fenêtre plus généreuse : l'adaptation au
+ * D+ (renfo excentrique, répétition du geste de descente) demande un temps
+ * de construction plus long que la seule filière aérobie route.
+ */
+const FENETRE_UTILE_SEMAINES = { route: 18, trail: 22 };
+
+/**
+ * Réduction de volume en taper, selon la priorité de la course (A/B/C) —
+ * "ne pas casser la dynamique" pour une course B/C (Partie II §9 étendue) :
+ * seul l'objectif A (priorité maximale, y compris un objectif final) reçoit
+ * le vrai affûtage (-50%) ; une course B garde l'essentiel du volume
+ * (-20%), une course C (quasi une séance de travail déguisée) n'en perd
+ * presque pas (-10%).
+ */
+const FACTEUR_REDUCTION_TAPER_PAR_PRIORITE = { A: 0.5, B: 0.8, C: 0.9 };
+
+function facteurReductionTaper(priorite) {
+  return FACTEUR_REDUCTION_TAPER_PAR_PRIORITE[priorite] ?? FACTEUR_REDUCTION_TAPER_PAR_PRIORITE.A;
+}
+
+/**
  * @param {number} semainesDispo
  * @param {"faible"|"moderee"|"elevee"} chargeHebdoMoyenneActuelle
- * @param {{typeObjectif?:"finale"|"intermediaire", priorite?:"A"|"B"|"C"}} options
+ * @param {{typeObjectif?:"finale"|"intermediaire", priorite?:"A"|"B"|"C", discipline?:"route"|"trail"}} options
  *   `priorite` prime sur `typeObjectif` quand fourni (course A/B/C, cf. PLAFOND_TAPER_PAR_PRIORITE) ;
  *   sans elle, `typeObjectif:"intermediaire"` retombe sur l'ancien plafond fixe à 1 semaine
  *   (comportement antérieur préservé pour les appels qui ne connaissent pas encore la priorité).
  */
 export function construireMacrocycle(semainesDispo, chargeHebdoMoyenneActuelle = "moderee", options = {}) {
-  const { typeObjectif = "finale", priorite } = options;
+  const { typeObjectif = "finale", priorite, discipline = "route" } = options;
   if (semainesDispo < SEUIL_PLAN_COURT_SEMAINES) {
     return construirePlanCourt(semainesDispo, typeObjectif, priorite);
   }
+
+  const fenetreUtile = FENETRE_UTILE_SEMAINES[discipline] ?? FENETRE_UTILE_SEMAINES.route;
+  const semainesEntretien = Math.max(0, semainesDispo - fenetreUtile);
+  const semainesUtiles = semainesDispo - semainesEntretien;
 
   let taperSemaines = 2;
   if (chargeHebdoMoyenneActuelle === "elevee") taperSemaines = 3;
@@ -115,12 +156,14 @@ export function construireMacrocycle(semainesDispo, chargeHebdoMoyenneActuelle =
   const plafond = priorite ? PLAFOND_TAPER_PAR_PRIORITE[priorite] : typeObjectif === "intermediaire" ? 1 : Infinity;
   taperSemaines = Math.min(taperSemaines, plafond);
 
-  const semainesRestantes = semainesDispo - taperSemaines;
-  const semainesBase = Math.round(semainesRestantes * 0.53);
+  const semainesRestantes = semainesUtiles - taperSemaines;
+  const ratioBase = RATIO_BASE_PAR_CHARGE[chargeHebdoMoyenneActuelle] ?? RATIO_BASE_PAR_CHARGE.moderee;
+  const semainesBase = Math.round(semainesRestantes * ratioBase);
   const semainesDeveloppement = semainesRestantes - semainesBase;
 
   return {
     mode: "standard",
+    entretien: semainesEntretien,
     base: semainesBase,
     developpement: semainesDeveloppement,
     taper: taperSemaines,
@@ -185,6 +228,7 @@ export function genererSemaines(macrocycle, dateDebutISO, dureeSupplementaireJou
     extraRestant = 0; // seule la 1ère semaine absorbe le reste
   };
 
+  for (let i = 0; i < (macrocycle.entretien ?? 0); i++) pousserSemaine("entretien");
   for (let i = 0; i < macrocycle.base; i++) pousserSemaine("base");
   for (let i = 0; i < macrocycle.developpement; i++) pousserSemaine("developpement");
   for (let i = 0; i < macrocycle.taper; i++) pousserSemaine("taper");
@@ -216,15 +260,25 @@ const PLAFONDS_VOLUME_HEBDO = { T: 0.1, I: 0.08, R: 0.05 };
  * `semaineNumero` (numéro global, 1-indexé) pilote la variété semaine par
  * semaine — sans lui, les versions précédentes reproduisaient exactement
  * la même composition chaque semaine (T incluse même en Base, jamais de R) :
- * - Base route : T seulement 1 semaine sur 2 ("tous les 15 jours", pas d'I/R)
- * - Développement route : T chaque semaine + I/R en alternance semaine par semaine
+ * - Base route : T seulement 1 semaine sur 2 ("tous les 15 jours", pas d'I/R),
+ *   variété (fartlek/progressif) une semaine impaire sur deux plutôt qu'un
+ *   simple footing générique à chaque fois.
+ * - Développement route : T chaque semaine + I/R en alternance semaine par semaine,
+ *   biaisé par `axeTravail` (identifierAxeTravail, vdot.js) quand fourni.
+ * - Entretien (au-delà de la fenêtre de préparation utile, cf.
+ *   FENETRE_UTILE_SEMAINES) : maintien de la forme, touche de qualité
+ *   occasionnelle, PAS de rampe vers un pic — voir genererPlanComplet.
  *
  * `estRepetitionGenerale` marque la dernière semaine hors affûtage (trail).
+ * `axeTravail` ("vitesse"|"equilibre"|"endurance", identifierAxeTravail) biaise
+ * le choix des séances qualité en Développement vers ce qui comble le plus
+ * l'écart identifié, plutôt qu'un mix générique identique pour tout objectif.
  */
-export function composerSemaine(phase, discipline, nbSeancesDispo, semaineNumero = 1, estRepetitionGenerale = false) {
+export function composerSemaine(phase, discipline, nbSeancesDispo, semaineNumero = 1, estRepetitionGenerale = false, axeTravail = null) {
   const slots = [];
   const isTaper = phase === "taper";
   const isBase = phase === "base";
+  const isEntretien = phase === "entretien";
   const semainePaire = semaineNumero % 2 === 0;
 
   // Endurance en début de semaine, sortie longue en fin de semaine : la
@@ -236,21 +290,61 @@ export function composerSemaine(phase, discipline, nbSeancesDispo, semaineNumero
   const slotsPourLongue = 1;
   const slotsRestants = Math.max(0, nbSeancesDispo - slotsPourLongue);
 
+  if (isEntretien) {
+    // Fenêtre au-delà de la préparation spécifique utile : on maintient la
+    // forme (endurance de fond + une touche de qualité de temps en temps)
+    // sans construire vers un pic — pas de rampe de sortie longue (gérée à
+    // plat par genererPlanComplet), pas d'alternance I/R hebdomadaire,
+    // pour ne pas "cramer" la fraîcheur avant le vrai bloc spécifique.
+    const toucheQualite = semaineNumero % 3 === 0;
+    const idQualite = discipline === "route" ? "route_seuil" : "trail_cotes_longues";
+    const idFiller = discipline === "route" ? "route_endurance_fondamentale" : "trail_sortie_dplus_progressif";
+    const idLongue = discipline === "route" ? "route_sortie_longue" : "trail_sortie_dplus_progressif";
+    if (toucheQualite) slots.push({ catalogueId: idQualite, jour: "mardi" });
+    const nbFillers = Math.max(0, slotsRestants - (toucheQualite ? 1 : 0));
+    for (let i = 0; i < nbFillers; i++) slots.push({ catalogueId: idFiller, jour: "libre" });
+    if (slotsPourLongue > 0) slots.push({ catalogueId: idLongue, jour: "dimanche" });
+    return slots.slice(0, nbSeancesDispo);
+  }
+
   if (discipline === "route") {
     const seancesQualite = [];
     if (isTaper) {
       // "1 séance courte à intensité maintenue, pas de nouveau stimulus" (Partie II §4.1)
       seancesQualite.push({ catalogueId: "route_interval", jour: "mardi", volumeReduit: true });
     } else if (isBase) {
-      // "1 séance T tous les 15 jours, pas d'I/R" (Partie II §4.1)
-      if (semainePaire) seancesQualite.push({ catalogueId: "route_seuil", jour: "mardi" });
+      // "1 séance T tous les 15 jours, pas d'I/R" (Partie II §4.1) — préservé
+      // tel quel sur les semaines paires. Les semaines impaires restaient un
+      // simple footing générique sans aucune variété ; une semaine impaire
+      // sur deux (numero % 4 === 3) reçoit désormais un fartlek ou une
+      // sortie progressive (allures E/T douces, jamais d'I/R — la règle
+      // ci-dessus reste respectée), l'autre (numero % 4 === 1) reste un vrai
+      // footing pur, pour ne pas transformer chaque semaine impaire en
+      // semaine à stimulus.
+      if (semainePaire) {
+        seancesQualite.push({ catalogueId: "route_seuil", jour: "mardi" });
+      } else if (semaineNumero % 4 === 3) {
+        seancesQualite.push({ catalogueId: semaineNumero % 8 === 3 ? "route_fartlek" : "route_progressif", jour: "mardi" });
+      }
     } else {
-      // Développement : "1 T/semaine + 1 I ou R en alternance" (Partie II §4.1) —
-      // les deux sont dues chaque semaine de Développement, quel que soit le
-      // nombre de séances disponibles : le dossier ne conditionne cette règle
-      // à aucun seuil de disponibilité, donc on ne doit pas en inventer un.
+      // Développement : "1 T/semaine + 1 I ou R en alternance" (Partie II §4.1)
+      // par défaut (axe "equilibre" ou non renseigné) — les deux sont dues
+      // chaque semaine de Développement, quel que soit le nombre de séances
+      // disponibles. Biaisé quand un axe de travail est identifié : un
+      // objectif "vitesse" (proche de la distance testée) a davantage besoin
+      // de répétitions courtes que d'un travail VO2max dilué en alternance ;
+      // un objectif "endurance" (bien plus long que la distance testée) a
+      // davantage besoin de seuil/durabilité aérobie que de vitesse pure —
+      // 2e séance seuil (variante cruise intervals pour la variété) plutôt
+      // qu'une répétition peu utile pour combler cet écart-là.
       seancesQualite.push({ catalogueId: "route_seuil", jour: "mardi" });
-      seancesQualite.push({ catalogueId: semainePaire ? "route_interval" : "route_repetition", jour: "jeudi" });
+      if (axeTravail === "endurance") {
+        seancesQualite.push({ catalogueId: "route_seuil_cruise", jour: "jeudi" });
+      } else if (axeTravail === "vitesse") {
+        seancesQualite.push({ catalogueId: "route_repetition", jour: "jeudi" });
+      } else {
+        seancesQualite.push({ catalogueId: semainePaire ? "route_interval" : "route_repetition", jour: "jeudi" });
+      }
     }
 
     // Les séances qualité priment sur le footing récupération (lendemain de
@@ -270,11 +364,28 @@ export function composerSemaine(phase, discipline, nbSeancesDispo, semaineNumero
     if (slotsPourLongue > 0) slots.push({ catalogueId: "route_sortie_longue", jour: "dimanche" });
   } else {
     const seancesQualite = [];
-    if (!isTaper && !isBase) {
-      // "Côtes longues 1×/sem, côtes courtes 1×/sem (alterné)" (Partie II §4.1) —
-      // dues chaque semaine de Développement, sans seuil de disponibilité.
-      seancesQualite.push({ catalogueId: "trail_cotes_longues", jour: "mardi" });
-      seancesQualite.push({ catalogueId: "trail_cotes_courtes", jour: "jeudi" });
+    if (isTaper) {
+      // Miroir de route_interval en taper route : 1 séance courte à
+      // intensité maintenue (côtes courtes, volume réduit), pas de nouveau
+      // stimulus — le taper trail perdait jusqu'ici toute côte, contrairement
+      // au taper route qui garde un travail seuil allégé.
+      seancesQualite.push({ catalogueId: "trail_cotes_courtes", jour: "mardi", volumeReduit: true });
+    } else if (!isBase) {
+      // "Côtes longues 1×/sem, côtes courtes 1×/sem (alterné)" (Partie II §4.1)
+      // par défaut (axe "equilibre") — dues chaque semaine de Développement,
+      // sans seuil de disponibilité. Biaisé comme côté route : un axe
+      // "vitesse" a davantage besoin de puissance/côtes courtes, un axe
+      // "endurance" davantage de soutien aérobie/côtes longues.
+      if (axeTravail === "vitesse") {
+        seancesQualite.push({ catalogueId: "trail_cotes_courtes", jour: "mardi" });
+        seancesQualite.push({ catalogueId: "trail_cotes_courtes", jour: "jeudi" });
+      } else if (axeTravail === "endurance") {
+        seancesQualite.push({ catalogueId: "trail_cotes_longues", jour: "mardi" });
+        seancesQualite.push({ catalogueId: "trail_cotes_longues", jour: "jeudi" });
+      } else {
+        seancesQualite.push({ catalogueId: "trail_cotes_longues", jour: "mardi" });
+        seancesQualite.push({ catalogueId: "trail_cotes_courtes", jour: "jeudi" });
+      }
     }
     // "1×/2 semaines en phase Base, jusqu'à 1×/semaine en Développement" (§7.4)
     if ((isBase && semainePaire) || (!isBase && !isTaper)) {
@@ -319,7 +430,10 @@ function trouverTemplate(catalogueId) {
 function calculerVolumeSeance(volumeBase, semaineContexte, progressionContext) {
   let volume = volumeBase * (progressionContext?.facteurPhase ?? 1);
   if (semaineContexte.statut === "decharge") volume *= 0.65; // -35% (milieu de -30/-40%)
-  if (semaineContexte.phase === "taper") volume *= 0.5; // -50% (milieu de -40/-60%)
+  // Réduction de taper modulée par priorité de course (A -50%, B -20%, C
+  // -10% — cf. FACTEUR_REDUCTION_TAPER_PAR_PRIORITE) : sans priorité connue
+  // (plan autonome hors saison), on retombe sur -50% comme avant.
+  if (semaineContexte.phase === "taper") volume *= facteurReductionTaper(progressionContext?.priorite);
   return volume;
 }
 
@@ -364,10 +478,18 @@ const TRAIL_SPECIFICITE_IDS = ["trail_cotes_longues", "trail_cotes_courtes", "tr
  * @param {number} totalNonTaper
  * @param {number} distanceObjectifM
  */
-export function calculerDistanceSortieLongue(indexNonTaper, totalNonTaper, distanceObjectifM) {
+/** Extrait le calcul pic/départ, réutilisé tel quel pour la valeur PLATE
+ * (non progressive) servie aux semaines d'entretien (genererPlanComplet) —
+ * ces semaines ne participent pas à la rampe (pas d'index de phase). */
+export function sortieLonguePicEtDepart(distanceObjectifM) {
   const goalKm = distanceObjectifM / 1000;
   const peakKm = goalKm <= 25 ? goalKm : Math.min(goalKm * 0.85, 35);
   const startKm = Math.min(peakKm * 0.55, 16);
+  return { peakKm, startKm };
+}
+
+export function calculerDistanceSortieLongue(indexNonTaper, totalNonTaper, distanceObjectifM) {
+  const { peakKm, startKm } = sortieLonguePicEtDepart(distanceObjectifM);
   if (totalNonTaper <= 1) return peakKm;
   const t = Math.min(Math.max(indexNonTaper, 0), totalNonTaper - 1) / (totalNonTaper - 1);
   return startKm + (peakKm - startKm) * t;
@@ -437,7 +559,7 @@ export function instancierSeance(
     // alors que l'essentiel du volume se court à une allure plus lente.
     let distanceCible = progressionContext.distanceSortieLongueKm;
     if (semaineContexte.statut === "decharge") distanceCible *= 0.65;
-    if (semaineContexte.phase === "taper") distanceCible *= 0.5;
+    if (semaineContexte.phase === "taper") distanceCible *= facteurReductionTaper(progressionContext?.priorite);
     distanceKm = distanceCible;
     const allureMajoriteE = zoneCible === "E" ? allureCible : profilCourant.allures.E.target;
     const allureRapideMajoriteE = zoneCible === "E" ? allureRapide : profilCourant.allures.E.fast;
@@ -598,6 +720,7 @@ export function genererPlanComplet(inputs) {
   const macrocycle = construireMacrocycle(semDispo, inputs.chargeHebdoMoyenneActuelle ?? "moderee", {
     typeObjectif: inputs.typeObjectif ?? "finale",
     priorite: inputs.priorite,
+    discipline: inputs.discipline ?? "route",
   });
   // semDispo tronque à un nombre entier de semaines (floor) — le reste (0-6
   // jours) est absorbé dans la fenêtre de la 1ère semaine (genererSemaines)
@@ -627,13 +750,24 @@ export function genererPlanComplet(inputs) {
   // gapAjuste, cf. catalogue trail). Sans D+ renseigné, retombe sur du plat
   // (comportement antérieur préservé).
   const penteMoyenneCible = inputs.deniveleM && inputs.distanceObjectifM ? inputs.deniveleM / inputs.distanceObjectifM : 0;
+  // Axe de travail prioritaire (vitesse/équilibre/endurance, vdot.js) pour
+  // combler l'écart d'objectif — pilote le choix des séances qualité de
+  // Développement (composerSemaine) plutôt qu'un mix générique identique
+  // quel que soit ce qui manque le plus au coureur pour tenir la distance.
+  const axeTravail =
+    inputs.distanceObjectifM && inputs.performanceRef
+      ? identifierAxeTravail(inputs.performanceRef.distanceM, inputs.distanceObjectifM, inputs.deniveleM ?? 0).axe
+      : null;
 
   // Index de chaque semaine au sein de sa propre phase (progression du volume,
-  // calculerFacteurProgression) et parmi les semaines hors affûtage (rampe de
-  // distance de la sortie longue, calculerDistanceSortieLongue).
-  const semainesParPhase = { base: [], developpement: [], taper: [] };
+  // calculerFacteurProgression) et parmi les semaines de préparation "utiles"
+  // hors entretien/taper (rampe de distance de la sortie longue,
+  // calculerDistanceSortieLongue — un index hors de cette liste, ex.
+  // entretien, retombe naturellement sur la valeur de départ de la rampe,
+  // pas une progression).
+  const semainesParPhase = { entretien: [], base: [], developpement: [], taper: [] };
   for (const s of semaines) semainesParPhase[s.phase].push(s);
-  const semainesNonTaper = semaines.filter((s) => s.phase !== "taper");
+  const semainesNonTaper = semaines.filter((s) => s.phase === "base" || s.phase === "developpement");
 
   // Si des jours d'entraînement précis sont choisis, leur nombre gouverne le
   // nombre de séances/semaine (pas de risque d'incohérence entre les deux) ;
@@ -653,14 +787,15 @@ export function genererPlanComplet(inputs) {
     // la dernière semaine hors affûtage, juste avant que le volume ne redescende.
     const estRepetitionGenerale = indexNonTaper === semainesNonTaper.length - 1 && semainesNonTaper.length > 0;
 
-    const progressionContext = { facteurPhase, distanceSortieLongueKm, fractionBlocObjectif, boostSpecificiteTrail };
+    const progressionContext = { facteurPhase, distanceSortieLongueKm, fractionBlocObjectif, boostSpecificiteTrail, priorite: inputs.priorite };
 
     const slots = composerSemaine(
       semaineContexte.phase,
       inputs.discipline,
       nbSeancesEffectif,
       semaineContexte.numero,
-      estRepetitionGenerale
+      estRepetitionGenerale,
+      axeTravail
     );
     const renfo = renfoPourPhase(semaineContexte.phase);
     const seances = slots
