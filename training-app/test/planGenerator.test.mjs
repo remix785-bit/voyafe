@@ -460,6 +460,93 @@ test("instancierSeance — sortie longue avec objectif : la fourchette suit l'al
   assert.equal(s.allureCibleMinParKm, plan.profilCourant.allures.E.target);
 });
 
+test("instancierSeance — sortie longue en run/walk pour un VDOT bas sur une durée qui dépasse le seuil de risque", () => {
+  const template = { id: "route_sortie_longue", zoneDaniels: "M", discipline: "route", corpsDeSeance: {} };
+  const profilBas = { vdot: 28, allures: { E: { target: 8, fast: 7.5 }, M: { target: 7, fast: 6.5 } } };
+  const s = instancierSeance(template, profilBas, { numero: 10, phase: "developpement", statut: "normale" }, {}, 6, {
+    facteurPhase: 1,
+    distanceSortieLongueKm: 30, // 30km à ~8min/km E -> 240 min, largement au-dessus du seuil
+    fractionBlocObjectif: 0.2, // serait normalement du bloc objectif, doit être écarté par le run/walk
+  });
+  assert.equal(s.structureDetaillee.format, "Alterner 4 min course / 1 min marche active sur l'ensemble de la sortie");
+  assert.equal(s.blocObjectifDureeMin, null, "le run/walk prime sur le bloc spécificité allure objectif");
+  assert.ok(s.precautions.some((p) => p.includes("Alternance course/marche")));
+});
+
+test("instancierSeance — pas de run/walk pour un VDOT confortable ou une sortie courte, même sous le seuil VDOT", () => {
+  const template = { id: "route_sortie_longue", zoneDaniels: "E", discipline: "route", corpsDeSeance: {} };
+  const profilBon = { vdot: 50, allures: { E: { target: 5, fast: 4.8 } } };
+  const sBonVdot = instancierSeance(template, profilBon, { numero: 10, phase: "developpement", statut: "normale" }, {}, null, {
+    facteurPhase: 1,
+    distanceSortieLongueKm: 30,
+  });
+  assert.notEqual(sBonVdot.structureDetaillee.format, "Alterner 4 min course / 1 min marche active sur l'ensemble de la sortie");
+
+  const profilBas = { vdot: 28, allures: { E: { target: 8, fast: 7.5 } } };
+  const sCourte = instancierSeance(template, profilBas, { numero: 10, phase: "developpement", statut: "normale" }, {}, null, {
+    facteurPhase: 1,
+    distanceSortieLongueKm: 6, // 6km à 8min/km = 48 min, sous le seuil de 70 min
+  });
+  assert.notEqual(sCourte.structureDetaillee.format, "Alterner 4 min course / 1 min marche active sur l'ensemble de la sortie");
+});
+
+test("composerSemaine — back-to-back (ultra trail) ajoute un 2e jour de sortie longue (jambes fatiguées) plutôt qu'une seule", () => {
+  const normale = composerSemaine("developpement", "trail", 5, 3, false, null, false);
+  const backToBack = composerSemaine("developpement", "trail", 5, 3, false, null, true);
+  assert.ok(!normale.some((s) => s.catalogueId === "trail_sortie_longue_j2"));
+  assert.ok(backToBack.some((s) => s.catalogueId === "trail_sortie_longue_j2"));
+  assert.equal(backToBack[backToBack.length - 1].catalogueId, "trail_sortie_longue_j2", "le 2e jour (dimanche) reste en dernier");
+  assert.equal(backToBack.length, normale.length, "toujours plafonné à nbSeancesDispo");
+});
+
+test("composerSemaine — le back-to-back ne s'applique jamais route (pas de pertinence identifiée), taper ou entretien", () => {
+  const route = composerSemaine("developpement", "route", 5, 3, false, null, true);
+  assert.ok(!route.some((s) => s.catalogueId === "trail_sortie_longue_j2"));
+  const taper = composerSemaine("taper", "trail", 5, 3, false, null, true);
+  assert.ok(!taper.some((s) => s.catalogueId === "trail_sortie_longue_j2"));
+  const entretien = composerSemaine("entretien", "trail", 5, 3, false, null, true);
+  assert.ok(!entretien.some((s) => s.catalogueId === "trail_sortie_longue_j2"));
+});
+
+test("instancierSeance — le 2e jour du back-to-back vaut ~40% de la distance du jour 1", () => {
+  const jour1 = { id: "trail_sortie_dplus_progressif", zoneDaniels: "E", discipline: "trail", corpsDeSeance: {} };
+  const jour2 = { id: "trail_sortie_longue_j2", zoneDaniels: "E", discipline: "trail", corpsDeSeance: {} };
+  const profilCourant = { allures: { E: { target: 6, fast: 5.5 } } };
+  const semaineContexte = { numero: 1, phase: "developpement", statut: "normale" };
+  const s1 = instancierSeance(jour1, profilCourant, semaineContexte, {}, null, { facteurPhase: 1, distanceSortieLongueKm: 30 });
+  const s2 = instancierSeance(jour2, profilCourant, semaineContexte, {}, null, { facteurPhase: 1, distanceSortieLongueKm: 30 });
+  assert.ok(Math.abs(s2.distanceKm - s1.distanceKm * 0.4) < 0.01, `attendu ~40% de ${s1.distanceKm}, obtenu ${s2.distanceKm}`);
+});
+
+test("genererPlanComplet — back-to-back se déclenche uniquement pour un objectif trail > 25km, sur l'avant-dernière semaine hors taper", () => {
+  const dateDebut = new Date();
+  const planUltra = genererPlanComplet({
+    discipline: "trail",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: new Date(dateDebut.getTime() + 20 * 7 * 24 * 60 * 60 * 1000).toISOString(),
+    nbSeancesHebdo: 5,
+    distanceObjectifM: 80000,
+    deniveleM: 4000,
+  });
+  const semainesUtiles = planUltra.semaines.filter((s) => s.phase === "base" || s.phase === "developpement");
+  const avantDerniere = semainesUtiles[semainesUtiles.length - 2];
+  assert.ok(avantDerniere.seances.some((s) => s.templateId === "trail_sortie_longue_j2"));
+  const autres = planUltra.semaines.filter((s) => s !== avantDerniere);
+  assert.ok(autres.every((s) => !s.seances.some((se) => se.templateId === "trail_sortie_longue_j2")));
+
+  const planCourt = genererPlanComplet({
+    discipline: "trail",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: new Date(dateDebut.getTime() + 20 * 7 * 24 * 60 * 60 * 1000).toISOString(),
+    nbSeancesHebdo: 5,
+    distanceObjectifM: 15000, // sous le seuil ultra
+    deniveleM: 800,
+  });
+  assert.ok(planCourt.semaines.every((s) => !s.seances.some((se) => se.templateId === "trail_sortie_longue_j2")));
+});
+
 test("composerSemaine — Base route : T seulement 1 semaine sur 2, jamais d'I/R", () => {
   const semaine1 = composerSemaine("base", "route", 5, 1);
   const semaine2 = composerSemaine("base", "route", 5, 2);

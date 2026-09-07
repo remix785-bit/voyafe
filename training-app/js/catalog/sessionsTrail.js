@@ -84,6 +84,23 @@ export const SESSIONS_TRAIL = [
     gapAjuste: false, // piloté par RPE/tolérance, pas par l'allure
   },
   {
+    id: "trail_sortie_longue_j2",
+    nom: "2e jour du back-to-back (jambes fatiguées)",
+    discipline: "trail",
+    objectifPhysiologique: "Spécificité ultra : courir sur fatigue accumulée, résistance à la baisse de forme en fin d'épreuve longue — un seul long effort dominical ne reproduit jamais cette fatigue-là",
+    phase: ["developpement"],
+    zoneDaniels: "E",
+    rpe: "5-6",
+    corpsDeSeance: {
+      format: "Continu en E, volontairement sur jambes fatiguées (lendemain de la sortie longue principale)",
+      contrainteVolume: "~40% de la sortie longue principale de la veille",
+      ratioEffortRecup: "continu",
+    },
+    frequenceRecommandee: "1-2 fois en fin de préparation pour un objectif ultra (>25 km), jamais la semaine de la répétition générale",
+    precautions: "Réservé aux dernières semaines avant taper pour un objectif ultra — pas un format hebdomadaire.",
+    gapAjuste: true,
+  },
+  {
     id: "trail_sortie_longue_specifique",
     nom: "Sortie longue trail spécifique",
     discipline: "trail",

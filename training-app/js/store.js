@@ -3,7 +3,7 @@
 // seul a le statut 'actif'. Aucune fusion de charge entre plans.
 
 import * as db from "./data/db.js";
-import { genererPlanComplet, genererSaison } from "./engines/planGenerator.js";
+import { genererPlanComplet, genererSaison, trouverTemplate, instancierSeance } from "./engines/planGenerator.js";
 import { vdotFromPerformance, distanceEquivalentePlateM } from "./engines/vdot.js";
 import { loadSummary } from "./engines/load.js";
 import { evaluerBoucleAdaptative, detecterRetestImplicite } from "./engines/adaptiveLoop.js";
@@ -1026,6 +1026,62 @@ export function retestImpliciteSuggere() {
   return null;
 }
 
+const CONVERSION_RECUP_PAR_DISCIPLINE = { route: "route_footing_recup", trail: "trail_sortie_dplus_progressif" };
+
+function trouverProchaineSeanceQualite(plan) {
+  for (const semaine of plan.semaines) {
+    for (let i = 0; i < semaine.seances.length; i++) {
+      const s = semaine.seances[i];
+      if (s.statut === "a_venir" && ["T", "I", "R"].includes(s.zoneDaniels)) return { semaine, seance: s, index: i };
+    }
+  }
+  return null;
+}
+
+function trouverProchaineSemaineNonTermineeHorsTaper(plan) {
+  return plan.semaines.find((s) => s.phase !== "taper" && s.seances.some((se) => se.statut === "a_venir"));
+}
+
+/**
+ * Applique réellement une proposition de la boucle adaptative (adaptiveLoop.js
+ * #evaluerBoucleAdaptative) sur le plan actif — jusqu'ici les propositions
+ * n'étaient que du texte affiché (justification + alternatives) : accepter
+ * ou refuser ne changeait jamais rien de concret dans le plan stocké,
+ * l'utilisateur devait modifier ses séances à la main. Ne touche que des
+ * séances/semaines pas encore réalisées.
+ * @param {{type:string}} proposition
+ */
+export async function appliquerPropositionAdaptative(proposition) {
+  const plan = planActif();
+  if (!plan) return;
+
+  if (proposition.type === "conversion_qualite_vers_E") {
+    const cible = trouverProchaineSeanceQualite(plan);
+    if (!cible) return;
+    const idRecup = CONVERSION_RECUP_PAR_DISCIPLINE[cible.seance.discipline] ?? "route_footing_recup";
+    const template = trouverTemplate(idRecup);
+    if (!template) return;
+    const reinstanciee = instancierSeance(template, plan.profilCourant, cible.semaine, {}, null, { facteurPhase: 1 });
+    cible.semaine.seances[cible.index] = { ...reinstanciee, date: cible.seance.date, statut: "a_venir" };
+  } else if (proposition.type === "decharge_anticipee") {
+    const semaine = trouverProchaineSemaineNonTermineeHorsTaper(plan);
+    if (!semaine || semaine.statut === "decharge") return;
+    semaine.statut = "decharge";
+    semaine.seances = semaine.seances.map((s) => {
+      if (s.statut !== "a_venir") return s;
+      const volumeSeanceMin = s.volumeSeanceMin * 0.65; // même réduction que calculerVolumeSeance (planGenerator.js)
+      return { ...s, volumeSeanceMin, distanceKm: s.allureCibleMinParKm ? volumeSeanceMin / s.allureCibleMinParKm : s.distanceKm };
+    });
+  } else {
+    return;
+  }
+
+  await db.put("plans", plan);
+  const idx = state.plans.findIndex((p) => p.id === plan.id);
+  if (idx !== -1) state.plans[idx] = plan;
+  notify();
+}
+
 export async function enregistrerPropositionDecision(proposition, decision) {
   const record = {
     id: db.newId("ajustement"),
@@ -1035,6 +1091,9 @@ export async function enregistrerPropositionDecision(proposition, decision) {
   };
   await db.put("historiqueAjustements", record);
   state.historiqueAjustements.push(record);
+  if (decision === "accepte") {
+    await appliquerPropositionAdaptative(proposition);
+  }
   notify();
   return record;
 }

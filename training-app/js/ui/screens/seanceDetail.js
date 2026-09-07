@@ -7,6 +7,31 @@ let timer = null;
 
 const STATUT_LABELS = { a_venir: "À venir", realisee: "Réalisée", manquee: "Manquée" };
 
+/**
+ * Signale une fatigue récente déclarée dans le journal (bien-être bas ou RPE
+ * élevé le dernier jour renseigné) — utilisé pour proposer une version
+ * allégée/facultative des séances de récupération active (route_footing_recup
+ * et équivalents), plutôt qu'un contenu identique quelle que soit la fatigue
+ * réelle du coureur. Le plan est généré à l'avance (pas de régénération
+ * jour par jour) : ce signal reste une suggestion affichée à la lecture de la
+ * séance, jamais une modification silencieuse du plan stocké.
+ * @param {{date:string, bienEtre?:number, rpe?:number}[]} logsQuotidiens trié du plus ancien au plus récent
+ */
+function signalFatigueRecente(logsQuotidiens) {
+  if (!logsQuotidiens?.length) return null;
+  const dernier = logsQuotidiens[logsQuotidiens.length - 1];
+  const jour = new Date(dernier.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+  if (dernier.bienEtre != null && dernier.bienEtre <= 4) {
+    return `Bien-être déclaré bas ${jour} (${dernier.bienEtre}/10)`;
+  }
+  if (dernier.rpe != null && dernier.rpe >= 8) {
+    return `RPE élevé déclaré ${jour} (${dernier.rpe}/10)`;
+  }
+  return null;
+}
+
+const IDS_RECUPERATION_ACTIVE = ["route_footing_recup"];
+
 export async function render(container, params) {
   const plan = store.getState().plans.find((p) => p.id === params.plan) ?? store.planActif();
   const semaine = plan?.semaines.find((s) => s.numero === Number(params.semaine));
@@ -16,6 +41,11 @@ export async function render(container, params) {
     container.innerHTML = `<div class="app-main"><div class="card"><p class="muted">Séance introuvable.</p></div></div>`;
     return;
   }
+
+  const suggestionAllegee =
+    IDS_RECUPERATION_ACTIVE.includes(seance.templateId) || (seance.zoneDaniels === "E" && seance.nom?.toLowerCase().includes("récup"))
+      ? signalFatigueRecente(store.getState().logsQuotidiens)
+      : null;
 
   container.innerHTML = `
     <div class="app-main">
@@ -29,6 +59,11 @@ export async function render(container, params) {
         ${seance.avertissementVolumeHebdo ? `<p class="badge-warning">${escapeAttr(seance.avertissementVolumeHebdo)}</p>` : ""}
         ${seance.avertissementPlafond ? `<p class="badge-warning">${escapeAttr(seance.avertissementPlafond)}</p>` : ""}
         ${seance.precautions?.length ? seance.precautions.map((p) => `<p class="badge-warning">${escapeAttr(p)}</p>`).join("") : ""}
+        ${
+          suggestionAllegee
+            ? `<p class="badge-warning">${escapeAttr(suggestionAllegee)} — cette récupération active peut rester facultative ou passer en marche/repos complet aujourd'hui, sans casser la construction du plan.</p>`
+            : ""
+        }
       </div>
 
       ${seance.protocoleEchauffement ? renderEchauffement(plan.profilCourant.allures) : ""}

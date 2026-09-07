@@ -274,7 +274,15 @@ const PLAFONDS_VOLUME_HEBDO = { T: 0.1, I: 0.08, R: 0.05 };
  * le choix des séances qualité en Développement vers ce qui comble le plus
  * l'écart identifié, plutôt qu'un mix générique identique pour tout objectif.
  */
-export function composerSemaine(phase, discipline, nbSeancesDispo, semaineNumero = 1, estRepetitionGenerale = false, axeTravail = null) {
+export function composerSemaine(
+  phase,
+  discipline,
+  nbSeancesDispo,
+  semaineNumero = 1,
+  estRepetitionGenerale = false,
+  axeTravail = null,
+  estBackToBack = false
+) {
   const slots = [];
   const isTaper = phase === "taper";
   const isBase = phase === "base";
@@ -287,7 +295,10 @@ export function composerSemaine(phase, discipline, nbSeancesDispo, semaineNumero
   // qualité (+ leur récup) entre les deux. L'app ne modélise pas de vraies
   // dates par séance (seule la semaine a une date) — cet ordre pilote donc
   // directement l'ordre d'affichage (Dashboard/Plan), qui vaut agenda.
-  const slotsPourLongue = 1;
+  // Back-to-back (ultra, trail) : consomme 2 créneaux (samedi + dimanche)
+  // plutôt qu'un seul — spécificité de courir sur fatigue accumulée.
+  const backToBackActif = estBackToBack && discipline === "trail" && !isTaper && !isEntretien;
+  const slotsPourLongue = backToBackActif ? 2 : 1;
   const slotsRestants = Math.max(0, nbSeancesDispo - slotsPourLongue);
 
   if (isEntretien) {
@@ -400,7 +411,10 @@ export function composerSemaine(phase, discipline, nbSeancesDispo, semaineNumero
     }));
 
     slots.push(...fillersE, ...blocQualite);
-    if (slotsPourLongue > 0) {
+    if (backToBackActif) {
+      slots.push({ catalogueId: "trail_sortie_dplus_progressif", jour: "samedi" });
+      slots.push({ catalogueId: "trail_sortie_longue_j2", jour: "dimanche" });
+    } else if (slotsPourLongue > 0) {
       slots.push({
         catalogueId: estRepetitionGenerale ? "trail_sortie_longue_specifique" : "trail_sortie_dplus_progressif",
         jour: "dimanche",
@@ -411,7 +425,7 @@ export function composerSemaine(phase, discipline, nbSeancesDispo, semaineNumero
   return slots.slice(0, nbSeancesDispo);
 }
 
-function trouverTemplate(catalogueId) {
+export function trouverTemplate(catalogueId) {
   return (
     SESSIONS_ROUTE.find((s) => s.id === catalogueId) ||
     SESSIONS_TRAIL.find((s) => s.id === catalogueId)
@@ -453,7 +467,29 @@ export function calculerFacteurProgression(indexDansPhase, totalDansPhase) {
   return 0.75 + t * 0.4;
 }
 
-const SORTIE_LONGUE_IDS = ["route_sortie_longue", "trail_sortie_dplus_progressif", "trail_sortie_longue_specifique"];
+const SORTIE_LONGUE_IDS = [
+  "route_sortie_longue",
+  "trail_sortie_dplus_progressif",
+  "trail_sortie_longue_specifique",
+  "trail_sortie_longue_j2",
+];
+
+/** Distance objectif au-delà de laquelle un back-to-back (2 sorties longues
+ * consécutives, samedi/dimanche) devient pertinent — spécificité ultra :
+ * courir sur fatigue accumulée, jamais reproduite par une seule longue sortie
+ * dominicale, aussi longue soit-elle. */
+const ULTRA_DISTANCE_SEUIL_M = 25000;
+
+/** Le 2e jour du back-to-back est une fraction fixe de la sortie principale
+ * de la veille (jambes fatiguées, pas une 2e "vraie" sortie longue). */
+const FRACTION_SORTIE_PAR_TEMPLATE = { trail_sortie_longue_j2: 0.4 };
+
+/** En dessous de ce VDOT (~5K en 27-28 min), une sortie longue continue de
+ * plus d'une heure devient un facteur de risque (dégradation technique,
+ * abandon) plutôt qu'un simple stimulus aérobie — l'alternance course/marche
+ * (run/walk) préserve la filière visée sur la durée sans ce risque. */
+const SEUIL_VDOT_DEBUTANT = 32;
+const SEUIL_DUREE_RUN_WALK_MIN = 70;
 
 /**
  * Séances trail dédiées à la spécificité D+ (côtes, descente technique) —
@@ -544,6 +580,7 @@ export function instancierSeance(
   let distanceKm = null;
   let allureBlocObjectifMinParKm = null;
   let blocObjectifDureeMin = null;
+  let suggererCourseMarche = false;
 
   const estSortieLongueAvecObjectif =
     SORTIE_LONGUE_IDS.includes(template.id) && progressionContext?.distanceSortieLongueKm != null;
@@ -557,7 +594,7 @@ export function instancierSeance(
     // est exposée séparément dans allureBlocObjectifMinParKm plutôt que
     // d'écraser l'allure globale — évite l'incohérence "35km à 4:59/km"
     // alors que l'essentiel du volume se court à une allure plus lente.
-    let distanceCible = progressionContext.distanceSortieLongueKm;
+    let distanceCible = progressionContext.distanceSortieLongueKm * (FRACTION_SORTIE_PAR_TEMPLATE[template.id] ?? 1);
     if (semaineContexte.statut === "decharge") distanceCible *= 0.65;
     if (semaineContexte.phase === "taper") distanceCible *= facteurReductionTaper(progressionContext?.priorite);
     distanceKm = distanceCible;
@@ -567,7 +604,15 @@ export function instancierSeance(
     allureCible = allureMajoriteE;
     allureRapide = allureRapideMajoriteE;
 
-    if (zoneCible === "M" && template.discipline === "route" && objectifPaceMinParKm != null) {
+    // Sortie longue en alternance course/marche : un VDOT encore modeste sur
+    // une durée continue dépassant l'heure est un facteur de risque (technique
+    // qui se dégrade, abandon) plutôt qu'un simple stimulus aérobie — priorité
+    // sur le bloc spécificité allure objectif (une sortie run/walk n'est pas
+    // le bon moment pour aussi viser l'allure course).
+    suggererCourseMarche =
+      template.discipline === "route" && profilCourant.vdot < SEUIL_VDOT_DEBUTANT && volumeSeanceMin > SEUIL_DUREE_RUN_WALK_MIN;
+
+    if (!suggererCourseMarche && zoneCible === "M" && template.discipline === "route" && objectifPaceMinParKm != null) {
       allureBlocObjectifMinParKm = objectifPaceMinParKm;
       const fraction = progressionContext?.fractionBlocObjectif ?? 0;
       if (fraction > 0) {
@@ -601,11 +646,19 @@ export function instancierSeance(
     volumeSeanceMin,
     distanceKm,
     structureDetaillee:
-      blocObjectifDureeMin != null
-        ? { ...template.corpsDeSeance, format: formaterBlocObjectif(blocObjectifDureeMin) }
-        : resoudreStructureDetaillee(template.corpsDeSeance, volumeSeanceMin, allureCible),
+      suggererCourseMarche
+        ? { ...template.corpsDeSeance, format: "Alterner 4 min course / 1 min marche active sur l'ensemble de la sortie" }
+        : blocObjectifDureeMin != null
+          ? { ...template.corpsDeSeance, format: formaterBlocObjectif(blocObjectifDureeMin) }
+          : resoudreStructureDetaillee(template.corpsDeSeance, volumeSeanceMin, allureCible),
     protocoleEchauffement: template.protocoleEchauffement ?? false,
-    precautions: [template.precautions, gapWarning].filter(Boolean),
+    precautions: [
+      template.precautions,
+      gapWarning,
+      suggererCourseMarche
+        ? "Alternance course/marche recommandée sur cette sortie longue (VDOT encore modeste sur une telle durée) — préserve la filière aérobie visée sans le risque de dégradation technique/blessure d'une sortie continue."
+        : null,
+    ].filter(Boolean),
     statut: "a_venir",
   };
 }
@@ -786,6 +839,13 @@ export function genererPlanComplet(inputs) {
     // "1 répétition générale 3-4 semaines avant l'échéance" (trail, Partie I §7.5) :
     // la dernière semaine hors affûtage, juste avant que le volume ne redescende.
     const estRepetitionGenerale = indexNonTaper === semainesNonTaper.length - 1 && semainesNonTaper.length > 0;
+    // Back-to-back (ultra, trail) : la semaine juste avant la répétition
+    // générale — courir sur fatigue accumulée est une spécificité qu'une
+    // seule sortie dominicale, même longue, ne reproduit jamais.
+    const estBackToBack =
+      inputs.discipline === "trail" &&
+      inputs.distanceObjectifM > ULTRA_DISTANCE_SEUIL_M &&
+      indexNonTaper === semainesNonTaper.length - 2;
 
     const progressionContext = { facteurPhase, distanceSortieLongueKm, fractionBlocObjectif, boostSpecificiteTrail, priorite: inputs.priorite };
 
@@ -795,7 +855,8 @@ export function genererPlanComplet(inputs) {
       nbSeancesEffectif,
       semaineContexte.numero,
       estRepetitionGenerale,
-      axeTravail
+      axeTravail,
+      estBackToBack
     );
     const renfo = renfoPourPhase(semaineContexte.phase);
     const seances = slots
