@@ -692,6 +692,7 @@ export function WeekStrip(semaines, semaineActuelleNumero) {
   return `
     <div class="week-strip">${segs}</div>
     <div class="week-strip__legend">
+      ${semaines.some((s) => s.phase === "entretien") ? `<span class="leg-entretien">Entretien</span>` : ""}
       <span class="leg-base">Base</span>
       <span class="leg-dev">Développement</span>
       <span class="leg-taper">Affûtage</span>
@@ -738,6 +739,7 @@ export function SeasonTimeline(blocs) {
     <div class="season-timeline">${blocsHtml}</div>
     <div class="season-timeline__labels">${labelsHtml}</div>
     <div class="week-strip__legend" style="margin-top:6px;">
+      ${blocs.some((b) => b.macrocycle?.entretien > 0) ? `<span class="leg-entretien">Entretien</span>` : ""}
       <span class="leg-base">Base</span>
       <span class="leg-dev">Développement</span>
       <span class="leg-taper">Affûtage</span>

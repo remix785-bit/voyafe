@@ -823,6 +823,9 @@ a.card:hover {
   margin-right: 4px;
   vertical-align: middle;
 }
+.week-strip__legend .leg-entretien::before {
+  background: var(--color-border);
+}
 .week-strip__legend .leg-base::before {
   background: var(--color-structural);
 }
