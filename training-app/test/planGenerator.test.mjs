@@ -1367,6 +1367,40 @@ test("genererPlanComplet — le rythme hebdomadaire choisi (ex. mardi) reste ide
   }
 });
 
+test("genererPlanComplet — la grille hebdomadaire s'aligne sur le mardi même quand le plan démarre un autre jour (demande explicite), sans jamais dupliquer une date en semaine 1", () => {
+  const joursEntrainement = [2, 4, 7]; // mardi, jeudi, dimanche
+  for (const [label, dateDebutISO] of [
+    ["vendredi", "2026-09-11T00:00:00.000Z"],
+    ["dimanche", "2026-09-13T00:00:00.000Z"],
+    ["mercredi", "2026-09-09T00:00:00.000Z"],
+    ["lundi", "2026-09-14T00:00:00.000Z"],
+  ]) {
+    const dateDebut = new Date(dateDebutISO);
+    const plan = genererPlanComplet({
+      discipline: "route",
+      performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+      dateDebut: dateDebut.toISOString(),
+      dateEcheance: new Date(dateDebut.getTime() + 8 * 7 * 24 * 60 * 60 * 1000).toISOString(),
+      nbSeancesHebdo: joursEntrainement.length,
+      joursEntrainement,
+    });
+    // À partir de la semaine 2 (la semaine 1 peut être partielle selon le
+    // jour de démarrage réel), le rythme mardi/jeudi/dimanche doit être
+    // parfaitement stable — c'est la demande explicite de l'utilisateur.
+    for (const s of plan.semaines.slice(1, -1)) {
+      const jours = s.seances.map((se) => new Date(se.date).getUTCDay());
+      assert.deepEqual(jours, [2, 4, 0], `[départ ${label}] semaine ${s.numero} : rythme attendu mar/jeu/dim, obtenu jours=${jours}`);
+    }
+    // Aucune semaine ne doit jamais contenir deux séances à la même date
+    // (le bug observé : semaine 1 avec 3 séances toutes datées au même jour
+    // une fois les candidats trop précoces écartés par le nouvel ancrage).
+    for (const s of plan.semaines) {
+      const dates = s.seances.map((se) => se.date).filter(Boolean);
+      assert.equal(new Set(dates).size, dates.length, `[départ ${label}] semaine ${s.numero} : dates dupliquées parmi ${JSON.stringify(dates)}`);
+    }
+  }
+});
+
 test("genererPlanComplet — quand l'écart est un multiple exact de 7 jours, aucun reste à absorber (comportement inchangé)", () => {
   const dateDebut = new Date();
   const dateEcheance = new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000);
