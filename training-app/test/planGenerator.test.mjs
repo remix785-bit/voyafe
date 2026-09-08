@@ -1338,6 +1338,35 @@ test("genererPlanComplet — le plan couvre jusqu'à l'échéance SANS jamais pr
   assert.ok(ecartJours <= 4, `dernière séance anormalement loin de la course, écart de ${ecartJours} jours`);
 });
 
+test("genererPlanComplet — le rythme hebdomadaire choisi (ex. mardi) reste identique TOUTE la durée du plan, y compris quand l'écart au jour J n'est pas un multiple de 7 (le reste ne doit décaler aucune semaine)", () => {
+  const dateDebut = new Date("2026-09-08T00:00:00.000Z"); // un mardi
+  // Écart volontairement pas multiple de 7 (16 semaines + 3 jours), pour
+  // déclencher l'absorption du reste qui causait le décalage rapporté :
+  // "la première semaine commence un mardi (comme je le veux), et après dès
+  // la deuxième semaine ça switch" vers d'autres jours.
+  const dateEcheance = new Date(dateDebut.getTime() + (16 * 7 + 3) * 24 * 60 * 60 * 1000);
+  const plan = genererPlanComplet({
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: dateEcheance.toISOString(),
+    nbSeancesHebdo: 1,
+    joursEntrainement: [2], // mardi uniquement, pour isoler le rythme sans bruit d'autres jours
+  });
+  // Toutes les semaines SAUF la dernière (délibérément réduite pour garder la
+  // veille de course libre, cf. tests dédiés) doivent tomber un mardi, et
+  // être espacées d'exactement 7 jours les unes des autres.
+  const semainesAvecSeance = plan.semaines.filter((s) => s.seances.length > 0);
+  for (const s of semainesAvecSeance) {
+    const d = new Date(s.seances[0].date);
+    assert.equal(d.getUTCDay(), 2, `semaine ${s.numero} : séance attendue un mardi, obtenu ${d.toISOString()}`);
+  }
+  for (let i = 1; i < semainesAvecSeance.length - 1; i++) {
+    const ecart = (new Date(semainesAvecSeance[i].seances[0].date) - new Date(semainesAvecSeance[i - 1].seances[0].date)) / 86400000;
+    assert.equal(ecart, 7, `écart entre les semaines ${semainesAvecSeance[i - 1].numero} et ${semainesAvecSeance[i].numero} attendu à 7 jours pile, obtenu ${ecart}`);
+  }
+});
+
 test("genererPlanComplet — quand l'écart est un multiple exact de 7 jours, aucun reste à absorber (comportement inchangé)", () => {
   const dateDebut = new Date();
   const dateEcheance = new Date(dateDebut.getTime() + 16 * 7 * 24 * 60 * 60 * 1000);

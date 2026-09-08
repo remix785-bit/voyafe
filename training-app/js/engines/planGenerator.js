@@ -84,10 +84,19 @@ export function assignerDatesSeances(dateDebutSemaineISO, nbSeances, joursEntrai
     if (joursEntrainement.includes(jourIso(d)) && !exclues.has(d.toDateString())) candidats.push(d);
   }
   candidats.sort((a, b) => a - b);
+  // Quand la semaine a plus de jours candidats que de séances à placer (ex.
+  // dernière semaine du plan, délibérément réduite d'une séance pour garder
+  // la veille de course libre — genererPlanComplet), garder les candidats les
+  // PLUS TARDIFS plutôt que les plus précoces : sinon la séance en moins
+  // était systématiquement retirée du jour le plus proche de la fin de
+  // semaine (donc de la course, sur la dernière semaine) plutôt que d'un
+  // jour quelconque plus tôt — contre le sens même de la réduction, qui vise
+  // à garder de l'entraînement proche de la course, pas à l'en éloigner.
+  const candidatsUtiles = candidats.length > nbSeances ? candidats.slice(candidats.length - nbSeances) : candidats;
 
   const dates = [];
   for (let i = 0; i < nbSeances; i++) {
-    const d = candidats.length ? candidats[i % candidats.length] : new Date(debut.getTime() + i * JOUR_MS);
+    const d = candidatsUtiles.length ? candidatsUtiles[i % candidatsUtiles.length] : new Date(debut.getTime() + i * JOUR_MS);
     dates.push(d.toISOString());
   }
   return dates;
@@ -974,11 +983,40 @@ export function genererPlanComplet(inputs) {
           inputs.dateEcheance,
         ]
       : [];
+    // Point d'ancrage de la recherche des jours candidats : dateDebutPlan +
+    // 7 jours × (numéro de semaine - 1), PAS semaineContexte.dateDebut.
+    // semaineContexte.dateDebut dérive de dateCourante (genererSemaines),
+    // qui avance de dureeJours en dureeJours — et dureeJours de la semaine 1
+    // dépasse 7 pour absorber le reste de jours non multiple de 7 (afin que
+    // le calendrier des semaines tombe exactement sur l'échéance). Résultat :
+    // à partir de la semaine 2, semaineContexte.dateDebut tombe sur un jour
+    // de semaine DÉCALÉ par rapport à la semaine 1 (ex. semaine 1 commence un
+    // mardi, semaine 2 un jeudi si le reste vaut 2 jours) — décalage qui se
+    // propage ensuite à toutes les semaines suivantes puisqu'elles avancent
+    // chacune de 7 jours pile à partir de cette semaine 2 déjà décalée.
+    // Concrètement : "mardi" en semaine 1 devenait "jeudi" (ou tout autre
+    // jour) à partir de la semaine 2 — exactement le bug rapporté. En ancrant
+    // chaque semaine sur dateDebutPlan (fixe, jamais affecté par le reste
+    // absorbé), le cycle hebdomadaire choisi par l'utilisateur reste
+    // identique semaine après semaine, du début à la fin du plan — le reste
+    // continue d'allonger le calendrier de la semaine 1 (dateDebut/dureeJours,
+    // pour que le plan se termine pile sur l'échéance) sans jamais affecter
+    // quel jour de la semaine reçoit une séance.
+    const ancrageSemaineISO = new Date(new Date(dateDebutPlan).getTime() + (semaineContexte.numero - 1) * 7 * JOUR_MS).toISOString();
+    // La dernière semaine seule voit sa fenêtre de recherche élargie de
+    // dureeSupplementaireJours (le reste 0-6 jours qui sépare
+    // dateDebutPlan + 7×nbSemaines de l'échéance réelle) : sans ça, cette
+    // poignée de jours juste avant la course n'appartient à la fenêtre
+    // d'AUCUNE semaine (chacune scrute exactement 7 jours ancrés sur
+    // dateDebutPlan) et la dernière séance du plan pouvait tomber jusqu'à
+    // 6 jours plus tôt que nécessaire. Les autres semaines gardent une
+    // fenêtre de 7 jours pile, pour le rythme hebdomadaire régulier ci-dessus.
+    const fenetreSemaine = estDerniereSemaine ? 7 + dureeSupplementaireJours : 7;
     const dates = assignerDatesSeances(
-      semaineContexte.dateDebut,
+      ancrageSemaineISO,
       seancesWithCaps.length,
       inputs.joursEntrainement,
-      semaineContexte.dureeJours ?? 7,
+      fenetreSemaine,
       datesAExclure
     );
     const seancesDatees = seancesWithCaps.map((s, i) => ({ ...s, date: dates[i] }));
