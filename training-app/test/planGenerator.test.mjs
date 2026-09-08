@@ -89,8 +89,10 @@ test("genererPlanComplet — pipeline complet produit un plan daté cohérent (r
   assert.equal(plan.statut, "en_attente");
   assert.equal(plan.semaines.length, 16);
   assert.ok(plan.profilCourant.vdot > 0);
-  for (const semaine of plan.semaines) {
-    assert.equal(semaine.seances.length, 5);
+  for (const [i, semaine] of plan.semaines.entries()) {
+    // Dernière semaine : une séance de moins (repos garanti la veille de course).
+    const attendu = i === plan.semaines.length - 1 ? 4 : 5;
+    assert.equal(semaine.seances.length, attendu);
     for (const s of semaine.seances) {
       assert.ok(s.allureCibleMinParKm > 0);
     }
@@ -732,8 +734,10 @@ test("genererPlanComplet — le nombre de jours d'entraînement choisis détermi
     nbSeancesHebdo: 99, // doit être ignoré au profit de joursEntrainement.length
   });
   assert.equal(plan.nbSeancesHebdo, 4);
-  for (const semaine of plan.semaines) {
-    assert.equal(semaine.seances.length, 4);
+  for (const [i, semaine] of plan.semaines.entries()) {
+    // Dernière semaine : une séance de moins (repos garanti la veille de course).
+    const attendu = i === plan.semaines.length - 1 ? 3 : 4;
+    assert.equal(semaine.seances.length, attendu);
     for (const s of semaine.seances) assert.ok(s.date, "chaque séance doit avoir une date précise");
   }
 });
@@ -1149,6 +1153,79 @@ test("genererPlanComplet — croiseRecommande présent chaque semaine (base/dév
   }
 });
 
+test("genererPlanComplet — le taper mène à un pic de forme le jour de la course : le volume continue de BAISSER semaine après semaine à l'approche de la course, jamais de rebond", () => {
+  const dateDebut = new Date();
+  const plan = genererPlanComplet({
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: new Date(dateDebut.getTime() + 20 * 7 * 24 * 60 * 60 * 1000).toISOString(),
+    nbSeancesHebdo: 5,
+    chargeHebdoMoyenneActuelle: "elevee", // -> taper de 3 semaines (construireMacrocycle)
+  });
+  const semainesTaper = plan.semaines.filter((s) => s.phase === "taper");
+  assert.equal(semainesTaper.length, 3, "ce scénario doit produire un taper de 3 semaines pour tester une vraie progression");
+  // route_endurance_fondamentale est présente chaque semaine de taper (filler E) :
+  // sert de témoin direct du facteur de phase, indépendamment des plafonds hebdo
+  // (zone E, jamais plafonnée par PLAFONDS_VOLUME_HEBDO).
+  const volumesParSemaine = semainesTaper.map(
+    (s) => s.seances.find((se) => se.templateId === "route_endurance_fondamentale")?.volumeSeanceMin
+  );
+  assert.ok(volumesParSemaine.every((v) => v != null), "route_endurance_fondamentale attendue chaque semaine de taper");
+  for (let i = 1; i < volumesParSemaine.length; i++) {
+    assert.ok(
+      volumesParSemaine[i] <= volumesParSemaine[i - 1] + 0.01,
+      `le volume ne doit jamais remonter en approchant de la course : semaine taper ${i - 1}=${volumesParSemaine[i - 1]}, semaine ${i}=${volumesParSemaine[i]}`
+    );
+  }
+  assert.ok(volumesParSemaine[0] > volumesParSemaine[volumesParSemaine.length - 1], "la dernière semaine de taper doit être nettement plus légère que la première");
+});
+
+test("genererPlanComplet — jamais de séance programmée la veille ni le jour de la course, quels que soient les jours d'entraînement choisis", () => {
+  const dateDebut = new Date("2026-09-01T00:00:00Z");
+  // Balaie plusieurs configurations de jours choisis, y compris celles qui
+  // incluraient normalement le jour précédant l'échéance.
+  const configs = [
+    { dateEcheance: "2026-11-30T00:00:00Z", joursEntrainement: [1, 2, 3, 4, 5, 6, 7] }, // tous les jours
+    { dateEcheance: "2026-12-13T00:00:00Z", joursEntrainement: [1, 3, 5, 7] },
+    { dateEcheance: "2026-12-20T00:00:00Z", joursEntrainement: [2, 4, 6] },
+  ];
+  for (const { dateEcheance, joursEntrainement } of configs) {
+    const plan = genererPlanComplet({
+      discipline: "route",
+      performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+      dateDebut: dateDebut.toISOString(),
+      dateEcheance,
+      nbSeancesHebdo: joursEntrainement.length,
+      joursEntrainement,
+    });
+    const veilleISO = new Date(new Date(dateEcheance).getTime() - 24 * 60 * 60 * 1000).toDateString();
+    const jourJISO = new Date(dateEcheance).toDateString();
+    for (const semaine of plan.semaines) {
+      for (const s of semaine.seances) {
+        if (!s.date) continue;
+        const d = new Date(s.date).toDateString();
+        assert.notEqual(d, veilleISO, `séance programmée la veille de la course (jours choisis: ${joursEntrainement})`);
+        assert.notEqual(d, jourJISO, `séance programmée le jour de la course (jours choisis: ${joursEntrainement})`);
+      }
+    }
+  }
+});
+
+test("genererPlanComplet — la dernière semaine du plan a une séance de moins que les autres (repos garanti la veille de course)", () => {
+  const dateDebut = new Date();
+  const plan = genererPlanComplet({
+    discipline: "route",
+    performanceRef: { distanceM: 10000, tempsS: 42 * 60 },
+    dateDebut: dateDebut.toISOString(),
+    dateEcheance: new Date(dateDebut.getTime() + 10 * 7 * 24 * 60 * 60 * 1000).toISOString(),
+    nbSeancesHebdo: 5,
+  });
+  const derniere = plan.semaines[plan.semaines.length - 1];
+  const avantDerniere = plan.semaines[plan.semaines.length - 2];
+  assert.equal(derniere.seances.length, avantDerniere.seances.length - 1);
+});
+
 test("genererSaison — priorite par objectif intermédiaire (A/B/C) pilote l'affûtage de son propre bloc, indépendamment des autres", () => {
   const dateDebut = new Date("2026-01-05T00:00:00Z");
   const objectifFinal = { nom: "Final", discipline: "route", distanceM: 42195, date: new Date(dateDebut.getTime() + 32 * 7 * 24 * 60 * 60 * 1000).toISOString() };
@@ -1239,7 +1316,7 @@ test("genererSemaines — absorbe le reste de semainesDisponibles (floor) dans l
   assert.equal((finAvecReste - finSansReste) / 86400000, 5);
 });
 
-test("genererPlanComplet — le plan couvre exactement jusqu'à l'échéance (dernière séance à 0-2 jours de la course), même quand l'écart n'est pas un multiple de 7 jours", () => {
+test("genererPlanComplet — le plan couvre jusqu'à l'échéance SANS jamais programmer la veille ni le jour de course, même quand l'écart n'est pas un multiple de 7 jours", () => {
   const dateDebut = new Date("2026-09-01T00:00:00Z");
   const dateEcheance = new Date("2026-12-20T00:00:00Z"); // 110 jours = 15 semaines + 5 jours de reste
   const plan = genererPlanComplet({
@@ -1253,8 +1330,12 @@ test("genererPlanComplet — le plan couvre exactement jusqu'à l'échéance (de
   const toutesLesDates = plan.semaines.flatMap((s) => s.seances.map((se) => new Date(se.date).getTime()));
   const derniereDate = Math.max(...toutesLesDates);
   const ecartJours = Math.round((dateEcheance.getTime() - derniereDate) / 86400000);
-  assert.ok(ecartJours >= 0, "aucune séance ne doit tomber après la course");
-  assert.ok(ecartJours <= 2, `dernière séance trop loin de la course, écart de ${ecartJours} jours (attendu <= 2, avant le correctif : jusqu'à 6)`);
+  // La veille de course doit toujours rester un jour de repos garanti (repos
+  // ci-dessous), donc au moins 1 jour d'écart désormais — jamais après la
+  // course (>= 0, comportement préexistant), et une fenêtre large en amont
+  // pour rester tolérant à la répartition des jours d'entraînement choisis.
+  assert.ok(ecartJours >= 1, `la veille de course ne doit jamais recevoir de séance, écart obtenu : ${ecartJours} jour(s)`);
+  assert.ok(ecartJours <= 4, `dernière séance anormalement loin de la course, écart de ${ecartJours} jours`);
 });
 
 test("genererPlanComplet — quand l'écart est un multiple exact de 7 jours, aucun reste à absorber (comportement inchangé)", () => {

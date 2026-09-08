@@ -65,18 +65,23 @@ function jourIso(date) {
  * @param {string} dateDebutSemaineISO
  * @param {number} nbSeances
  * @param {number[]} joursEntrainement jours ISO (1=lundi..7=dimanche), sans doublon
+ * @param {number} nbJoursFenetre
+ * @param {string[]} datesAExclure dates ISO à écarter des jours candidats (ex. veille de
+ *   course — cf. genererPlanComplet) même si leur jour de semaine fait partie de
+ *   joursEntrainement.
  * @returns {string[]|null[]} dates ISO, une par séance, dans l'ordre — ou
  *   null partout si aucun jour d'entraînement n'est fourni (comportement
  *   antérieur préservé : pas de date précise, seul l'ordre compte)
  */
-export function assignerDatesSeances(dateDebutSemaineISO, nbSeances, joursEntrainement, nbJoursFenetre = 7) {
+export function assignerDatesSeances(dateDebutSemaineISO, nbSeances, joursEntrainement, nbJoursFenetre = 7, datesAExclure = []) {
   if (!joursEntrainement?.length) return Array(nbSeances).fill(null);
 
+  const exclues = new Set(datesAExclure.map((d) => new Date(d).toDateString()));
   const debut = new Date(dateDebutSemaineISO);
   const candidats = [];
   for (let i = 0; i < nbJoursFenetre; i++) {
     const d = new Date(debut.getTime() + i * JOUR_MS);
-    if (joursEntrainement.includes(jourIso(d))) candidats.push(d);
+    if (joursEntrainement.includes(jourIso(d)) && !exclues.has(d.toDateString())) candidats.push(d);
   }
   candidats.sort((a, b) => a - b);
 
@@ -898,7 +903,16 @@ export function genererPlanComplet(inputs) {
   const semainesAvecSeances = semaines.map((semaineContexte) => {
     const indexDansPhase = semainesParPhase[semaineContexte.phase].indexOf(semaineContexte);
     const totalDansPhase = semainesParPhase[semaineContexte.phase].length;
-    const facteurPhase = calculerFacteurProgression(indexDansPhase, totalDansPhase);
+    // En taper, l'index est INVERSÉ avant d'appeler calculerFacteurProgression :
+    // cette fonction monte de 0.75x à 1.15x avec l'index — exactement ce qu'il
+    // faut pour "construire" en Base/Développement, mais l'INVERSE de ce qu'il
+    // faut à l'approche de la course (le pic de forme se construit par une
+    // charge qui continue de BAISSER jusqu'au jour J, pas qui remonte). Sans
+    // cette inversion, la dernière semaine de taper (la plus proche de la
+    // course) recevait plus de volume que la première — le plan ne menait
+    // jamais vraiment à un pic de forme le jour de la course.
+    const indexPourProgression = semaineContexte.phase === "taper" ? totalDansPhase - 1 - indexDansPhase : indexDansPhase;
+    const facteurPhase = calculerFacteurProgression(indexPourProgression, totalDansPhase);
 
     const indexNonTaper = semainesNonTaper.indexOf(semaineContexte);
     const distanceSortieLongueKm = inputs.distanceObjectifM
@@ -917,10 +931,19 @@ export function genererPlanComplet(inputs) {
 
     const progressionContext = { facteurPhase, distanceSortieLongueKm, fractionBlocObjectif, boostSpecificiteTrail, priorite: inputs.priorite };
 
+    // Dernière semaine du plan (celle qui couvre le jour de la course) : une
+    // séance de moins que d'habitude — la veille de course doit rester un
+    // jour de repos garanti, jamais un créneau d'entraînement comme un autre
+    // (cf. exclusion de date ci-dessous). Réduire le nombre de séances plutôt
+    // que de laisser assignerDatesSeances en recaser une en double sur un
+    // autre jour une fois la veille exclue des candidats.
+    const estDerniereSemaine = semaineContexte === semaines[semaines.length - 1];
+    const nbSeancesCetteSemaine = estDerniereSemaine ? Math.max(0, nbSeancesEffectif - 1) : nbSeancesEffectif;
+
     const slots = composerSemaine(
       semaineContexte.phase,
       inputs.discipline,
-      nbSeancesEffectif,
+      nbSeancesCetteSemaine,
       semaineContexte.numero,
       estRepetitionGenerale,
       axeTravail,
@@ -939,12 +962,24 @@ export function genererPlanComplet(inputs) {
 
     // Date calendaire précise par séance, selon les jours d'entraînement
     // choisis — demande explicite "pouvoir choisir les jours sur lesquels
-    // je veux faire mes séances".
+    // je veux faire mes séances". Sur la dernière semaine, la veille de course
+    // (et le jour de course lui-même, par prudence) sont exclus des jours
+    // candidats — le jour de course n'est de toute façon jamais dans la
+    // fenêtre calendaire de la semaine (elle s'arrête la veille), mais mieux
+    // vaut une exclusion explicite qu'une garantie reposant uniquement sur
+    // l'arithmétique des dates ailleurs dans ce fichier.
+    const datesAExclure = estDerniereSemaine
+      ? [
+          new Date(new Date(inputs.dateEcheance).getTime() - JOUR_MS).toISOString(),
+          inputs.dateEcheance,
+        ]
+      : [];
     const dates = assignerDatesSeances(
       semaineContexte.dateDebut,
       seancesWithCaps.length,
       inputs.joursEntrainement,
-      semaineContexte.dureeJours ?? 7
+      semaineContexte.dureeJours ?? 7,
+      datesAExclure
     );
     const seancesDatees = seancesWithCaps.map((s, i) => ({ ...s, date: dates[i] }));
 
