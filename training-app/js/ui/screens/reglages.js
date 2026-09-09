@@ -35,7 +35,7 @@ export async function render(container) {
       </div>
 
       <div class="card">
-        <h2>Backend GitHub (Partie III §4)</h2>
+        <h2>Sauvegarde GitHub</h2>
         <p class="muted">Optionnel — tes données sont déjà sauvegardées sur cet appareil (IndexedDB). Une fois configuré ci-dessous, chaque modification (plan, séance, journal...) est <strong>automatiquement poussée</strong> vers ton dépôt de données (regroupée par lots de quelques secondes pour éviter un commit par clic), et un appareil sans données locales <strong>récupère automatiquement</strong> la dernière sauvegarde au démarrage — pratique pour utiliser l'appli sur plusieurs appareils. « Exporter en JSON » reste une sauvegarde de secours indépendante.</p>
         <p class="muted">Pour le configurer : crée un dépôt <strong>privé</strong> sur GitHub dédié aux données (différent du dépôt de code, ex. <code>voyafe-training-data</code>), puis un <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener">Personal Access Token</a> (fine-grained) limité à ce seul dépôt avec la permission <strong>Contents: Read and write</strong>.</p>
         <div class="field-row">

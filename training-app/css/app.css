@@ -1072,50 +1072,64 @@ a.card:hover {
   white-space: nowrap;
 }
 
+/* Note nutrition de PacingTimeline : ligne pleine largeur (colspan) sous le
+   point kilométrique concerné, pas une 5e colonne étroite. */
+.pacing-timeline td.pacing-timeline__nutrition {
+  font-size: 0.78rem;
+  padding-top: 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+
 .pacing-timeline tr.ravito td {
   background: color-mix(in srgb, var(--color-accent) 12%, transparent);
 }
 
-/* ---------- WeekTable (liste de séances dense, dashboard) ---------- */
+/* ---------- WeekTable (liste des séances de la semaine) ---------- */
 
-.week-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.78rem;
+.week-list {
+  display: flex;
+  flex-direction: column;
 }
 
-.week-table th {
-  text-align: left;
-  padding: 6px 6px;
+.week-list__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-1) var(--space-3) var(--space-2);
   border-bottom: 1px solid var(--color-border);
-  font-family: var(--font-display);
-  font-size: 0.66rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-text-muted);
-  font-weight: 700;
-}
-
-.week-table td {
-  padding: 7px 6px;
-  border-bottom: 1px solid var(--color-border);
-  vertical-align: middle;
-}
-
-.week-table__row {
+  border-left: 3px solid transparent;
   cursor: pointer;
 }
 
-.week-table__row:hover td {
+.week-list__row:last-child {
+  border-bottom: none;
+}
+
+.week-list__row:hover {
   background: color-mix(in srgb, var(--color-accent) 6%, transparent);
 }
 
-.week-table__row--realisee td:first-child {
-  box-shadow: inset 2px 0 0 var(--color-structural);
+.week-list__row--realisee {
+  border-left-color: var(--color-structural);
 }
 
-.week-table__row--manquee td:first-child {
-  box-shadow: inset 2px 0 0 var(--color-danger);
+.week-list__row--manquee {
+  border-left-color: var(--color-danger);
+}
+
+.week-list__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.week-list__nom {
+  font-weight: 600;
+}
+
+.week-list__meta {
+  font-size: 0.78rem;
+  margin-top: 2px;
 }
 
 /* ---------- Divers ---------- */

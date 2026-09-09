@@ -181,35 +181,33 @@ export function ActivityHeatmap(joursValeurs, options = {}) {
 }
 
 /**
- * WeekTable — vue tabulaire dense des séances de la semaine (jour, zone,
- * nom, distance, durée, statut), en remplacement d'une liste de cartes
- * répétées : plus dense, plus rapide à scanner, cohérent avec la
- * PacingTimeline déjà utilisée ailleurs dans l'appli.
+ * WeekTable — liste des séances de la semaine (jour, zone, nom, distance,
+ * durée, statut). Un vrai tableau à 6 colonnes ne tenait pas sur un écran de
+ * téléphone sans scroll horizontal (colonne Statut coupée) — remplacé par
+ * une liste verticale : badge de zone, nom en titre, distance/durée/jour en
+ * sous-ligne, statut en badge à droite. Aussi rapide à scanner, sans jamais
+ * déborder.
  * @param {Array} seances
  * @param {(index:number) => string} hrefBuilder
  */
 export function WeekTable(seances, hrefBuilder) {
   const rows = seances
     .map((s, i) => {
-      const jourLabel = s.date ? new Date(s.date).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric" }) : "—";
+      const jourLabel = s.date ? new Date(s.date).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric" }) : "à planifier";
       const statutClass = s.statut === "realisee" ? "realisee" : s.statut === "manquee" ? "manquee" : "";
       const statutLabel = { a_venir: "à venir", realisee: "réalisée", manquee: "manquée" }[s.statut] ?? s.statut;
       return `
-      <tr class="week-table__row week-table__row--${statutClass}" data-href="${hrefBuilder(i)}">
-        <td class="muted">${jourLabel}</td>
-        <td>${ZoneBadge(s.zoneDaniels)}</td>
-        <td>${escapeHtml(s.nom)}</td>
-        <td class="data">${s.distanceKm ? `${s.distanceKm.toFixed(1)} km` : "—"}</td>
-        <td class="data">${Math.round(s.volumeSeanceMin)} min</td>
-        <td><span class="session-card__status session-card__status--${statutClass}">${statutLabel}</span></td>
-      </tr>`;
+      <div class="week-list__row week-list__row--${statutClass}" data-href="${hrefBuilder(i)}">
+        ${ZoneBadge(s.zoneDaniels)}
+        <div class="week-list__main">
+          <div class="week-list__nom">${escapeHtml(s.nom)}</div>
+          <div class="muted week-list__meta">${jourLabel}${s.distanceKm ? ` · ${s.distanceKm.toFixed(1)} km` : ""} · ${Math.round(s.volumeSeanceMin)} min</div>
+        </div>
+        <span class="session-card__status session-card__status--${statutClass}">${statutLabel}</span>
+      </div>`;
     })
     .join("");
-  return `
-    <table class="week-table">
-      <thead><tr><th>Jour</th><th>Zone</th><th>Séance</th><th>Dist.</th><th>Durée</th><th>Statut</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
+  return `<div class="week-list">${rows}</div>`;
 }
 
 /** ZoneBadge — étiquette couleur E/M/T/I/R (Section 2, palette). Le titre au
@@ -901,25 +899,36 @@ export function formatDureeHM(minutes) {
 /**
  * PacingTimeline — timeline allure cible + mode (course/marche, §4 du
  * document de stratégie de pacing) + marqueurs nutrition.
+ *
+ * La note nutrition (texte libre, pas juste un repère chiffré) tenait mal en
+ * 5e colonne d'un tableau déjà dense sur un écran de téléphone : les 4
+ * colonnes nowrap (Km/Temps/Allure/Mode) ne laissaient presque plus de
+ * place, ce qui soit poussait TOUTE la page en scroll horizontal (bug
+ * constaté), soit forcait des coupures en plein milieu des mots pour
+ * tenir. Elle est donc affichée sur sa propre ligne pleine largeur
+ * (colspan), seulement pour les points où elle existe — la plupart des
+ * lignes restent un tableau à 4 colonnes bien plus respirant.
  * @param {{km:number, tempsCumule:number, allureCible:number, mode?:"run"|"hike", actionNutrition:string|null}[]} timeline
  */
 export function PacingTimeline(timeline) {
   const rows = timeline
     .map((row) => {
       const modeLabel = row.mode === "hike" ? "Marche" : "Course";
+      const ligneNutrition = row.actionNutrition
+        ? `<tr class="ravito"><td colspan="4" class="pacing-timeline__nutrition">${escapeHtml(row.actionNutrition)}</td></tr>`
+        : "";
       return `
       <tr class="${row.actionNutrition ? "ravito" : ""}">
         <td class="data">${row.km.toFixed(1)} km</td>
         <td class="data">${formatDureeHM(row.tempsCumule)}</td>
         <td class="data">${formatPace(row.allureCible)}</td>
         <td class="data">${row.mode ? `<span class="zone-badge zone-badge--${row.mode}">${modeLabel}</span>` : ""}</td>
-        <td>${row.actionNutrition ? escapeHtml(row.actionNutrition) : ""}</td>
-      </tr>`;
+      </tr>${ligneNutrition}`;
     })
     .join("");
   return `
     <table class="pacing-timeline">
-      <thead><tr><th>Km</th><th>Temps</th><th>Allure</th><th>Mode</th><th>Nutrition</th></tr></thead>
+      <thead><tr><th>Km</th><th>Temps</th><th>Allure</th><th>Mode</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
 }

@@ -100,9 +100,7 @@ export async function render(container, params) {
           <h2>Semaine ${semaine.numero} — ${libellePhase(semaine.phase)}${semaine.statut === "decharge" ? " · décharge" : ""}</h2>
           <button class="btn btn--sm" id="week-next" ${idx === plan.semaines.length - 1 ? "disabled" : ""}>Semaine suiv. &rarr;</button>
         </div>
-        <div style="overflow-x:auto;">
-          ${WeekTable(semaine.seances, (i) => `#/seance?semaine=${semaine.numero}&idx=${i}&plan=${plan.id}`)}
-        </div>
+        ${WeekTable(semaine.seances, (i) => `#/seance?semaine=${semaine.numero}&idx=${i}&plan=${plan.id}`)}
         ${idx === plan.semaines.length - 1 ? renderJourJ(plan) : ""}
         ${semaine.renfoRecommande?.length ? renderRenfo(semaine.renfoRecommande) : ""}
         ${semaine.croiseRecommande?.length ? renderCroise(semaine.croiseRecommande) : ""}
@@ -154,9 +152,9 @@ export async function render(container, params) {
   container.querySelector("#week-prev")?.addEventListener("click", () => naviguerVersSemaine(plan.semaines[idx - 1].numero));
   container.querySelector("#week-next")?.addEventListener("click", () => naviguerVersSemaine(plan.semaines[idx + 1].numero));
 
-  // WeekTable rend des <tr> cliquables plutôt que des <a> (invalide en HTML
-  // dans un <table>) — navigation gérée ici via l'attribut data-href.
-  container.querySelectorAll(".week-table__row[data-href]").forEach((row) => {
+  // WeekTable rend des lignes cliquables (div) plutôt que des <a> imbriqués
+  // dans son wrapper — navigation gérée ici via l'attribut data-href.
+  container.querySelectorAll(".week-list__row[data-href]").forEach((row) => {
     row.addEventListener("click", () => {
       location.hash = row.dataset.href;
     });

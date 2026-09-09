@@ -245,7 +245,7 @@ export async function render(container) {
             <div><span class="muted">Durée planifiée</span><br /><span class="data" style="font-size:1.3rem;">${Math.round(stats.totalDuree)} min</span></div>
           </div>
           <p class="muted">${stats.realisees}/${stats.total} réalisée${stats.realisees > 1 ? "s" : ""}${stats.manquees ? ` · ${stats.manquees} manquée${stats.manquees > 1 ? "s" : ""}` : ""}</p>
-          <div style="margin-top:8px; overflow-x:auto;">
+          <div style="margin-top:8px;">
             ${WeekTable(semaineActuelle.seances, (i) => `#/seance?semaine=${semaineActuelle.numero}&idx=${i}&plan=${plan.id}`)}
           </div>
         </div>
@@ -367,9 +367,9 @@ export async function render(container) {
     });
   });
 
-  // WeekTable rend des <tr> cliquables plutôt que des <a> (invalide en HTML
-  // dans un <table>) — navigation gérée ici via l'attribut data-href.
-  container.querySelectorAll(".week-table__row[data-href]").forEach((row) => {
+  // WeekTable rend des lignes cliquables (div) plutôt que des <a> imbriqués
+  // dans son wrapper — navigation gérée ici via l'attribut data-href.
+  container.querySelectorAll(".week-list__row[data-href]").forEach((row) => {
     row.addEventListener("click", () => {
       location.hash = row.dataset.href;
     });

@@ -122,6 +122,44 @@ export function barresDistanceMensuelle(seancesRealisees, nbMois = 6, maintenant
 }
 
 /**
+ * Détail semaine par semaine (distance, durée, D+, nb séances, allure — pas
+ * seulement la distance des graphiques en barres), plus récente en premier.
+ * Sert à une liste "Détail par semaine" complète, au-delà du simple résumé
+ * semaine en cours vs précédente de statsPerformance.
+ */
+export function detailHebdomadaire(seancesRealisees, nbSemaines = 8, maintenant = new Date()) {
+  const debutSemaineCourante = debutSemaineIso(maintenant);
+  const semaines = [];
+  for (let i = 0; i < nbSemaines; i++) {
+    const debut = new Date(debutSemaineCourante.getTime() - i * 7 * 24 * 60 * 60 * 1000);
+    const fin = new Date(debut.getTime() + 7 * 24 * 60 * 60 * 1000);
+    semaines.push({
+      label: i === 0 ? "Cette semaine" : `Semaine du ${debut.getDate()}/${debut.getMonth() + 1}`,
+      ...agregerPeriode(seancesRealisees, debut, fin),
+    });
+  }
+  return semaines;
+}
+
+/**
+ * Détail mois par mois (distance, durée, D+, nb séances, allure), plus
+ * récent en premier — même principe que detailHebdomadaire.
+ */
+export function detailMensuel(seancesRealisees, nbMois = 6, maintenant = new Date()) {
+  const moisCourant = debutMoisCalendaire(maintenant);
+  const mois = [];
+  for (let i = 0; i < nbMois; i++) {
+    const debut = new Date(moisCourant.getFullYear(), moisCourant.getMonth() - i, 1);
+    const fin = new Date(debut.getFullYear(), debut.getMonth() + 1, 1);
+    mois.push({
+      label: `${MOIS_COURT[debut.getMonth()]} ${debut.getFullYear()}`,
+      ...agregerPeriode(seancesRealisees, debut, fin),
+    });
+  }
+  return mois;
+}
+
+/**
  * D+ cumulé réel (activités Strava synchronisées) par mois calendaire, pour
  * un graphique en barres — même fenêtre/forme que barresDistanceMensuelle.
  * D+ *réel*, pas planifié : le plan ne rattache aucun profil de parcours

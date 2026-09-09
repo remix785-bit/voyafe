@@ -21,8 +21,8 @@ export async function render(container) {
   container.innerHTML = `
     <div class="app-main">
       <div class="card">
-        <h1>Calculateur distance / allure / temps</h1>
-        <p class="muted">Sur piste ou sur une ligne droite chronométrée : renseigne deux valeurs, la troisième se calcule. Laisse vide le champ à trouver.</p>
+        <h1>Calculateur</h1>
+        <p class="muted">Distance / allure / temps — sur piste ou sur une ligne droite chronométrée : renseigne deux valeurs, la troisième se calcule. Laisse vide le champ à trouver.</p>
       </div>
 
       <div class="card">

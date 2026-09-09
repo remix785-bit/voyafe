@@ -10,6 +10,8 @@ import {
   barresDistanceHebdo,
   barresDistanceMensuelle,
   barresDPlusMensuel,
+  detailHebdomadaire,
+  detailMensuel,
 } from "../js/engines/performance.js";
 
 function iso(date) {
@@ -143,4 +145,35 @@ test("variationPct — calcule la variation relative, null si période précéde
   assert.equal(variationPct(12, 10), 20);
   assert.equal(variationPct(8, 10), -20);
   assert.equal(variationPct(5, 0), null);
+});
+
+test("detailHebdomadaire — une entrée complète par semaine, la plus récente en premier, libellée « Cette semaine »", () => {
+  const maintenant = new Date(2026, 7, 20); // semaine du 17 août
+  const seances = [
+    { date: iso(new Date(2026, 7, 18)), distanceKm: 10, dureeMin: 60, deniveleM: 50 }, // semaine courante
+    { date: iso(new Date(2026, 7, 11)), distanceKm: 20, dureeMin: 120, deniveleM: 100 }, // semaine -1
+  ];
+  const semaines = detailHebdomadaire(seances, 3, maintenant);
+  assert.equal(semaines.length, 3);
+  assert.equal(semaines[0].label, "Cette semaine");
+  assert.equal(semaines[0].distanceKm, 10);
+  assert.equal(semaines[0].nbSeances, 1);
+  assert.equal(semaines[1].distanceKm, 20);
+  assert.match(semaines[1].label, /^Semaine du /);
+  assert.equal(semaines[2].nbSeances, 0);
+});
+
+test("detailMensuel — une entrée complète par mois calendaire, la plus récente en premier", () => {
+  const maintenant = new Date(2026, 7, 20); // août 2026
+  const seances = [
+    { date: iso(new Date(2026, 7, 5)), distanceKm: 30, dureeMin: 180, deniveleM: 400 }, // août
+    { date: iso(new Date(2026, 6, 15)), distanceKm: 40, dureeMin: 240, deniveleM: 500 }, // juillet
+  ];
+  const mois = detailMensuel(seances, 3, maintenant);
+  assert.equal(mois.length, 3);
+  assert.equal(mois[0].label, "août 2026");
+  assert.equal(mois[0].distanceKm, 30);
+  assert.equal(mois[1].label, "juil. 2026");
+  assert.equal(mois[1].distanceKm, 40);
+  assert.equal(mois[2].nbSeances, 0);
 });
