@@ -12,6 +12,7 @@ import {
   barresDPlusMensuel,
   detailHebdomadaire,
   detailMensuel,
+  nbSemainesMoisPasseEtCourant,
 } from "../js/engines/performance.js";
 
 function iso(date) {
@@ -161,6 +162,12 @@ test("detailHebdomadaire — une entrée complète par semaine, la plus récente
   assert.equal(semaines[1].distanceKm, 20);
   assert.match(semaines[1].label, /^Semaine du /);
   assert.equal(semaines[2].nbSeances, 0);
+});
+
+test("nbSemainesMoisPasseEtCourant — couvre exactement depuis le 1er du mois précédent jusqu'à aujourd'hui", () => {
+  assert.equal(nbSemainesMoisPasseEtCourant(new Date(2026, 7, 20)), 8); // jeudi 20 août 2026
+  assert.equal(nbSemainesMoisPasseEtCourant(new Date(2026, 8, 9)), 7); // mercredi 9 septembre 2026
+  assert.equal(nbSemainesMoisPasseEtCourant(new Date(2026, 0, 3)), 5); // samedi 3 janvier 2026 (mois précédent = déc. 2025, à cheval sur l'année)
 });
 
 test("detailMensuel — une entrée complète par mois calendaire, la plus récente en premier", () => {

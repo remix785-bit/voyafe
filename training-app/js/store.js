@@ -914,11 +914,13 @@ export async function synchroniserStrava(joursHistorique = 28) {
   // séances/jour sur une fenêtre de 28 jours (jusqu'à 200 activités
   // possibles) — on récupère toutes les pages jusqu'à ce que l'API en
   // renvoie moins qu'une page pleine (fin de fenêtre atteinte), avec un
-  // garde-fou à 10 pages pour éviter toute boucle infinie en cas de réponse
-  // inattendue de l'API.
+  // garde-fou à 30 pages (1500 activités) pour éviter toute boucle infinie
+  // en cas de réponse inattendue de l'API — relevé de 10 à 30 pour
+  // supporter les synchros de plusieurs mois d'historique (reglages.js
+  // "Synchroniser depuis le"), pas seulement la fenêtre de charge de 28 jours.
   const perPage = 50;
   const activites = [];
-  for (let page = 1; page <= 10; page++) {
+  for (let page = 1; page <= 30; page++) {
     const lot = await listerActivites({ token, after, perPage, page });
     activites.push(...lot);
     if (lot.length < perPage) break;

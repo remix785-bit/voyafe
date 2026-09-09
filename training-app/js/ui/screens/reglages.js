@@ -59,6 +59,10 @@ export async function render(container) {
         ${
           reglages.stravaRefreshToken
             ? `<p class="muted">Connecté${reglages.stravaAthleteNom ? ` — <strong>${escapeAttr(reglages.stravaAthleteNom)}</strong>` : ""}. Le jeton se renouvelle automatiquement en arrière-plan : plus besoin de rien recoller, même après 6h.</p>
+               <div class="field">
+                 <label for="strava-sync-since">Synchroniser depuis le</label>
+                 <input type="date" id="strava-sync-since" value="${debutSyncParDefaut()}" max="${new Date().toISOString().slice(0, 10)}" />
+               </div>
                <div class="row">
                  <button class="btn" id="strava-test">Tester la connexion</button>
                  <button class="btn btn--primary" id="strava-sync">Synchroniser maintenant</button>
@@ -206,9 +210,16 @@ export async function render(container) {
   if (stravaSyncBtn) {
     stravaSyncBtn.addEventListener("click", async () => {
       const statusEl = container.querySelector("#strava-status");
+      const depuisInput = container.querySelector("#strava-sync-since");
+      // "Synchroniser depuis le" convertit la date choisie en nombre de
+      // jours attendu par store.synchroniserStrava — arrondi au jour
+      // supérieur pour ne jamais couper le premier jour demandé.
+      const joursHistorique = depuisInput?.value
+        ? Math.max(1, Math.ceil((Date.now() - new Date(depuisInput.value).getTime()) / (24 * 60 * 60 * 1000)))
+        : 28;
       statusEl.textContent = "Synchronisation en cours...";
       try {
-        const { nouvelles, rapprochees, totalRecuperees } = await store.synchroniserStrava();
+        const { nouvelles, rapprochees, totalRecuperees } = await store.synchroniserStrava(joursHistorique);
         statusEl.textContent = `${nouvelles} nouvelle${nouvelles > 1 ? "s" : ""} activité${nouvelles > 1 ? "s" : ""} (sur ${totalRecuperees} récupérée${totalRecuperees > 1 ? "s" : ""}), ${rapprochees} rapprochée${rapprochees > 1 ? "s" : ""} d'une séance planifiée.`;
       } catch (err) {
         statusEl.textContent = `Erreur : ${err.message}`;
@@ -271,4 +282,17 @@ async function afficherVersionServiceWorker(container) {
 
 function escapeAttr(str) {
   return String(str ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+/**
+ * Valeur par défaut du champ "Synchroniser depuis le" : le 1er juin de
+ * l'année en cours (ou de l'année précédente si on est encore avant juin) —
+ * une synchro Strava par défaut ne couvrait que 28 jours (fenêtre de charge
+ * chronique), largement insuffisant pour récupérer plusieurs mois
+ * d'historique en une fois. Reste éditable pour toute autre plage.
+ */
+function debutSyncParDefaut() {
+  const maintenant = new Date();
+  const annee = maintenant.getMonth() >= 5 ? maintenant.getFullYear() : maintenant.getFullYear() - 1;
+  return new Date(annee, 5, 1).toISOString().slice(0, 10);
 }

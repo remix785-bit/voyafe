@@ -122,6 +122,22 @@ export function barresDistanceMensuelle(seancesRealisees, nbMois = 6, maintenant
 }
 
 /**
+ * Nombre de semaines ISO à remonter pour couvrir depuis le 1er du mois
+ * précédent jusqu'à aujourd'hui inclus — "le mois passé et celui en cours"
+ * demandé pour le récapitulatif hebdomadaire de l'écran Historique, plutôt
+ * qu'un nombre de semaines fixe arbitraire qui ne correspond à aucune
+ * période calendaire précise.
+ */
+export function nbSemainesMoisPasseEtCourant(maintenant = new Date()) {
+  const debutMoisCourant = debutMoisCalendaire(maintenant);
+  const debutMoisPrecedent = new Date(debutMoisCourant.getFullYear(), debutMoisCourant.getMonth() - 1, 1);
+  const debutSemaineDebut = debutSemaineIso(debutMoisPrecedent);
+  const debutSemaineFin = debutSemaineIso(maintenant);
+  const diffSemaines = Math.round((debutSemaineFin - debutSemaineDebut) / (7 * 24 * 60 * 60 * 1000));
+  return diffSemaines + 1;
+}
+
+/**
  * Détail semaine par semaine (distance, durée, D+, nb séances, allure — pas
  * seulement la distance des graphiques en barres), plus récente en premier.
  * Sert à une liste "Détail par semaine" complète, au-delà du simple résumé

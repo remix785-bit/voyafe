@@ -7,6 +7,7 @@ import {
   barresDistanceMensuelle,
   detailHebdomadaire,
   detailMensuel,
+  nbSemainesMoisPasseEtCourant,
   variationPct,
 } from "../../engines/performance.js";
 import { Sparkline, ZoneRepartition, BarChart, ActivityHeatmap, SegmentedControl, attachSegmentedControl, attachChartInteractions } from "../components.js";
@@ -132,18 +133,20 @@ function renderActivitesRecentes(seancesRealisees) {
 
 /**
  * Stats hebdomadaires réelles (Strava) — semaine en cours vs précédente,
- * tendance en barres sur 8 semaines, et détail semaine par semaine. Même
- * moteur (engines/performance.js) que le résumé du Dashboard (onglet
- * "Progression"), mais ici comme vue dédiée et complète : l'écran
- * "Historique & Stats" est l'endroit naturel où chercher ces stats, pas
- * seulement un résumé condensé ailleurs.
+ * tendance en barres et détail semaine par semaine sur le mois passé ET le
+ * mois en cours (nbSemainesMoisPasseEtCourant, pas un nombre de semaines
+ * fixe arbitraire). Même moteur (engines/performance.js) que le résumé du
+ * Dashboard (onglet "Progression"), mais ici comme vue dédiée et complète :
+ * l'écran "Historique & Stats" est l'endroit naturel où chercher ces stats,
+ * pas seulement un résumé condensé ailleurs.
  */
 function renderStatsHebdo(seancesRealisees) {
   const perf = statsPerformance(seancesRealisees);
   if (!perf.semaine.nbSeances && !perf.semainePrecedente.nbSeances) {
     return `<p class="muted">Aucune activité réelle enregistrée — connecte Strava (<a href="#/reglages">Réglages</a>) pour voir tes stats réelles ici, ou synchronise si c'est déjà fait.</p>`;
   }
-  const barresHebdo = barresDistanceHebdo(seancesRealisees);
+  const nbSemaines = nbSemainesMoisPasseEtCourant();
+  const barresHebdo = barresDistanceHebdo(seancesRealisees, nbSemaines);
   return `
     <div>
       <span class="muted">Cette semaine</span><br />
@@ -152,8 +155,8 @@ function renderStatsHebdo(seancesRealisees) {
     </div>
     ${barresHebdo.some((b) => b.value > 0) ? `<div style="margin-top:16px;">${BarChart(barresHebdo, { unite: " km" })}</div>` : ""}
     <div style="margin-top:16px;">
-      <span class="muted">Détail par semaine</span>
-      ${renderDetailPeriodes(detailHebdomadaire(seancesRealisees))}
+      <span class="muted">Détail par semaine (mois passé et en cours)</span>
+      ${renderDetailPeriodes(detailHebdomadaire(seancesRealisees, nbSemaines))}
     </div>`;
 }
 
