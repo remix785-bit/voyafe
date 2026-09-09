@@ -1367,7 +1367,14 @@ test("genererPlanComplet — le rythme hebdomadaire choisi (ex. mardi) reste ide
   }
 });
 
-test("genererPlanComplet — la grille hebdomadaire s'aligne sur le mardi même quand le plan démarre un autre jour (demande explicite), sans jamais dupliquer une date en semaine 1", () => {
+test("genererPlanComplet — le rythme hebdomadaire reste stable et sans date dupliquée quel que soit le jour réel de démarrage du plan (semaine 1 pleine, garantie par l'ancrage sur dateDebutPlan)", () => {
+  // Un ancrage hebdomadaire sur un jour FIXE (ex. toujours le mardi, quel que
+  // soit le jour de démarrage réel) a été tenté puis retiré : reculer
+  // l'ancrage avant dateDebutPlan pour l'imposer perdait des jours
+  // d'entraînement légitimes en semaine 1 (candidats antérieurs écartés),
+  // jusqu'à la vider complètement — pire que le problème résolu. L'ancrage
+  // sur dateDebutPlan reproduit fidèlement le jour réel de démarrage, sans
+  // aucune perte, quel que soit ce jour.
   const joursEntrainement = [2, 4, 7]; // mardi, jeudi, dimanche
   for (const [label, dateDebutISO] of [
     ["vendredi", "2026-09-11T00:00:00.000Z"],
@@ -1384,16 +1391,20 @@ test("genererPlanComplet — la grille hebdomadaire s'aligne sur le mardi même 
       nbSeancesHebdo: joursEntrainement.length,
       joursEntrainement,
     });
-    // À partir de la semaine 2 (la semaine 1 peut être partielle selon le
-    // jour de démarrage réel), le rythme mardi/jeudi/dimanche doit être
-    // parfaitement stable — c'est la demande explicite de l'utilisateur.
-    for (const s of plan.semaines.slice(1, -1)) {
+    // Semaine 1 pleine (aucune perte de jour d'entraînement) : autant de
+    // séances que de jours choisis, quel que soit le jour de démarrage.
+    assert.equal(plan.semaines[0].seances.length, joursEntrainement.length, `[départ ${label}] semaine 1 devrait avoir ${joursEntrainement.length} séances`);
+    // L'ordre chronologique exact (ex. [dim,mar,jeu] vs [mar,jeu,dim]) dépend
+    // du jour de démarrage — seul l'ENSEMBLE des jours et sa RÉPÉTITION à
+    // l'identique semaine après semaine comptent ici.
+    const joursAttendusTries = [0, 2, 4]; // dim, mar, jeu (Date#getUTCDay : 0=dimanche), triés
+    const rythmeReference = plan.semaines[0].seances.map((se) => new Date(se.date).getUTCDay());
+    for (const s of plan.semaines.slice(0, -1)) {
       const jours = s.seances.map((se) => new Date(se.date).getUTCDay());
-      assert.deepEqual(jours, [2, 4, 0], `[départ ${label}] semaine ${s.numero} : rythme attendu mar/jeu/dim, obtenu jours=${jours}`);
+      assert.deepEqual([...jours].sort(), joursAttendusTries, `[départ ${label}] semaine ${s.numero} : ensemble de jours attendu {dim,mar,jeu}, obtenu jours=${jours}`);
+      assert.deepEqual(jours, rythmeReference, `[départ ${label}] semaine ${s.numero} : rythme différent de la semaine 1 (${rythmeReference}), obtenu ${jours}`);
     }
-    // Aucune semaine ne doit jamais contenir deux séances à la même date
-    // (le bug observé : semaine 1 avec 3 séances toutes datées au même jour
-    // une fois les candidats trop précoces écartés par le nouvel ancrage).
+    // Aucune semaine ne doit jamais contenir deux séances à la même date.
     for (const s of plan.semaines) {
       const dates = s.seances.map((se) => se.date).filter(Boolean);
       assert.equal(new Set(dates).size, dates.length, `[départ ${label}] semaine ${s.numero} : dates dupliquées parmi ${JSON.stringify(dates)}`);

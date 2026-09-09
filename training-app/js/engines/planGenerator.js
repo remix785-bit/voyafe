@@ -53,30 +53,6 @@ function jourIso(date) {
 }
 
 /**
- * Jour ISO (1=lundi..7=dimanche) sur lequel la GRILLE hebdomadaire du plan
- * s'aligne toujours — indépendamment du jour de semaine où le plan démarre
- * réellement (dateDebut). Demande explicite : "je veux que la semaine
- * commence le mardi". N'affecte jamais le vrai début d'entraînement (voir
- * ancrerAuJourDeSemaine ci-dessous, qui ne recule jamais après dateDebut) :
- * seule la récurrence "semaine après semaine" de la recherche des jours
- * candidats (assignerDatesSeances) s'aligne sur ce jour.
- */
-const JOUR_ISO_DEBUT_SEMAINE = 2; // mardi
-
-/**
- * Recale une date sur le dernier "jourIsoVoulu" tombé à cette date ou avant
- * (jamais après) — sert à faire démarrer la GRILLE des semaines un jour fixe
- * (mardi) même quand le plan démarre réellement un autre jour, sans jamais
- * repousser dateDebut lui-même (l'entraînement démarre bien quand demandé,
- * seule la grille de recherche des semaines s'aligne en arrière dessus).
- */
-function ancrerAuJourDeSemaine(dateISO, jourIsoVoulu) {
-  const d = new Date(dateISO);
-  const decalage = (jourIso(d) - jourIsoVoulu + 7) % 7;
-  return new Date(d.getTime() - decalage * JOUR_MS).toISOString();
-}
-
-/**
  * Attribue une date calendaire précise à chaque séance de la semaine, selon
  * les jours d'entraînement choisis par l'utilisateur — répond à la demande
  * "pouvoir choisir les jours sur lesquels je veux faire mes séances".
@@ -911,12 +887,19 @@ export function genererPlanComplet(inputs) {
   });
   const dateDebutPlan = inputs.dateDebut ?? new Date().toISOString();
   // Grille hebdomadaire de recherche des jours candidats (assignerDatesSeances)
-  // ancrée sur JOUR_ISO_DEBUT_SEMAINE (mardi), pas sur dateDebutPlan lui-même
-  // — l'entraînement démarre bien à dateDebutPlan quel que soit le jour de la
-  // semaine (dateMinISO plus bas empêche toute séance antérieure), mais la
-  // récurrence "semaine après semaine" reste alignée sur ce jour fixe plutôt
-  // que sur le jour, arbitraire, où le plan a été créé.
-  const grilleSemainesISO = ancrerAuJourDeSemaine(dateDebutPlan, JOUR_ISO_DEBUT_SEMAINE);
+  // ancrée sur dateDebutPlan — chaque semaine avance d'exactement 7 jours à
+  // partir de là (voir ancrageSemaineISO plus bas), jamais sur
+  // semaineContexte.dateDebut (qui dérive d'un cumul où la semaine 1 absorbe
+  // le reste de jours non multiple de 7, cf. genererSemaines, et décale sinon
+  // le rythme choisi dès la semaine 2). Essayer d'ancrer en plus sur un jour
+  // de semaine FIXE (ex. toujours le mardi, indépendamment du jour réel de
+  // création du plan) a été tenté puis retiré : reculer l'ancrage avant
+  // dateDebutPlan pour l'imposer perd des jours d'entraînement légitimes
+  // (candidats antérieurs écartés) et pouvait vider la semaine 1 — pire que
+  // le problème résolu. Ancrée sur dateDebutPlan, la semaine 1 reproduit
+  // exactement le jour réel de démarrage, et toutes les semaines suivantes
+  // gardent ce même rythme sans jamais dévier ensuite.
+  const grilleSemainesISO = dateDebutPlan;
   const semDispo = semainesDisponibles(inputs.dateEcheance, dateDebutPlan);
   const macrocycle = construireMacrocycle(semDispo, inputs.chargeHebdoMoyenneActuelle ?? "moderee", {
     typeObjectif: inputs.typeObjectif ?? "finale",
@@ -1006,18 +989,7 @@ export function genererPlanComplet(inputs) {
 
     const progressionContext = { facteurPhase, distanceSortieLongueKm, fractionBlocObjectif, boostSpecificiteTrail, priorite: inputs.priorite };
 
-    // Semaine 1 : quand l'ancrage sur JOUR_ISO_DEBUT_SEMAINE (mardi) tombe
-    // avant le vrai début du plan (dateDebutPlan), les jours candidats
-    // antérieurs à cette date sont écartés (dateMinISO, assignerDatesSeances)
-    // — la semaine 1 peut donc avoir moins de jours réellement utilisables que
-    // nbSeancesEffectif. Réduire le nombre de séances en conséquence, plutôt
-    // que de laisser plusieurs séances différentes atterrir sur la même date
-    // une fois les candidats trop précoces écartés.
     let nbSeancesCetteSemaine = nbSeancesEffectif;
-    if (semaineContexte.numero === 1 && inputs.joursEntrainement?.length) {
-      const candidatsSemaine1 = trouverJoursCandidats(grilleSemainesISO, inputs.joursEntrainement, 7, [], dateDebutPlan);
-      nbSeancesCetteSemaine = Math.min(nbSeancesCetteSemaine, candidatsSemaine1.length);
-    }
     // Dernière semaine du plan (celle qui couvre le jour de la course) : une
     // séance de moins que d'habitude — la veille de course doit rester un
     // jour de repos garanti, jamais un créneau d'entraînement comme un autre
@@ -1062,21 +1034,16 @@ export function genererPlanComplet(inputs) {
         ]
       : [];
     // Point d'ancrage de la recherche des jours candidats : grilleSemainesISO
-    // (mardi le plus proche à/avant dateDebutPlan, cf. JOUR_ISO_DEBUT_SEMAINE)
-    // + 7 jours × (numéro de semaine - 1) — PAS semaineContexte.dateDebut.
-    // Deux raisons de ne pas utiliser semaineContexte.dateDebut : (1) il
-    // dérive de dateCourante (genererSemaines), qui avance de dureeJours en
-    // dureeJours — et dureeJours de la semaine 1 dépasse 7 pour absorber le
-    // reste de jours non multiple de 7 (afin que le calendrier des semaines
-    // tombe exactement sur l'échéance), ce qui décalait le jour de semaine
-    // dès la semaine 2 et propageait ce décalage à toutes les suivantes
-    // (rapporté : "mardi" en semaine 1 devenait un autre jour ensuite) ; (2)
-    // il suit le jour réel de démarrage du plan, pas un jour fixe choisi par
-    // l'utilisateur ("je veux que la semaine commence le mardi"). Ancrer sur
-    // grilleSemainesISO résout les deux à la fois : cycle hebdomadaire
-    // identique du début à la fin, toujours aligné sur mardi. dateDebutPlan
-    // passé en dateMinISO plus bas empêche toute séance antérieure au vrai
-    // début du plan si grilleSemainesISO tombe avant lui.
+    // (= dateDebutPlan) + 7 jours × (numéro de semaine - 1) — PAS
+    // semaineContexte.dateDebut, qui dérive de dateCourante (genererSemaines,
+    // avance de dureeJours en dureeJours) : dureeJours de la semaine 1
+    // dépasse 7 pour absorber le reste de jours non multiple de 7 (afin que
+    // le calendrier des semaines tombe exactement sur l'échéance), ce qui
+    // décalait le jour de semaine dès la semaine 2 et propageait ce décalage
+    // à toutes les suivantes (rapporté : "mardi" en semaine 1 devenait un
+    // autre jour ensuite). Ancrer sur dateDebutPlan (fixe, jamais affecté par
+    // ce reste) donne un cycle hebdomadaire identique du début à la fin,
+    // quel que soit le jour réel de démarrage du plan.
     const ancrageSemaineISO = new Date(new Date(grilleSemainesISO).getTime() + (semaineContexte.numero - 1) * 7 * JOUR_MS).toISOString();
     // La dernière semaine seule voit sa fenêtre de recherche élargie de
     // dureeSupplementaireJours (le reste 0-6 jours qui sépare
