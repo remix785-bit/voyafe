@@ -1,6 +1,6 @@
 import * as store from "../../store.js";
 import { ewmaAcwr, acwr } from "../../engines/load.js";
-import { barresDPlusMensuel } from "../../engines/performance.js";
+import { barresDPlusMensuel, statsPerformance, barresDistanceHebdo, barresDistanceMensuelle, variationPct } from "../../engines/performance.js";
 import { Sparkline, ZoneRepartition, BarChart, ActivityHeatmap, SegmentedControl, attachSegmentedControl, attachChartInteractions } from "../components.js";
 import { formatPace } from "../../engines/vdot.js";
 
@@ -23,6 +23,11 @@ export async function render(container) {
       )}
 
       <div class="screen-segment active" data-segment-panel="tendances">
+        <div class="card">
+          <h2>Distance réelle par semaine et par mois</h2>
+          ${renderPerformanceReelle(seancesRealisees)}
+        </div>
+
         <div class="card">
           <h2>VDOT dans le temps</h2>
           ${profil?.historiqueVdot?.length ? Sparkline(profil.historiqueVdot.map((h) => h.vdot)) : `<p class="muted">Pas encore d'historique.</p>`}
@@ -115,6 +120,53 @@ function renderActivitesRecentes(seancesRealisees) {
       </div>`
     )
     .join("")}</div>`;
+}
+
+/**
+ * Distance réelle (Strava) par semaine et par mois — même moteur
+ * (engines/performance.js) que le résumé affiché sur le Dashboard (onglet
+ * "Progression"), dupliqué ici pour que l'écran "Historique & Stats" — celui
+ * que le nom même de l'écran désigne comme l'endroit naturel où chercher cet
+ * historique — le montre directement, sans avoir à savoir qu'il faut aller
+ * fouiller ailleurs.
+ */
+function renderPerformanceReelle(seancesRealisees) {
+  const perf = statsPerformance(seancesRealisees);
+  if (!perf.semaine.nbSeances && !perf.mois.nbSeances) {
+    return `<p class="muted">Aucune activité réelle enregistrée — connecte Strava (<a href="#/reglages">Réglages</a>) pour voir tes stats réelles ici, ou synchronise si c'est déjà fait.</p>`;
+  }
+  const barresHebdo = barresDistanceHebdo(seancesRealisees);
+  const barresMensuel = barresDistanceMensuelle(seancesRealisees);
+  return `
+    <div class="card-grid card-grid--2" style="margin-bottom:12px;">
+      <div>
+        <span class="muted">Cette semaine</span><br />
+        <span class="data" style="font-size:1.3rem;">${perf.semaine.distanceKm.toFixed(1)} km</span>${deltaLabel(perf.semaine.distanceKm, perf.semainePrecedente.distanceKm)}
+      </div>
+      <div>
+        <span class="muted">Ce mois</span><br />
+        <span class="data" style="font-size:1.3rem;">${perf.mois.distanceKm.toFixed(1)} km</span>${deltaLabel(perf.mois.distanceKm, perf.moisPrecedent.distanceKm)}
+      </div>
+    </div>
+    <p class="muted">Semaine : ${Math.round(perf.semaine.dureeMin)} min · D+ ${Math.round(perf.semaine.deniveleM)} m · ${perf.semaine.nbSeances} séance${perf.semaine.nbSeances > 1 ? "s" : ""}${perf.semaine.allureMoyenneMinParKm ? ` · allure moy. ${formatPace(perf.semaine.allureMoyenneMinParKm)}` : ""}</p>
+    <p class="muted">Mois : ${Math.round(perf.mois.dureeMin)} min · D+ ${Math.round(perf.mois.deniveleM)} m · ${perf.mois.nbSeances} séance${perf.mois.nbSeances > 1 ? "s" : ""}${perf.mois.allureMoyenneMinParKm ? ` · allure moy. ${formatPace(perf.mois.allureMoyenneMinParKm)}` : ""}</p>
+    ${
+      barresHebdo.some((b) => b.value > 0)
+        ? `<div style="margin-top:16px;"><span class="muted">Distance réelle par semaine</span>${BarChart(barresHebdo, { unite: " km" })}</div>`
+        : ""
+    }
+    ${
+      barresMensuel.some((b) => b.value > 0)
+        ? `<div style="margin-top:16px;"><span class="muted">Distance réelle par mois</span>${BarChart(barresMensuel, { unite: " km", colorVar: "--color-functional-strong" })}</div>`
+        : ""
+    }`;
+}
+
+function deltaLabel(actuel, precedent) {
+  const pct = variationPct(actuel, precedent);
+  if (pct == null) return "";
+  const signe = pct >= 0 ? "+" : "";
+  return ` <span class="muted">(${signe}${pct.toFixed(0)}% vs période préc.)</span>`;
 }
 
 function renderDPlusMensuel(seancesRealisees) {
