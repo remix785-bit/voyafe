@@ -14,8 +14,8 @@ export async function render(container) {
         <div class="field">
           <label>Thème</label>
           <div class="row">
-            <button class="btn ${reglages.theme === "dark" ? "btn--primary" : ""}" data-theme-btn="dark">Sombre</button>
             <button class="btn ${reglages.theme === "light" ? "btn--primary" : ""}" data-theme-btn="light">Clair</button>
+            <button class="btn ${reglages.theme === "dark" ? "btn--primary" : ""}" data-theme-btn="dark">Sombre</button>
           </div>
         </div>
       </div>

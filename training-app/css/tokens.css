@@ -1,35 +1,42 @@
-/* Système de tokens — identité visuelle "terminal analytique, adouci"
-   (Coach Running pour Rémi). Toujours dense, sombre et orienté données
-   (hérité des rounds "Bloomberg terminal"), mais avec les arêtes limées :
-   coins largement arrondis (cartes ET boutons/badges de nouveau en pilule,
-   sans les dégradés glossy de l'ancienne DA "sport énergique" — fonds
-   plats), une ombre douce redonnant un peu de profondeur (le tout plat
-   pouvait paraître froid), une seconde teinte d'accent (violet doux) pour
-   de la variété sans perdre la cohérence cyan dominante. Les équerres
-   HUD ne marquent plus que la carte d'action principale de chaque écran
-   (pas toutes les cartes) pour rester un signal, pas du bruit visuel.
-   Typographie Atkinson Hyperlegible (Braille Institute — lisibilité,
-   formes de lettres non ambiguës) sur tout le texte lu ; JetBrains Mono
-   réservé aux valeurs numériques tabulaires (allures, distances, tickers).
-   Thème sombre par défaut, thème clair disponible via [data-theme="light"]
-   sur <html> (Réglages). */
+/* Système de tokens — identité visuelle "sport énergique" (Coach Running
+   pour Rémi). Rupture radicale avec l'ancienne DA "terminal analytique
+   sombre" (cyan néon, police mono, trame scanline façon écran CRT) : fond
+   clair par défaut, orange + vert façon marque de sport (Nike/Strava),
+   grands titres impact en majuscules, cartes franches sur fond blanc
+   plutôt que sombre et texturé. Fonds plats (pas de dégradés glossy) —
+   l'énergie vient de la couleur et de la typographie, pas d'un effet de
+   matière daté.
+   L'orange/vert du thème clair sont volontairement plus soutenus que le
+   orange/vert "néon" d'une maquette (#ff5a1f, #22c55e à l'état brut) :
+   sur fond blanc ces teintes ne passent pas le contraste WCAG AA texte
+   normal (~3:1, sous le seuil 4.5:1) — assombries à #cc4413/#157a3d
+   (~4.8:1 et ~5.4:1) pour rester lisibles en texte/lien/bordure, pas
+   seulement comme aplat décoratif. Le thème sombre garde des teintes plus
+   vives (contraste déjà large sur fond quasi noir).
+   Atkinson Hyperlegible (Braille Institute — lisibilité, formes de lettres
+   non ambiguës) reste la police de tout le texte lu, y compris les valeurs
+   numériques (abandon de la police mono dédiée — un choix "terminal" qui
+   n'a plus sa place ici) ; Anton réservé aux titres d'écran (h1) pour
+   l'impact "affiche de sport", jamais au corps de texte.
+   Thème clair par défaut désormais (inversion du round précédent) ; thème
+   sombre toujours disponible via [data-theme="dark"] (Réglages), redessiné
+   dans la même identité plutôt que retrouver l'ancien "terminal". */
 
-@import url("https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Anton&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap");
 
 :root {
   /* Palette brute */
-  --ink: #020304;
-  --paper: #eef1f0;
+  --ink: #17191b;
+  --paper: #fffaf3;
 
-  /* Typographie — Atkinson Hyperlegible partout où il y a des mots à lire
-     (accessibilité avant tout) ; JetBrains Mono réservé aux valeurs
-     numériques (cf. note ci-dessus). */
-  --font-display: "Atkinson Hyperlegible", system-ui, sans-serif;
+  /* Typographie — Atkinson Hyperlegible pour tout texte lu ET les valeurs
+     numériques (tabular-nums via .data suffit à l'alignement, pas besoin
+     d'une police mono dédiée) ; Anton réservé au h1 (voir app.css). */
+  --font-display: "Anton", "Atkinson Hyperlegible", system-ui, sans-serif;
   --font-body: "Atkinson Hyperlegible", system-ui, sans-serif;
-  --font-data: "JetBrains Mono", ui-monospace, monospace;
+  --font-data: var(--font-body);
 
-  /* Coins largement arrondis (cartes ET pilules) — cf. note d'en-tête. */
-  --radius-card: 16px;
+  --radius-card: 14px;
   --radius-pill: 999px;
   --space-1: 4px;
   --space-2: 8px;
@@ -39,82 +46,43 @@
   --space-6: 32px;
   --space-7: 48px;
 
-  /* Rôles sémantiques — thème sombre (défaut) */
-  --color-bg: var(--ink);
-  --color-bg-elevated: #08090c;
-  --color-surface: #0a0c0f;
-  --color-surface-strong: var(--paper);
-  --color-text: var(--paper);
-  --color-text-on-strong: var(--ink);
-  /* #5c6672 (round précédent) ne passait pas le contraste WCAG AA texte
-     normal sur ce fond (~3.6:1, sous le seuil 4.5:1) — éclairci à ~6:1. */
-  --color-text-muted: #8994a1;
-  --color-border: #232a33;
-
-  --color-accent: #00f0ff; /* cyan électrique — lecture de données, liens, focus, glow */
-  --color-accent-strong: #00a6bd;
-  --color-accent-2: #b586ff; /* violet doux — variété/chaleur, touches ponctuelles seulement */
-  --color-structural: #21ffb0; /* vert terminal — positif/sain */
-  --color-structural-strong: #00c98a;
-  --color-functional: #ffb020; /* ambre — attention/fonctionnel */
-  --color-functional-strong: #e08600;
-
-  /* Lueur néon appliquée avec parcimonie (titres, valeurs clé, focus) — pas
-     partout : la densité "terminal" doit rester lisible, la lueur marque
-     juste les points d'attention. */
-  --glow-accent: 0 0 10px color-mix(in srgb, var(--color-accent) 65%, transparent);
-  --glow-structural: 0 0 10px color-mix(in srgb, var(--color-structural) 55%, transparent);
-  --glow-danger: 0 0 10px color-mix(in srgb, var(--color-danger) 55%, transparent);
-
-  /* Zones Daniels E/M/T/I/R — palette catégorielle validée (5 teintes du set
-     de référence dataviz), non retouchée par la refonte : recréer cette
-     validation CVD (vérifiée hors indiscernabilité E/M) sort du cadre d'un
-     changement de direction artistique. */
-  --zone-e: #199e70;
-  --zone-m: #d95926;
-  --zone-t: #3987e5;
-  --zone-i: #d55181;
-  --zone-r: #c98500;
-
-  /* Phases macrocycle (CountdownRing) — idem, non retouchées. */
-  --phase-base: #008300;
-  --phase-developpement: #9085e9;
-  --phase-taper: #e66767;
-
-  --color-success: var(--color-structural);
-  --color-warning: #ffb020;
-  --color-danger: #ff4d6a;
-
-  /* Ombre douce plutôt que le "zéro ombre" strict des rounds précédents —
-     redonne un peu de profondeur/légèreté aux cartes sur fond quasi noir,
-     où le tout plat pouvait paraître froid. */
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 28px -10px rgba(0, 0, 0, 0.55);
-}
-
-:root[data-theme="light"] {
-  --color-bg: #f4f5f3;
-  --color-bg-elevated: #eaece9;
+  /* Rôles sémantiques — thème clair (défaut) */
+  --color-bg: #fdf9f2;
+  --color-bg-elevated: #ffffff;
   --color-surface: #ffffff;
   --color-surface-strong: var(--ink);
   --color-text: var(--ink);
   --color-text-on-strong: var(--paper);
-  --color-text-muted: #5b6470;
-  --color-border: #d7dad6;
+  --color-text-muted: #6b6d63;
+  --color-border: #e9e4d6;
 
-  --color-accent: #0092ad;
-  --color-accent-strong: #00707f;
-  --color-accent-2: #7c4fd6;
-  --color-structural: #00996b;
-  --color-structural-strong: #007a54;
+  --color-accent: #cc4413; /* orange sport — CTA, liens, focus (~4.8:1 sur blanc) */
+  --color-accent-strong: #a8380f; /* survol/pressé (~6.5:1) */
+  --color-accent-2: #6f9f00; /* vert olive vif — décoratif uniquement (icônes, dégradés) */
+  --color-structural: #157a3d; /* vert sport — positif/sain (~5.4:1 sur blanc) */
+  --color-structural-strong: #0f5c2e;
   --color-functional: #b06400;
   --color-functional-strong: #8f5000;
 
+  /* Pas de lueur néon dans la nouvelle identité (signature "terminal"
+     abandonnée) — le poids visuel vient de la couleur pleine et de la
+     typographie, jamais d'un halo. */
+  --glow-accent: none;
+  --glow-structural: none;
+  --glow-danger: none;
+
+  /* Zones Daniels E/M/T/I/R — palette catégorielle validée (5 teintes du set
+     de référence dataviz), non retouchée par la refonte : recréer cette
+     validation CVD (vérifiée hors indiscernabilité E/M) sort du cadre d'un
+     changement de direction artistique. Reprend les valeurs déjà calibrées
+     pour un fond clair. */
   --zone-e: #1baf7a;
   --zone-m: #eb6834;
   --zone-t: #2a78d6;
   --zone-i: #e87ba4;
   --zone-r: #eda100;
 
+  /* Phases macrocycle (CountdownRing) — idem, non retouchées. */
   --phase-base: #008300;
   --phase-developpement: #4a3aa7;
   --phase-taper: #e34948;
@@ -123,12 +91,49 @@
   --color-warning: #915a00;
   --color-danger: #c22f4a;
 
-  --shadow-card: 0 1px 2px rgba(10, 11, 16, 0.04), 0 10px 24px -10px rgba(10, 11, 16, 0.12);
-  /* La lueur néon (pensée pour un fond quasi noir) devient juste un flou
-     disgracieux sur fond clair — désactivée en thème clair. */
-  --glow-accent: none;
-  --glow-structural: none;
-  --glow-danger: none;
+  --shadow-card: 0 1px 2px rgba(23, 25, 27, 0.04), 0 10px 24px -10px rgba(23, 25, 27, 0.12);
+  /* Ombre "sticker" graphique (décalage plein, sans flou) réservée à la
+     carte d'action principale de chaque écran — signature de la nouvelle
+     identité, remplace le dégradé cyan/violet + halo de l'ancienne DA. */
+  --shadow-poster: 5px 5px 0 var(--ink);
+}
+
+:root[data-theme="dark"] {
+  --color-bg: #17191b;
+  --color-bg-elevated: #1e2124;
+  --color-surface: #212427;
+  --color-surface-strong: var(--paper);
+  --color-text: var(--paper);
+  --color-text-on-strong: var(--ink);
+  --color-text-muted: #a3a598;
+  --color-border: #34373a;
+
+  --color-accent: #ff7a45;
+  --color-accent-strong: #ff5a1f;
+  --color-accent-2: #a4d400;
+  --color-structural: #35d380;
+  --color-structural-strong: #1fae5c;
+  --color-functional: #ffb020;
+  --color-functional-strong: #e08600;
+
+  /* Zones/phases recalées sur les valeurs déjà calibrées pour un fond
+     sombre (round précédent) — non retouchées, cf. note ci-dessus. */
+  --zone-e: #199e70;
+  --zone-m: #d95926;
+  --zone-t: #3987e5;
+  --zone-i: #d55181;
+  --zone-r: #c98500;
+
+  --phase-base: #008300;
+  --phase-developpement: #9085e9;
+  --phase-taper: #e66767;
+
+  --color-success: var(--color-structural);
+  --color-warning: #ffb020;
+  --color-danger: #ff6b81;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 28px -10px rgba(0, 0, 0, 0.55);
+  --shadow-poster: 5px 5px 0 rgba(0, 0, 0, 0.6);
 }
 
 @media (prefers-reduced-motion: reduce) {

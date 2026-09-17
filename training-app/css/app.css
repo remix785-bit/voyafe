@@ -24,30 +24,6 @@ body {
   position: relative;
 }
 
-/* Trame de scanlines très fine, en fond fixe — signature "écran CRT /
-   terminal" reconnaissable au premier coup d'œil, assez discrète pour ne
-   jamais gêner la lecture (2% d'opacité). Désactivée en thème clair (une
-   trame sombre sur fond clair ne lirait que comme un défaut de rendu). */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background-image: repeating-linear-gradient(
-    to bottom,
-    color-mix(in srgb, var(--color-accent) 5%, transparent) 0,
-    color-mix(in srgb, var(--color-accent) 5%, transparent) 1px,
-    transparent 1px,
-    transparent 3px
-  );
-  opacity: 0.5;
-}
-
-:root[data-theme="light"] body::before {
-  display: none;
-}
-
 .app-topbar,
 .app-main,
 .app-bottomnav {
@@ -58,16 +34,22 @@ body::before {
 h1,
 h2,
 h3 {
-  font-family: var(--font-display);
-  font-weight: 600;
+  font-family: var(--font-body);
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   margin: 0 0 var(--space-3);
 }
 
+/* Titre d'écran — seul niveau à porter la police d'affiche (Anton) : un
+   moment "affiche de sport" par écran, pas un h2 de section noyé dans le
+   même traitement (Anton est trop dense pour un petit libellé muet). */
 h1 {
-  font-size: 1.25rem;
-  text-shadow: var(--glow-accent);
+  font-family: var(--font-display);
+  font-size: 1.9rem;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  line-height: 1.05;
 }
 h2 {
   font-size: 0.85rem;
@@ -123,8 +105,8 @@ textarea {
 }
 
 .app-topbar__brand {
-  font-family: var(--font-display);
-  font-weight: 600;
+  font-family: var(--font-body);
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.02em;
   font-size: 0.8rem;
@@ -202,9 +184,9 @@ textarea {
   justify-content: center;
   gap: 3px;
   padding: 10px var(--space-1) 8px;
-  font-family: var(--font-display);
+  font-family: var(--font-body);
   font-size: 0.66rem;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
   text-decoration: none;
@@ -267,7 +249,7 @@ textarea {
   border: none;
   background: transparent;
   color: var(--color-text-muted);
-  font-family: var(--font-display);
+  font-family: var(--font-body);
   font-weight: 700;
   font-size: 0.78rem;
   text-transform: uppercase;
@@ -418,20 +400,15 @@ a.card:hover {
 }
 
 /* La carte d'action principale de l'écran (ex. "Séance du jour") se
-   distingue par un bord dégradé cyan → violet et une lueur douce plutôt que
-   les équerres façon viseur/HUD des rounds précédents (peu compatibles
-   avec des coins largement arrondis) — un signal chaleureux plutôt que
-   tactique, réservé à LA carte la plus importante de l'écran, pas à
-   toutes : garde son statut spécial. */
+   distingue par un bord plein orange et une ombre "poster" décalée (sans
+   flou) plutôt que le dégradé cyan → violet + halo de l'ancienne DA
+   "terminal" — un signal graphique franc, réservé à LA carte la plus
+   importante de l'écran, pas à toutes : garde son statut spécial. */
 .card--action {
   position: relative;
   padding: var(--space-4) var(--space-4) var(--space-5);
-  overflow: hidden;
-  border: 1px solid transparent;
-  background:
-    linear-gradient(var(--color-surface), var(--color-surface)) padding-box,
-    linear-gradient(135deg, var(--color-accent), var(--color-accent-2)) border-box;
-  box-shadow: var(--shadow-card), 0 0 24px -12px color-mix(in srgb, var(--color-accent) 50%, transparent);
+  border: 2px solid var(--color-accent);
+  box-shadow: var(--shadow-poster);
 }
 
 .card__header {
@@ -526,7 +503,7 @@ a.card:hover {
   color: var(--color-text);
   border-radius: var(--radius-pill);
   padding: 9px 18px;
-  font-family: var(--font-display);
+  font-family: var(--font-body);
   font-size: 0.85rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -614,7 +591,7 @@ a.card:hover {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
   padding: 11px 12px;
-  font-family: var(--font-display);
+  font-family: var(--font-body);
   font-size: 0.95rem;
   transition: border-color 0.15s ease;
 }
@@ -976,7 +953,8 @@ a.card:hover {
 }
 
 .training-timer__phase {
-  font-family: var(--font-display);
+  font-family: var(--font-body);
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--color-text-muted);
@@ -1065,7 +1043,8 @@ a.card:hover {
   text-align: left;
   padding: 6px 8px;
   border-bottom: 1px solid var(--color-border);
-  font-family: var(--font-display);
+  font-family: var(--font-body);
+  font-weight: 700;
   font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;

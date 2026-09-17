@@ -30,7 +30,7 @@ const state = {
   seancesRealisees: [],
   historiqueAjustements: [],
   reglages: {
-    theme: "dark",
+    theme: "light",
     rappelSeanceActif: false,
     githubToken: "",
     githubOwner: "",
