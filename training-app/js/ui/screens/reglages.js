@@ -73,9 +73,7 @@ export async function render(container) {
                  <div class="field"><label for="strava-client-id">Client ID</label><input id="strava-client-id" value="${escapeAttr(reglages.stravaClientId)}" /></div>
                  <div class="field"><label for="strava-client-secret">Client Secret</label><input id="strava-client-secret" type="password" value="${escapeAttr(reglages.stravaClientSecret)}" /></div>
                </div>
-               <div class="row">
-                 <button class="btn btn--primary" id="strava-connect">Se connecter à Strava</button>
-               </div>`
+               <button class="btn btn--primary btn--block" id="strava-connect">Se connecter à Strava</button>`
         }
         <p id="strava-status" class="muted">${reglages.stravaDerniereSyncLe ? `Dernière synchro : ${new Date(reglages.stravaDerniereSyncLe).toLocaleString("fr-FR")}` : "Jamais synchronisé."}</p>
         <p class="muted">La synchro rapproche automatiquement chaque activité d'une séance planifiée du même jour (marquée réalisée) et alimente le calcul de charge (ACWR/EWMA) avec la durée réelle plutôt que le RPE déclaré seul.</p>

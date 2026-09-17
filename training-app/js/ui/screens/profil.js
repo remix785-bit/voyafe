@@ -218,7 +218,7 @@ export async function render(container) {
             </div>
           </div>
           <p id="correction-notice" class="muted" style="display:none; margin-top:-8px;">Correction du test du <strong id="correction-date"></strong> — <button type="button" id="annuler-correction" class="btn btn--sm" style="padding:2px 8px;">Annuler</button></p>
-          <button class="btn btn--primary" type="submit" id="submit-profil">Enregistrer et recalculer le VDOT</button>
+          <button class="btn btn--primary btn--block" type="submit" id="submit-profil">Enregistrer et recalculer le VDOT</button>
         </form>
       </div>
 
@@ -235,7 +235,7 @@ export async function render(container) {
         ${SegmentedControl(
           [
             { id: "simple", label: "Plan simple" },
-            { id: "saison", label: "Saison (objectif final + courses intermédiaires)" },
+            { id: "saison", label: "Saison" },
           ],
           "simple"
         )}
@@ -276,7 +276,7 @@ export async function render(container) {
           </div>
 
           <div class="row" data-form-actions>
-            <button class="btn btn--primary" type="submit" id="submit-plan" ${profil ? "" : "disabled"}>${planExistant ? "Mettre à jour le plan" : "Générer le plan"}</button>
+            <button class="btn btn--primary btn--block" type="submit" id="submit-plan" ${profil ? "" : "disabled"}>${planExistant ? "Mettre à jour le plan" : "Générer le plan"}</button>
             ${planExistant ? `<button class="btn btn--sm" type="button" id="btn-nouveau-plan">Créer un nouveau plan à la place</button>` : ""}
           </div>
         </form>
@@ -324,7 +324,7 @@ export async function render(container) {
             </div>
 
             <div class="row" data-form-actions>
-              <button class="btn btn--primary" type="submit" id="submit-saison" ${profil ? "" : "disabled"}>${blocFinalExistant ? "Mettre à jour la saison" : "Générer la saison"}</button>
+              <button class="btn btn--primary btn--block" type="submit" id="submit-saison" ${profil ? "" : "disabled"}>${blocFinalExistant ? "Mettre à jour la saison" : "Générer la saison"}</button>
               ${blocFinalExistant ? `<button class="btn btn--sm" type="button" id="btn-supprimer-saison">Supprimer la saison</button>` : ""}
             </div>
           </form>

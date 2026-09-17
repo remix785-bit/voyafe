@@ -12,17 +12,19 @@ export async function render(container) {
 
       <div class="card">
         <h1>Nutrition</h1>
-        <div class="field">
-          <label for="poids-nutrition">Poids (kg)</label>
-          <input type="number" id="poids-nutrition" value="${poids}" min="30" max="150" />
-        </div>
-        <div class="field">
-          <label for="charge-nutrition">Niveau de charge d'entraînement</label>
-          <select id="charge-nutrition">
-            <option value="faible">Faible</option>
-            <option value="moderee" selected>Modérée</option>
-            <option value="elevee">Élevée</option>
-          </select>
+        <div class="field-row">
+          <div class="field">
+            <label for="poids-nutrition">Poids (kg)</label>
+            <input type="number" id="poids-nutrition" value="${poids}" min="30" max="150" />
+          </div>
+          <div class="field">
+            <label for="charge-nutrition">Charge d'entraînement</label>
+            <select id="charge-nutrition">
+              <option value="faible">Faible</option>
+              <option value="moderee" selected>Modérée</option>
+              <option value="elevee">Élevée</option>
+            </select>
+          </div>
         </div>
       </div>
 

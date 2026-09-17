@@ -19,11 +19,11 @@ export async function render(container, params) {
       ${
         enPause
           ? `<p class="muted">${escapeAttr(enPause.objectif ?? "Ton plan")} est en pause.</p>
-             <button class="btn btn--primary" id="btn-reprendre-plan-vide">Reprendre</button>`
+             <button class="btn btn--primary btn--block" id="btn-reprendre-plan-vide">Reprendre</button>`
           : termine
             ? `<p class="muted">${escapeAttr(termine.objectif ?? "Ton plan")} est terminé.</p>
-               <a class="btn btn--primary" href="#/plan?planId=${termine.id}">Voir le bilan</a>`
-            : `<p class="muted">Aucun plan actif.</p><a class="btn btn--primary" href="#/profil">Créer un plan</a>`
+               <a class="btn btn--primary btn--block" href="#/plan?planId=${termine.id}">Voir le bilan</a>`
+            : `<p class="muted">Aucun plan actif.</p><a class="btn btn--primary btn--block" href="#/profil">Créer un plan</a>`
       }
     </div></div>`;
     container.querySelector("#btn-reprendre-plan-vide")?.addEventListener("click", async () => {

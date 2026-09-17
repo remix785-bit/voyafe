@@ -109,15 +109,17 @@ export async function render(container) {
             enPause
               ? `<h1>Plan en pause</h1>
                  <p class="muted">${escapeAttr(enPause.objectif ?? "Ton plan")} est en pause — aucun rappel de séance ne sera envoyé tant qu'il n'est pas repris.</p>
-                 <button class="btn btn--primary" id="btn-reprendre-plan">Reprendre</button>`
+                 <button class="btn btn--primary btn--block" id="btn-reprendre-plan">Reprendre</button>`
               : termine
                 ? `<h1>Objectif terminé</h1>
                    <p class="muted">${escapeAttr(termine.objectif ?? "Ton plan")} est terminé. Consulte son bilan ou lance un nouvel objectif.</p>
-                   <a class="btn btn--primary" href="#/plan?planId=${termine.id}">Voir le bilan</a>
-                   <a class="btn btn--secondary" href="#/profil">Créer un nouvel objectif</a>`
+                   <div class="stack">
+                     <a class="btn btn--primary btn--block" href="#/plan?planId=${termine.id}">Voir le bilan</a>
+                     <a class="btn btn--block" href="#/profil">Créer un nouvel objectif</a>
+                   </div>`
                 : `<h1>Bienvenue</h1>
                    <p class="muted">Aucun plan actif. Commence par renseigner ton profil et générer ton premier plan.</p>
-                   <a class="btn btn--primary" href="#/profil">Créer mon profil &amp; mon plan</a>`
+                   <a class="btn btn--primary btn--block" href="#/profil">Créer mon profil &amp; mon plan</a>`
           }
         </div>
       </div>`;

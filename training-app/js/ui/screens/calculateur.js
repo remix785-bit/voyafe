@@ -53,7 +53,7 @@ export async function render(container) {
           <input type="text" id="calc-temps" placeholder="ex : 1:36" />
         </div>
 
-        <button type="button" class="btn btn--primary" id="calc-go">Calculer</button>
+        <button type="button" class="btn btn--primary btn--block" id="calc-go">Calculer</button>
 
         <div id="calc-resultat" style="margin-top:1rem;"></div>
       </div>

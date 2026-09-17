@@ -11,21 +11,25 @@ export async function render(container) {
         <h1>Journal quotidien</h1>
         <p class="muted">${new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}${existant ? " · déjà renseigné, modifie et réenregistre" : ""}</p>
         <form id="form-journal" class="stack">
-          <div class="field">
-            <label for="fc-repos">FC repos (bpm, optionnel)</label>
-            <input type="number" id="fc-repos" value="${existant?.fcRepos ?? ""}" min="30" max="120" />
+          <div class="field-row">
+            <div class="field">
+              <label for="fc-repos">FC repos (bpm, optionnel)</label>
+              <input type="number" id="fc-repos" value="${existant?.fcRepos ?? ""}" min="30" max="120" />
+            </div>
+            <div class="field">
+              <label for="rmssd">RMSSD (ms, optionnel)</label>
+              <input type="number" id="rmssd" value="${existant?.rmssd ?? ""}" min="0" max="300" />
+            </div>
           </div>
-          <div class="field">
-            <label for="rmssd">RMSSD (ms, optionnel, si capteur)</label>
-            <input type="number" id="rmssd" value="${existant?.rmssd ?? ""}" min="0" max="300" />
-          </div>
-          <div class="field">
-            <label for="poids-journal">Poids (kg, optionnel)</label>
-            <input type="number" id="poids-journal" value="${existant?.poids ?? ""}" min="30" max="150" step="0.1" />
-          </div>
-          <div class="field">
-            <label for="sommeil-journal">Sommeil cette nuit (heures, optionnel)</label>
-            <input type="number" id="sommeil-journal" value="${existant?.sommeilH ?? ""}" min="0" max="14" step="0.25" />
+          <div class="field-row">
+            <div class="field">
+              <label for="poids-journal">Poids (kg, optionnel)</label>
+              <input type="number" id="poids-journal" value="${existant?.poids ?? ""}" min="30" max="150" step="0.1" />
+            </div>
+            <div class="field">
+              <label for="sommeil-journal">Sommeil (h, optionnel)</label>
+              <input type="number" id="sommeil-journal" value="${existant?.sommeilH ?? ""}" min="0" max="14" step="0.25" />
+            </div>
           </div>
           <div class="field">
             <label for="douleur-journal">Douleur / gêne physique (optionnel)</label>

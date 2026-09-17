@@ -314,7 +314,7 @@ export async function render(container) {
             <input type="number" id="ravito-freq" value="${ip?.frequenceMin ?? 35}" />
           </div>
         </div>
-        <button class="btn btn--primary" id="calc-pacing">Générer la fiche de pacing</button>
+        <button class="btn btn--primary btn--block" id="calc-pacing">Générer la fiche de pacing</button>
       </div>
 
       <div class="card" id="pacing-result" style="display:none;">

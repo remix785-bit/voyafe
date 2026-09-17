@@ -576,6 +576,17 @@ a.card:hover {
   font-size: 0.72rem;
 }
 
+/* Bouton d'action unique d'un écran/formulaire (pas un groupe de boutons
+   côte à côte dans un .row) : pleine largeur plutôt que la taille de son
+   texte, pour un repère visuel cohérent d'un écran à l'autre — sans elle,
+   un même type de bouton ("l'action principale de cet écran") atterrissait
+   tantôt pleine largeur (par accident, hérité d'un parent flex en colonne),
+   tantôt en petite pilule flottante selon la structure HTML environnante. */
+.btn--block {
+  display: flex;
+  width: 100%;
+}
+
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
