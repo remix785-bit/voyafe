@@ -287,13 +287,25 @@ export async function render(container) {
         </div>
 
         <div class="card">
-          <h2>Régularité (16 dernières semaines)</h2>
-          ${ActivityHeatmap(volumesRecents)}
+          <div class="card__header"><h2>Charge (ACWR/EWMA)</h2></div>
+          ${chargeSummary ? LoadGauge(chargeSummary) : `<p class="muted">Pas encore de données — log ta première journée (journal quotidien ou synchro Strava) pour voir la tendance de charge démarrer.</p>`}
+          ${renderCourbeCharge()}
+        </div>
+
+        <div class="card">
+          <h2>Récupération</h2>
+          <p class="muted">Ce que la boucle adaptative surveille déjà en coulisses pour proposer une décharge.</p>
+          ${RecoveryTrend(logsQuotidiens)}
         </div>
 
         <div class="card">
           <div class="card__header"><h2>Performance réelle</h2><a class="btn btn--sm" href="#/historique">Historique complet</a></div>
           ${renderPerformanceReelle(perf, barresHebdo, barresMensuel, barresDPlus)}
+        </div>
+
+        <div class="card">
+          <h2>Régularité (16 dernières semaines)</h2>
+          ${ActivityHeatmap(volumesRecents)}
         </div>
 
         <div class="card">
@@ -337,18 +349,6 @@ export async function render(container) {
               </div>`
             : ""
         }
-
-        <div class="card">
-          <div class="card__header"><h2>Charge (ACWR/EWMA)</h2></div>
-          ${chargeSummary ? LoadGauge(chargeSummary) : `<p class="muted">Pas encore de données — log ta première journée (journal quotidien ou synchro Strava) pour voir la tendance de charge démarrer.</p>`}
-          ${renderCourbeCharge()}
-        </div>
-
-        <div class="card">
-          <h2>Récupération</h2>
-          <p class="muted">Ce que la boucle adaptative surveille déjà en coulisses pour proposer une décharge.</p>
-          ${RecoveryTrend(logsQuotidiens)}
-        </div>
 
         <div class="card">
           <h2>Zones d'entraînement</h2>
