@@ -922,13 +922,19 @@ export function genererPlanComplet(inputs) {
     inputs.distanceObjectifM && inputs.tempsObjectifS
       ? evaluerCoherenceObjectif(profilCourant.vdot, inputs.distanceObjectifM, inputs.tempsObjectifS, semDispo, inputs.deniveleM ?? 0)
       : null;
-  const fractionBlocObjectif = { atteint: 0.12, ambitieux: 0.18, tres_ambitieux: 0.2 }[coherenceObjectif?.niveau] ?? 0;
+  // tres_ambitieux relevé (0.2 -> 0.25) : demande explicite "si il faut que je
+  // m'entraîne plus en intensité, fais-le" — un écart de forme important pour
+  // le délai donné doit se traduire par plus de spécificité allure course
+  // dans la sortie longue, pas seulement un peu plus qu'un objectif déjà
+  // cohérent avec la forme actuelle.
+  const fractionBlocObjectif = { atteint: 0.12, ambitieux: 0.18, tres_ambitieux: 0.25 }[coherenceObjectif?.niveau] ?? 0;
   // Équivalent trail de fractionBlocObjectif : le volume des séances de
   // spécificité D+ (côtes, descente technique — TRAIL_SPECIFICITE_IDS) grandit
   // avec l'ambition de l'objectif, plutôt que de rester fixe quelle que soit
   // la difficulté à combler. Sans objectif chiffré, pas de boost (1x = inchangé).
+  // tres_ambitieux relevé (1.3 -> 1.4), même raison que fractionBlocObjectif.
   const boostSpecificiteTrail =
-    inputs.discipline === "trail" ? { atteint: 1, ambitieux: 1.15, tres_ambitieux: 1.3 }[coherenceObjectif?.niveau] ?? 1 : 1;
+    inputs.discipline === "trail" ? { atteint: 1, ambitieux: 1.15, tres_ambitieux: 1.4 }[coherenceObjectif?.niveau] ?? 1 : 1;
   // Pente moyenne attendue de la course (trail, D+ / distance) — contexte GAP
   // pour les séances qualité du plan (côtes, descente technique, sortie D+ :
   // gapAjuste, cf. catalogue trail). Sans D+ renseigné, retombe sur du plat

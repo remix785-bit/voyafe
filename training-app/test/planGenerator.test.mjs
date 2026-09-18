@@ -175,7 +175,7 @@ test("genererPlanComplet — le bloc à l'allure objectif de la sortie longue gr
   const fraction = (s) => s.blocObjectifDureeMin / s.volumeSeanceMin;
   assert.ok(Math.abs(fraction(sAtteint) - 0.12) < 0.005);
   assert.ok(Math.abs(fraction(sAmbitieux) - 0.18) < 0.005);
-  assert.ok(Math.abs(fraction(sTresAmbitieux) - 0.2) < 0.005);
+  assert.ok(Math.abs(fraction(sTresAmbitieux) - 0.25) < 0.005);
 
   // Le contenu de la séance grandit avec l'ambition, pas seulement un badge affiché ailleurs.
   assert.ok(sAtteint.blocObjectifDureeMin < sAmbitieux.blocObjectifDureeMin);
@@ -213,7 +213,7 @@ test("genererPlanComplet — le volume des séances de spécificité trail (côt
 
   // Même facteurPhase (même position dans le plan) -> le seul écart vient du boost d'ambition.
   assert.ok(Math.abs(sAmbitieux.volumeSeanceMin / sAtteint.volumeSeanceMin - 1.15) < 0.01);
-  assert.ok(Math.abs(sTresAmbitieux.volumeSeanceMin / sAtteint.volumeSeanceMin - 1.3) < 0.01);
+  assert.ok(Math.abs(sTresAmbitieux.volumeSeanceMin / sAtteint.volumeSeanceMin - 1.4) < 0.01);
   assert.ok(sAtteint.volumeSeanceMin < sAmbitieux.volumeSeanceMin);
   assert.ok(sAmbitieux.volumeSeanceMin < sTresAmbitieux.volumeSeanceMin);
 });
