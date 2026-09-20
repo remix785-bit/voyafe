@@ -1,16 +1,13 @@
 {
   "name": "Voyafe Training",
-  "short_name": "Voyafe",
-  "description": "Plans d'entraînement course à pied et trail — VDOT, GAP, charge d'entraînement.",
+  "short_name": "Voyafe Training",
+  "description": "Suivi et planification d'entraînement course à pied et trail.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait",
-  "background_color": "#16201b",
-  "theme_color": "#16201b",
-  "lang": "fr",
+  "background_color": "#f5f6f4",
+  "theme_color": "#2f6f4f",
   "icons": [
-    { "src": "./icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
-    { "src": "./icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]
 }

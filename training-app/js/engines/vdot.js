@@ -1,32 +1,43 @@
-// Moteur VDOT / Allures — modèle Daniels & Gilbert
-// Sources : Daniels J, Gilbert J. "Oxygen Power: Performance Tables for Distance Runners" (1979)
-//           Daniels J. "Daniels' Running Formula", 4e éd., Human Kinetics, 2021.
-// Voir dossier technique, Partie I, Section 2.
+// Moteur VDOT / allures cibles — modèle Daniels & Gilbert.
+// Sources : Daniels J, Gilbert J., "Oxygen Power" (1979) ; Daniels J.,
+// "Daniels' Running Formula", 4e éd., Human Kinetics, 2021.
+// Voir cadrage produit, Section 1 (VDOT) et zones E/M/T/I/R.
 
-/**
- * Bornes de validité du modèle : distance de référence 1500 m à 50 km,
- * effort maximal, idéalement testé/retesté toutes les 4-6 semaines.
- */
-export const VDOT_MODEL_LIMITS = {
+// Bornes de validité indicatives du modèle Daniels : performance de
+// référence entre 1500 m et le marathon, effort maximal, terrain plat,
+// idéalement < 4-6 semaines.
+export const REFERENCE_LIMITS = {
   minDistanceM: 1500,
-  maxDistanceM: 50000,
-  recencyWeeks: { min: 4, max: 6 },
+  maxDistanceM: 42195,
+  maxAgeWeeks: 6,
 };
 
-/**
- * Équation 1 (Daniels-Gilbert) — coût en oxygène à une vitesse donnée.
- * @param {number} vMetersPerMin vitesse en m/min
- * @returns {number} VO2 en mL/kg/min
- */
+// Zones physio Daniels dérivées du %VO2max (cadrage produit, Section 7).
+export const ZONES = {
+  E: { min: 0.59, max: 0.74, label: "Endurance fondamentale", rpe: "3-4" },
+  M: { min: 0.75, max: 0.84, label: "Allure marathon", rpe: "5-6" },
+  T: { min: 0.83, max: 0.88, label: "Seuil", rpe: "6-7" },
+  I: { min: 0.95, max: 1.0, label: "Intervalle VO2max", rpe: "8-9" },
+  R: { min: 1.0, max: 1.2, label: "Répétition", rpe: "9-10" },
+};
+
+// Équation 1 (Daniels-Gilbert) : coût en oxygène à une vitesse donnée.
+// v en m/min, retour en mL/kg/min.
 export function vo2AtSpeed(vMetersPerMin) {
   return -4.6 + 0.182258 * vMetersPerMin + 0.000104 * vMetersPerMin ** 2;
 }
 
-/**
- * Équation 2 (Daniels-Gilbert) — fraction de VO2max soutenable selon la durée.
- * @param {number} tMinutes durée de l'effort en minutes
- * @returns {number} fraction de VO2max (0-1)
- */
+// Racine positive de l'équation 1 inversée : vitesse (m/min) pour un VO2 cible.
+export function speedForVo2(vo2Target) {
+  const a = 0.000104;
+  const b = 0.182258;
+  const c = -(4.6 + vo2Target);
+  const discriminant = b * b - 4 * a * c;
+  return (-b + Math.sqrt(discriminant)) / (2 * a);
+}
+
+// Équation 2 (Daniels-Gilbert) : fraction de VO2max soutenable selon la durée
+// de l'effort (t en minutes), utilisée pour dériver le VDOT d'une perf.
 export function pctVo2maxForDuration(tMinutes) {
   return (
     0.8 +
@@ -36,84 +47,60 @@ export function pctVo2maxForDuration(tMinutes) {
 }
 
 /**
- * Résout la vitesse (m/min) correspondant à une consommation d'O2 cible,
- * en inversant l'équation 1 (racine positive du polynôme du 2nd degré).
- * @param {number} vo2Target mL/kg/min
- * @returns {number} vitesse en m/min
+ * Correction d'altitude simple : au-dessus de ~1000-1200 m, une perf
+ * chronométrée sous-estime le VDOT réel (effet de l'hypoxie sur le VO2max
+ * exploitable). Facteur empirique indicatif (pas une formule Daniels
+ * publiée) : +0.6%/100 m au-delà de 1200 m, plafonné à +12%.
+ * @param {number} vdot
+ * @param {number} altitudeM altitude du lieu de la performance, en mètres
  */
-export function speedForVo2(vo2Target) {
-  const a = 0.000104;
-  const b = 0.182258;
-  const c = -(4.6 + vo2Target);
-  const discriminant = b * b - 4 * a * c;
-  return (-b + Math.sqrt(discriminant)) / (2 * a);
+export function correctionAltitude(vdot, altitudeM = 0) {
+  const SEUIL_M = 1200;
+  const TAUX_PAR_100M = 0.006;
+  const PLAFOND = 0.12;
+  if (altitudeM <= SEUIL_M) return vdot;
+  const facteur = Math.min(((altitudeM - SEUIL_M) / 100) * TAUX_PAR_100M, PLAFOND);
+  return vdot * (1 + facteur);
 }
 
 /**
- * Calcule le VDOT à partir d'une performance de référence (distance + temps).
- * @param {number} distanceMeters distance de la performance de référence
- * @param {number} timeSeconds temps réalisé
+ * Calcule le VDOT à partir d'une performance de référence.
+ * @param {number} distanceMeters
+ * @param {number} timeSeconds
+ * @param {{altitudeM?: number}} [options]
  * @returns {{vdot:number, warnings:string[]}}
  */
-export function vdotFromPerformance(distanceMeters, timeSeconds) {
+export function vdotFromPerformance(distanceMeters, timeSeconds, options = {}) {
   const warnings = [];
-  if (distanceMeters < VDOT_MODEL_LIMITS.minDistanceM) {
+  if (distanceMeters < REFERENCE_LIMITS.minDistanceM) {
     warnings.push(
-      `Distance de référence (${distanceMeters} m) sous la borne de validité du modèle (${VDOT_MODEL_LIMITS.minDistanceM} m) — VDOT peu fiable.`
+      `Distance de référence (${distanceMeters} m) sous la borne de validité (${REFERENCE_LIMITS.minDistanceM} m) — VDOT peu fiable.`
     );
   }
-  if (distanceMeters > VDOT_MODEL_LIMITS.maxDistanceM) {
+  if (distanceMeters > REFERENCE_LIMITS.maxDistanceM) {
     warnings.push(
-      `Distance de référence (${distanceMeters} m) au-delà de la borne de validité du modèle (${VDOT_MODEL_LIMITS.maxDistanceM} m) — VDOT peu fiable.`
+      `Distance de référence (${distanceMeters} m) au-delà de la borne de validité (${REFERENCE_LIMITS.maxDistanceM} m) — VDOT peu fiable.`
     );
   }
   const tMinutes = timeSeconds / 60;
   const vMetersPerMin = distanceMeters / tMinutes;
   const vo2 = vo2AtSpeed(vMetersPerMin);
   const pct = pctVo2maxForDuration(tMinutes);
-  const vdot = vo2 / pct;
+  let vdot = vo2 / pct;
+  const altitudeM = options.altitudeM ?? 0;
+  if (altitudeM > 1200) {
+    vdot = correctionAltitude(vdot, altitudeM);
+    warnings.push(`Correction d'altitude appliquée (${altitudeM} m).`);
+  }
   return { vdot, warnings };
 }
 
-/**
- * Cross-check indépendant — formule de Riegel (1977) : T2 = T1 * (D2/D1)^1.06
- * Fiable surtout pour des extrapolations courtes (10K -> semi) ; sur marathon,
- * tend à sous-estimer légèrement le temps réel des coureurs récréatifs.
- * @param {number} t1Seconds temps connu
- * @param {number} d1Meters distance connue
- * @param {number} d2Meters distance à prédire
- * @returns {number} temps prédit en secondes
- */
-export function riegelPredict(t1Seconds, d1Meters, d2Meters) {
-  return t1Seconds * (d2Meters / d1Meters) ** 1.06;
-}
-
-/**
- * Zones d'entraînement Daniels (E/M/T/I/R) — bornes %VO2max.
- * Partie I, Section 3. R est extrapolé au-delà de 100% (approximatif).
- */
-export const ZONES = {
-  E: { min: 0.59, max: 0.74, label: "Endurance fondamentale", rpe: "2-4" },
-  M: { min: 0.75, max: 0.84, label: "Allure marathon", rpe: "5" },
-  T: { min: 0.86, max: 0.88, label: "Seuil", rpe: "6-7" },
-  I: { min: 0.95, max: 1.0, label: "Interval / VO2max", rpe: "7-8" },
-  R: { min: 1.05, max: 1.2, label: "Répétition / vitesse", rpe: "8-9" },
-};
-
-/**
- * Convertit une vitesse (m/min) en allure min/km.
- * @param {number} vMetersPerMin
- * @returns {number} allure en minutes par km (décimal)
- */
 export function speedToPaceMinPerKm(vMetersPerMin) {
   return 1000 / vMetersPerMin;
 }
 
-/**
- * Formate une allure décimale (min/km) en "m:ss/km".
- * @param {number} paceMinPerKm
- */
 export function formatPace(paceMinPerKm) {
+  if (!Number.isFinite(paceMinPerKm)) return "--:--/km";
   const totalSeconds = Math.round(paceMinPerKm * 60);
   const m = Math.floor(totalSeconds / 60);
   const s = totalSeconds % 60;
@@ -121,65 +108,50 @@ export function formatPace(paceMinPerKm) {
 }
 
 /**
- * Calcule les allures cibles (bornes rapide/lente + valeur représentative)
- * pour chaque zone E/M/T/I/R à partir d'un VDOT donné.
+ * Allure cible (min/km) pour une zone donnée, au centre de la fourchette
+ * %VO2max de la zone.
  * @param {number} vdot
- * @returns {Object<string, {fast:number, slow:number, target:number, fastLabel:string, slowLabel:string, targetLabel:string}>}
+ * @param {keyof ZONES} zoneKey
  */
-export function paceZonesForVdot(vdot) {
-  const out = {};
-  for (const [zone, bounds] of Object.entries(ZONES)) {
-    const vo2Fast = vdot * bounds.max; // %VO2max le plus haut -> allure la plus rapide
-    const vo2Slow = vdot * bounds.min;
-    const vFast = speedForVo2(vo2Fast);
-    const vSlow = speedForVo2(vo2Slow);
-    const paceFast = speedToPaceMinPerKm(vFast);
-    const paceSlow = speedToPaceMinPerKm(vSlow);
-    const target = (paceFast + paceSlow) / 2;
-    out[zone] = {
-      fast: paceFast,
-      slow: paceSlow,
-      target,
-      fastLabel: formatPace(paceFast),
-      slowLabel: formatPace(paceSlow),
-      targetLabel: formatPace(target),
+export function paceForZone(vdot, zoneKey) {
+  const zone = ZONES[zoneKey];
+  const vo2max = vdot;
+  const pctMin = zone.min;
+  const pctMax = zone.max;
+  const speedMin = speedForVo2(vo2max * pctMin);
+  const speedMax = speedForVo2(vo2max * pctMax);
+  return {
+    fastPaceMinPerKm: speedToPaceMinPerKm(speedMax),
+    slowPaceMinPerKm: speedToPaceMinPerKm(speedMin),
+  };
+}
+
+/** Calcule les 5 zones d'allure (min/km) pour un VDOT donné. */
+export function paceZonesFromVdot(vdot) {
+  const zones = {};
+  for (const key of Object.keys(ZONES)) {
+    const { fastPaceMinPerKm, slowPaceMinPerKm } = paceForZone(vdot, key);
+    zones[key] = {
+      ...ZONES[key],
+      fastPaceMinPerKm,
+      slowPaceMinPerKm,
+      fastPace: formatPace(fastPaceMinPerKm),
+      slowPace: formatPace(slowPaceMinPerKm),
     };
   }
-  return out;
+  return zones;
 }
 
 /**
- * Correction d'altitude — Partie I, Section 3.1.
- * Modèle en deux phases (Peronnet/Thibault/Cousineau 1991 ; Wehrlin/Hallén 2006).
- * @param {number} altitudeM altitude en mètres
- * @returns {number} delta VO2max (fraction négative, ex: -0.03 = -3%)
+ * Prochaine date de retest recommandée (cadrage produit : 4-8 semaines).
+ * @param {Date|string} lastTestDate
+ * @returns {{minDate: Date, maxDate: Date}}
  */
-export function altitudeDeltaVo2max(altitudeM) {
-  if (altitudeM <= 1500) {
-    return -0.01 * (altitudeM / 1000);
-  }
-  return -0.015 - 0.063 * ((altitudeM - 1500) / 1000);
-}
-
-export const ACCLIMATATION_REDUCTION = {
-  aucune: 0,
-  "1-2semaines": 0.45, // milieu de 40-50%
-  "3semaines+": 0.75, // milieu de 70-80%
-};
-
-/**
- * Ajuste une allure cible pour l'altitude, avec facteur d'acclimatation.
- * La baisse de performance réelle est ~moitié moindre que la baisse de VO2max.
- * @param {number} paceMinPerKm allure cible au niveau de la mer
- * @param {number} altitudeM altitude de la course/du stage
- * @param {keyof ACCLIMATATION_REDUCTION} acclimatation
- * @returns {{paceAjustee:number, deltaPerfEffectif:number}}
- */
-export function adjustPaceForAltitude(paceMinPerKm, altitudeM, acclimatation = "aucune") {
-  const deltaVo2max = altitudeDeltaVo2max(altitudeM);
-  const deltaPerf = deltaVo2max * 0.5;
-  const reduction = ACCLIMATATION_REDUCTION[acclimatation] ?? 0;
-  const deltaPerfEffectif = deltaPerf * (1 - reduction);
-  const paceAjustee = paceMinPerKm * (1 - deltaPerfEffectif);
-  return { paceAjustee, deltaPerfEffectif };
+export function nextRetestWindow(lastTestDate) {
+  const base = new Date(lastTestDate);
+  const minDate = new Date(base);
+  minDate.setDate(minDate.getDate() + 4 * 7);
+  const maxDate = new Date(base);
+  maxDate.setDate(maxDate.getDate() + 8 * 7);
+  return { minDate, maxDate };
 }

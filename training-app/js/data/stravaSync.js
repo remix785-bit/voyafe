@@ -1,72 +1,135 @@
-// Intégration Strava — Option A retenue (Partie III §5) : token d'accès
-// personnel généré depuis la page des paramètres API Strava, sans flux OAuth
-// complet. Le client secret n'est jamais exposé (site statique public).
-// Évolution possible documentée : Option B, relais OAuth léger (serverless).
+// Scaffold de synchro Strava — flow OAuth + import des activités.
+//
+// LIMITE DE SÉCURITÉ ASSUMÉE : cette app n'a pas de backend. L'échange de
+// code OAuth Strava exige normalement un client_secret gardé côté serveur ;
+// ici, faute de serveur, le client_secret est saisi et stocké par
+// l'utilisateur lui-même dans son propre navigateur (localStorage), comme
+// son token d'accès. Ce n'est PAS un stockage sécurisé — quiconque a accès
+// au navigateur/à l'appareil peut le lire. Ne pas utiliser cette app avec un
+// compte Strava sensible sans en avoir conscience. Une v2 avec un vrai
+// backend (proxy d'échange de token) lèverait cette limite.
 
+const STRAVA_CONFIG_KEY = "voyafe.strava.config";
+const STRAVA_TOKEN_KEY = "voyafe.strava.token";
+const AUTHORIZE_URL = "https://www.strava.com/oauth/authorize";
+const TOKEN_URL = "https://www.strava.com/oauth/token";
 const API_BASE = "https://www.strava.com/api/v3";
 
-function authHeaders(token) {
-  return { Authorization: `Bearer ${token}` };
+export function getStravaConfig() {
+  try {
+    return JSON.parse(localStorage.getItem(STRAVA_CONFIG_KEY) ?? "null");
+  } catch {
+    return null;
+  }
+}
+
+export function setStravaConfig({ clientId, clientSecret, redirectUri }) {
+  localStorage.setItem(STRAVA_CONFIG_KEY, JSON.stringify({ clientId, clientSecret, redirectUri }));
+}
+
+/** Construit l'URL de redirection OAuth Strava. */
+export function buildAuthorizeUrl() {
+  const config = getStravaConfig();
+  if (!config?.clientId || !config?.redirectUri) {
+    throw new Error("Configuration Strava incomplète (clientId / redirectUri manquants).");
+  }
+  const params = new URLSearchParams({
+    client_id: config.clientId,
+    redirect_uri: config.redirectUri,
+    response_type: "code",
+    approval_prompt: "auto",
+    scope: "activity:read_all",
+  });
+  return `${AUTHORIZE_URL}?${params.toString()}`;
+}
+
+/** Échange le code d'autorisation reçu en redirect contre un token. */
+export async function exchangeCodeForToken(code) {
+  const config = getStravaConfig();
+  if (!config?.clientId || !config?.clientSecret) {
+    throw new Error("Configuration Strava incomplète (clientId / clientSecret manquants).");
+  }
+  const response = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+      code,
+      grant_type: "authorization_code",
+    }),
+  });
+  if (!response.ok) throw new Error(`Échange de code Strava échoué (${response.status})`);
+  const token = await response.json();
+  storeToken(token);
+  return token;
+}
+
+export function storeToken(token) {
+  localStorage.setItem(STRAVA_TOKEN_KEY, JSON.stringify(token));
+}
+
+export function getStoredToken() {
+  try {
+    return JSON.parse(localStorage.getItem(STRAVA_TOKEN_KEY) ?? "null");
+  } catch {
+    return null;
+  }
+}
+
+async function refreshTokenIfNeeded() {
+  const token = getStoredToken();
+  if (!token) throw new Error("Aucun token Strava stocké — lance l'authentification.");
+  const nowSeconds = Date.now() / 1000;
+  if (token.expires_at && token.expires_at > nowSeconds + 60) return token;
+
+  const config = getStravaConfig();
+  const response = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+      refresh_token: token.refresh_token,
+      grant_type: "refresh_token",
+    }),
+  });
+  if (!response.ok) throw new Error(`Rafraîchissement du token Strava échoué (${response.status})`);
+  const refreshed = await response.json();
+  storeToken(refreshed);
+  return refreshed;
 }
 
 /**
- * Liste les activités récentes de l'athlète (pour l'ingestion — Étape ⑤).
- * @param {{token:string, after?:number, before?:number, page?:number, perPage?:number}} params
+ * Récupère les activités récentes de l'athlète connecté.
+ * @param {{page?: number, perPage?: number, after?: number}} options after = timestamp unix
  */
-export async function listerActivites({ token, after, before, page = 1, perPage = 30 }) {
-  const url = new URL(`${API_BASE}/athlete/activities`);
-  if (after) url.searchParams.set("after", String(after));
-  if (before) url.searchParams.set("before", String(before));
-  url.searchParams.set("page", String(page));
-  url.searchParams.set("per_page", String(perPage));
-
-  const res = await fetch(url, { headers: authHeaders(token) });
-  if (res.status === 401) {
-    throw new Error("Token Strava invalide ou expiré — le renouveler depuis les Réglages.");
-  }
-  if (!res.ok) throw new Error(`Lecture Strava échouée (${res.status}): ${await res.text()}`);
-  return res.json();
+export async function fetchAthleteActivities(options = {}) {
+  const token = await refreshTokenIfNeeded();
+  const params = new URLSearchParams({
+    page: String(options.page ?? 1),
+    per_page: String(options.perPage ?? 30),
+  });
+  if (options.after) params.set("after", String(options.after));
+  const response = await fetch(`${API_BASE}/athlete/activities?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token.access_token}` },
+  });
+  if (!response.ok) throw new Error(`Récupération des activités Strava échouée (${response.status})`);
+  return response.json();
 }
 
-/**
- * Convertit une activité Strava brute en écart exploitable par la boucle
- * adaptative (Partie II §6, étape 1 : séance_réalisée vs séance_planifiée).
- * @param {object} activiteStrava
- * @param {object|null} seancePlanifiee
- */
-export function calculerEcart(activiteStrava, seancePlanifiee) {
-  const distanceKm = (activiteStrava.distance ?? 0) / 1000;
-  const dureeMin = (activiteStrava.moving_time ?? 0) / 60;
-  const deniveleM = activiteStrava.total_elevation_gain ?? 0;
-  const allureMoyenneMinParKm = distanceKm > 0 ? dureeMin / distanceKm : null;
-
-  if (!seancePlanifiee) {
-    return { distanceKm, dureeMin, deniveleM, allureMoyenneMinParKm, ecart: null };
-  }
-
-  const ecartVolumeMin = dureeMin - (seancePlanifiee.volumeSeanceMin ?? dureeMin);
-  const ecartAllure =
-    allureMoyenneMinParKm != null && seancePlanifiee.allureCibleMinParKm
-      ? allureMoyenneMinParKm - seancePlanifiee.allureCibleMinParKm
-      : null;
-
+/** Convertit une activité Strava brute au format "résultat" interne. */
+export function mapStravaActivityToResultat(activite) {
   return {
-    distanceKm,
-    dureeMin,
-    deniveleM,
-    allureMoyenneMinParKm,
-    ecart: { ecartVolumeMin, ecartAllureMinParKm: ecartAllure },
+    source: "strava",
+    stravaId: activite.id,
+    date: activite.start_date_local,
+    label: activite.name,
+    distanceM: activite.distance,
+    dureeS: activite.moving_time,
+    deniveleM: activite.total_elevation_gain,
+    avgHr: activite.average_heartrate ?? null,
+    maxHr: activite.max_heartrate ?? null,
+    type: activite.type,
   };
-}
-
-/**
- * Estime une charge journalière simple (TRIMP approximatif par défaut :
- * durée × facteur d'intensité RPE) pour alimenter le moteur de charge
- * (ACWR/EWMA, Partie I §10) à partir des activités Strava ingérées.
- * @param {object} activiteStrava
- * @param {number} rpeEstime 1-10, à défaut de fréquence cardiaque exploitable
- */
-export function estimerChargeJournaliere(activiteStrava, rpeEstime = 5) {
-  const dureeMin = (activiteStrava.moving_time ?? 0) / 60;
-  return dureeMin * rpeEstime;
 }

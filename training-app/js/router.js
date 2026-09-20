@@ -1,50 +1,48 @@
-// Routeur — hash-based (compatible GitHub Pages sous-chemin, pas de config
-// serveur nécessaire). Chaque route pointe vers un module d'écran exposant
-// render(container, params).
+// Routeur hash-based maison — pas de dépendance.
 
 const routes = new Map();
-let container = null;
-let navContainer = null;
+let notFoundHandler = () => "<p>Page introuvable.</p>";
+let currentUnsubscribe = null;
 
-export function registerRoute(path, renderFn, navMeta) {
-  routes.set(path, { renderFn, navMeta });
+export function registerRoute(path, renderFn) {
+  routes.set(path, renderFn);
+}
+
+export function setNotFound(renderFn) {
+  notFoundHandler = renderFn;
 }
 
 function parseHash() {
-  const hash = location.hash.replace(/^#\/?/, "");
+  const hash = window.location.hash.replace(/^#\/?/, "");
   const [path, queryString] = hash.split("?");
   const params = Object.fromEntries(new URLSearchParams(queryString ?? ""));
   return { path: path || "dashboard", params };
 }
 
-async function renderCurrent() {
-  const { path, params } = parseHash();
-  const matched = routes.get(path) ?? routes.get("dashboard");
-  container.innerHTML = '<div class="app-main"><div class="skeleton-curve"></div></div>';
-  try {
-    await matched.renderFn(container, params);
-  } catch (err) {
-    console.error(err);
-    container.innerHTML = `<div class="app-main"><div class="card"><h2>Erreur</h2><p>${err.message}</p></div></div>`;
+export async function renderRoute(container) {
+  if (typeof currentUnsubscribe === "function") {
+    currentUnsubscribe();
+    currentUnsubscribe = null;
   }
-  updateNav(path);
-  window.scrollTo(0, 0);
-}
-
-function updateNav(activePath) {
-  if (!navContainer) return;
-  navContainer.querySelectorAll("a").forEach((a) => {
-    a.classList.toggle("active", a.dataset.route === activePath);
+  const { path, params } = parseHash();
+  const handler = routes.get(path) ?? notFoundHandler;
+  const result = await handler(params, container);
+  if (typeof result === "function") {
+    currentUnsubscribe = result;
+  } else if (typeof result === "string") {
+    container.innerHTML = result;
+  }
+  document.querySelectorAll("[data-nav-link]").forEach((el) => {
+    el.classList.toggle("active", el.getAttribute("data-nav-link") === path);
   });
 }
 
-export function initRouter(appContainer, appNavContainer) {
-  container = appContainer;
-  navContainer = appNavContainer;
-  window.addEventListener("hashchange", renderCurrent);
-  renderCurrent();
+export function navigateTo(path, params = {}) {
+  const query = new URLSearchParams(params).toString();
+  window.location.hash = `#/${path}${query ? `?${query}` : ""}`;
 }
 
-export function navigate(path) {
-  location.hash = `#/${path}`;
+export function startRouter(container) {
+  window.addEventListener("hashchange", () => renderRoute(container));
+  renderRoute(container);
 }

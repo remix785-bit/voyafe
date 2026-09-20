@@ -1,89 +1,121 @@
-// Moteur de Charge — ACWR (Acute:Chronic Workload Ratio) et alternative EWMA
-// Sources : Gabbett TJ. "The training-injury prevention paradox." Br J Sports Med. 2016.
-//           Critique du couplage mathématique : Wang et al., 2020.
-//           Alternative EWMA : Williams et al., 2016.
-// Voir dossier technique, Partie I, Section 10.
-//
-// IMPORTANT (limite méthodologique documentée) : l'ACWR n'est PAS présenté comme un
-// prédicteur causal fiable ici, seulement comme un indicateur de tendance parmi
-// d'autres (RPE déclaratif, RMSSD, FC repos — cf. adaptiveLoop.js).
-
-export const ACWR_SWEET_SPOT = { min: 0.8, max: 1.3 };
-export const ACWR_DANGER_THRESHOLD = 1.5;
+// Moteur charge d'entraînement & fatigue — ACWR et CTL/ATL/TSB.
+// Cadrage produit, Section 5 (Charge & fatigue) ; doc technique Section 3.
 
 /**
- * Charge aiguë : moyenne mobile simple des 7 derniers jours.
- * @param {number[]} dailyLoads charges journalières (ex: TRIMP, distance, durée), plus récent en dernier
+ * Charge d'une séance : distance (km) * facteur d'intensité, ou TRIMP-like
+ * simplifié si la FC moyenne est disponible.
+ * @param {{distanceKm?: number, durationMin?: number, intensityFactor?: number, avgHr?: number, maxHr?: number, restHr?: number}} session
  */
-export function acuteLoad(dailyLoads) {
-  const last7 = dailyLoads.slice(-7);
-  return last7.reduce((a, b) => a + b, 0) / (last7.length || 1);
-}
-
-/**
- * Charge chronique : moyenne mobile simple des 28 derniers jours.
- */
-export function chronicLoad(dailyLoads) {
-  const last28 = dailyLoads.slice(-28);
-  return last28.reduce((a, b) => a + b, 0) / (last28.length || 1);
-}
-
-/**
- * ACWR classique = charge aiguë (7j) / charge chronique (28j).
- * @param {number[]} dailyLoads plus récent en dernier
- */
-export function acwr(dailyLoads) {
-  const chronic = chronicLoad(dailyLoads);
-  if (chronic === 0) return 0;
-  return acuteLoad(dailyLoads) / chronic;
-}
-
-export function acwrZone(value) {
-  if (value > ACWR_DANGER_THRESHOLD) return "rouge";
-  if (value >= ACWR_SWEET_SPOT.min && value <= ACWR_SWEET_SPOT.max) return "verte";
-  return "orange";
-}
-
-/**
- * EWMA (Exponentially Weighted Moving Average) — pondère davantage les jours
- * récents, réduit le biais de couplage mathématique de l'ACWR simple.
- * lambda = 2 / (N + 1), calcul récursif jour par jour.
- * @param {number[]} dailyLoads plus récent en dernier
- * @param {number} windowDays fenêtre équivalente (7 pour aigu, 28 pour chronique)
- */
-export function ewma(dailyLoads, windowDays) {
-  const lambda = 2 / (windowDays + 1);
-  let value = dailyLoads[0] ?? 0;
-  for (let i = 1; i < dailyLoads.length; i++) {
-    value = dailyLoads[i] * lambda + value * (1 - lambda);
+export function sessionLoad(session) {
+  const { distanceKm, durationMin, intensityFactor = 1, avgHr, maxHr, restHr } = session;
+  if (avgHr && maxHr && restHr && durationMin) {
+    // TRIMP-like (Banister simplifié) : durée * réserve FC relative * facteur exponentiel léger.
+    const hrReserve = (avgHr - restHr) / (maxHr - restHr);
+    const trimp = durationMin * hrReserve * 0.64 * Math.exp(1.92 * hrReserve);
+    return Math.round(trimp * 10) / 10;
   }
-  return value;
+  if (distanceKm) {
+    return Math.round(distanceKm * intensityFactor * 10) / 10;
+  }
+  if (durationMin) {
+    return Math.round(durationMin * intensityFactor * 10) / 10;
+  }
+  return 0;
 }
 
 /**
- * ACWR calculé via EWMA (aigu 7j / chronique 28j), alternative plus robuste
- * recommandée en complément de l'ACWR à moyenne mobile simple.
- * @param {number[]} dailyLoads plus récent en dernier
+ * ACWR = charge aiguë (moyenne 7j) / charge chronique (moyenne 28j).
+ * @param {{date: string, load: number}[]} dailyLoads triés ou non, une entrée par jour
+ * @param {string|Date} onDate date de calcul
  */
-export function ewmaAcwr(dailyLoads) {
-  const chronic = ewma(dailyLoads, 28);
-  if (chronic === 0) return 0;
-  return ewma(dailyLoads, 7) / chronic;
+export function acwr(dailyLoads, onDate) {
+  const target = new Date(onDate);
+  const byDate = new Map(dailyLoads.map((d) => [toDateKey(d.date), d.load]));
+  const acute = averageLoadOverWindow(byDate, target, 7);
+  const chronic = averageLoadOverWindow(byDate, target, 28);
+  const ratio = chronic > 0 ? acute / chronic : acute > 0 ? Infinity : 0;
+  return { acute, chronic, ratio };
+}
+
+function averageLoadOverWindow(byDate, target, days) {
+  let sum = 0;
+  for (let i = 0; i < days; i++) {
+    const d = new Date(target);
+    d.setDate(d.getDate() - i);
+    sum += byDate.get(toDateKey(d)) ?? 0;
+  }
+  return sum / days;
+}
+
+function toDateKey(d) {
+  return new Date(d).toISOString().slice(0, 10);
+}
+
+// Zone de risque ACWR (cadrage produit, Section 15) : hors [0.8, 1.5].
+export const ACWR_SAFE_MIN = 0.8;
+export const ACWR_SAFE_MAX = 1.5;
+
+export function acwrRiskLevel(ratio) {
+  if (!Number.isFinite(ratio)) return "inconnu";
+  if (ratio > ACWR_SAFE_MAX) return "risque_surcharge";
+  if (ratio < ACWR_SAFE_MIN) return "sous_charge";
+  return "ok";
+}
+
+// Constantes de temps EWMA façon TrainingPeaks : CTL 42j (fitness/forme
+// chronique), ATL 7j (fatigue aiguë). TSB = CTL - ATL.
+export const CTL_TIME_CONSTANT_DAYS = 42;
+export const ATL_TIME_CONSTANT_DAYS = 7;
+
+// Remplit les jours sans séance (load 0) entre le premier et le dernier jour
+// de l'historique : l'EWMA doit décroître à chaque jour calendaire, pas
+// seulement aux jours où une charge a été enregistrée.
+function fillDailyGaps(dailyLoads) {
+  const byDate = new Map(dailyLoads.map((d) => [toDateKey(d.date), d.load]));
+  const dates = [...byDate.keys()].sort();
+  if (dates.length === 0) return [];
+  const filled = [];
+  const cursor = new Date(dates[0]);
+  const end = new Date(dates[dates.length - 1]);
+  while (cursor <= end) {
+    const key = toDateKey(cursor);
+    filled.push({ date: key, load: byDate.get(key) ?? 0 });
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return filled;
+}
+
+function ewma(dailyLoads, timeConstantDays) {
+  const sorted = fillDailyGaps(dailyLoads);
+  const alpha = 1 / timeConstantDays;
+  let value = 0;
+  const series = [];
+  for (const { date, load } of sorted) {
+    value = value + alpha * (load - value);
+    series.push({ date: toDateKey(date), value: Math.round(value * 10) / 10 });
+  }
+  return series;
 }
 
 /**
- * Vue combinée pour le dashboard : ACWR simple + EWMA + zone + avertissement
- * méthodologique à afficher systématiquement à l'utilisateur.
- * @param {number[]} dailyLoads plus récent en dernier
+ * Calcule les séries CTL (fitness), ATL (fatigue) et TSB (forme/fraîcheur)
+ * jour par jour à partir d'un historique de charges quotidiennes.
+ * @param {{date: string, load: number}[]} dailyLoads
  */
-export function loadSummary(dailyLoads) {
-  const simple = acwr(dailyLoads);
-  const robust = ewmaAcwr(dailyLoads);
-  return {
-    acwrSimple: simple,
-    acwrEwma: robust,
-    zone: acwrZone(robust),
-    disclaimer:
-      "Indicateur de tendance, pas un prédicteur causal fiable isolément (couplage mathématique documenté par Wang et al., 2020) — à croiser avec le ressenti et les autres marqueurs.",
-  };
+export function ctlAtlTsb(dailyLoads) {
+  const ctlSeries = ewma(dailyLoads, CTL_TIME_CONSTANT_DAYS);
+  const atlSeries = ewma(dailyLoads, ATL_TIME_CONSTANT_DAYS);
+  const tsbSeries = ctlSeries.map((c, i) => ({
+    date: c.date,
+    value: Math.round((c.value - atlSeries[i].value) * 10) / 10,
+  }));
+  return { ctlSeries, atlSeries, tsbSeries };
+}
+
+/** Dernière valeur CTL/ATL/TSB de la série, ou zéros si vide. */
+export function latestLoadState(dailyLoads) {
+  if (dailyLoads.length === 0) return { ctl: 0, atl: 0, tsb: 0 };
+  const { ctlSeries, atlSeries, tsbSeries } = ctlAtlTsb(dailyLoads);
+  const last = (s) => s[s.length - 1]?.value ?? 0;
+  return { ctl: last(ctlSeries), atl: last(atlSeries), tsb: last(tsbSeries) };
 }

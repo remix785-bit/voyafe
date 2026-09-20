@@ -1,97 +1,66 @@
-/* Système de tokens — identité visuelle "carnet de terrain topographique".
-   Partie III, Section 2. Thème sombre par défaut (usage terrain/matin),
-   thème clair disponible via [data-theme="light"] sur <html> (Réglages). */
-
-@import url("https://fonts.googleapis.com/css2?family=Archivo+Expanded:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
-
 :root {
-  /* Palette brute */
-  --ink: #16201b;
-  --stone: #e7e3d6;
-  --moss: #45624c;
-  --slate-blue: #35566b;
-  --ember: #b8502e;
-  --paper: #fbfaf5;
+  --color-bg: #f5f6f4;
+  --color-surface: #ffffff;
+  --color-surface-alt: #eef1ec;
+  --color-border: #dde1d9;
+  --color-text: #1c231c;
+  --color-text-muted: #5b6459;
+  --color-primary: #2f6f4f;
+  --color-primary-strong: #1f4e37;
+  --color-accent: #e07a2e;
+  --color-danger: #c1432c;
+  --color-warning: #c98a1c;
+  --color-ok: #2f6f4f;
 
-  /* Typographie */
-  --font-display: "Archivo Expanded", "Arial Narrow", sans-serif;
-  --font-body: "IBM Plex Sans", "Inter", system-ui, sans-serif;
-  --font-data: "IBM Plex Mono", "JetBrains Mono", ui-monospace, monospace;
+  --zone-E: #4c8f6e;
+  --zone-M: #4a7fb5;
+  --zone-T: #c98a1c;
+  --zone-I: #d0602f;
+  --zone-R: #b23b3b;
 
-  /* Rayons / rythme */
-  --radius-card: 10px;
-  --radius-pill: 999px;
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
-  --space-7: 48px;
-
-  /* Rôles sémantiques — thème sombre (défaut) */
-  --color-bg: var(--ink);
-  --color-bg-elevated: #1d2a22;
-  --color-surface: #223027;
-  --color-surface-strong: var(--paper);
-  --color-text: var(--stone);
-  --color-text-on-strong: var(--ink);
-  --color-text-muted: #a9b3a5;
-  --color-border: #2f3f34;
-
-  --color-accent: #6f9cb8; /* slate-blue éclairci pour contraste sur fond sombre */
-  --color-accent-strong: var(--slate-blue);
-  --color-structural: #7fa886; /* moss éclairci */
-  --color-structural-strong: var(--moss);
-  --color-functional: #e0855f; /* ember éclairci */
-  --color-functional-strong: var(--ember);
-
-  /* Zones Daniels E/M/T/I/R */
-  --zone-e: var(--color-structural);
-  --zone-m: #8fb08f;
-  --zone-t: var(--color-accent);
-  --zone-i: var(--color-functional);
-  --zone-r: #d3543a;
-
-  --color-success: var(--color-structural);
-  --color-warning: #d9a441;
-  --color-danger: var(--color-functional-strong);
-
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.25);
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --shadow-card: 0 1px 3px rgba(20, 30, 20, 0.08), 0 1px 2px rgba(20, 30, 20, 0.06);
 }
 
-:root[data-theme="light"] {
-  --color-bg: var(--stone);
-  --color-bg-elevated: #f1efe4;
-  --color-surface: var(--paper);
-  --color-surface-strong: var(--ink);
-  --color-text: var(--ink);
-  --color-text-on-strong: var(--paper);
-  --color-text-muted: #5b6a5f;
-  --color-border: #d7d2c1;
-
-  --color-accent: var(--slate-blue);
-  --color-accent-strong: #24404f;
-  --color-structural: var(--moss);
-  --color-structural-strong: #30452f;
-  --color-functional: var(--ember);
-  --color-functional-strong: #8f3c20;
-
-  --zone-e: var(--color-structural);
-  --zone-m: #5c7a55;
-  --zone-t: var(--color-accent);
-  --zone-i: var(--color-functional);
-  --zone-r: #8f3c20;
-
-  --color-success: var(--color-structural);
-  --color-warning: #a5731c;
-  --color-danger: var(--color-functional-strong);
-
-  --shadow-card: 0 1px 2px rgba(22, 32, 27, 0.08), 0 4px 12px rgba(22, 32, 27, 0.08);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --motion-safe: none;
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #12160f;
+    --color-surface: #1b2119;
+    --color-surface-alt: #232b1f;
+    --color-border: #333d2e;
+    --color-text: #eef1ea;
+    --color-text-muted: #a5ae9d;
+    --color-primary: #63b088;
+    --color-primary-strong: #8fd1ac;
+    --color-accent: #f0a15d;
+    --color-danger: #e2765f;
+    --color-warning: #e0af53;
+    --color-ok: #63b088;
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
   }
+}
+
+:root[data-theme="dark"] {
+  --color-bg: #12160f;
+  --color-surface: #1b2119;
+  --color-surface-alt: #232b1f;
+  --color-border: #333d2e;
+  --color-text: #eef1ea;
+  --color-text-muted: #a5ae9d;
+  --color-primary: #63b088;
+  --color-primary-strong: #8fd1ac;
+  --color-accent: #f0a15d;
+  --color-danger: #e2765f;
+  --color-warning: #e0af53;
+  --color-ok: #63b088;
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
