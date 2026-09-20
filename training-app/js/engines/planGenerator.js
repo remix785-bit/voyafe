@@ -111,7 +111,7 @@ function buildWeekSessions({ type, phase, weekIndex, volumeKm, niveauCount, mode
   const sessions = [];
   const catalog = catalogFor(type);
   const dayOffsets = [];
-  const step = Math.floor(7 / niveauCount) || 1;
+  const step = niveauCount > 1 ? Math.floor(6 / (niveauCount - 1)) || 1 : 0;
   for (let i = 0; i < niveauCount; i++) dayOffsets.push(Math.min(6, i * step));
 
   const longue = pickVariant(sessionsOfType(type, "longue", phase === "gestion_forme_existante" ? "affutage" : phase), weekIndex);
@@ -131,9 +131,12 @@ function buildWeekSessions({ type, phase, weekIndex, volumeKm, niveauCount, mode
 
   let dayIdx = 0;
   let lastQualityDay = -Infinity;
+  const usedDays = new Set();
 
   if (longue) {
-    sessions.push(toPlannedSession(longue, volumeKm * 0.28, dayOffsets[dayOffsets.length - 1] ?? 6));
+    const day = dayOffsets[dayOffsets.length - 1] ?? 6;
+    sessions.push(toPlannedSession(longue, volumeKm * 0.28, day));
+    usedDays.add(day);
   }
 
   for (const zone of qualityZones) {
@@ -143,19 +146,22 @@ function buildWeekSessions({ type, phase, weekIndex, volumeKm, niveauCount, mode
     if (!chosen) continue;
     const desiredKm = Math.min(volumeKm * zoneFractionTarget[zone], volumeKm * ZONE_CAPS[zone]);
     const day = dayOffsets[dayIdx % dayOffsets.length];
-    if (day - lastQualityDay < 2 && sessions.length > 0) {
+    if ((day - lastQualityDay < 2 && sessions.length > 0) || usedDays.has(day)) {
       dayIdx++;
       continue;
     }
     sessions.push(toPlannedSession(chosen, desiredKm, day));
     zoneVolumeKm[zone] += desiredKm;
+    usedDays.add(day);
     lastQualityDay = day;
     dayIdx++;
 
     const recupVariants = sessionsOfType(type, "recuperation", "base");
     const recup = pickVariant(recupVariants, weekIndex);
-    if (recup && dayIdx < dayOffsets.length) {
-      sessions.push(toPlannedSession(recup, volumeKm * 0.08, Math.min(6, day + 1)));
+    const recupDay = Math.min(6, day + 1);
+    if (recup && dayIdx < dayOffsets.length && !usedDays.has(recupDay)) {
+      sessions.push(toPlannedSession(recup, volumeKm * 0.08, recupDay));
+      usedDays.add(recupDay);
     }
   }
 
@@ -163,11 +169,13 @@ function buildWeekSessions({ type, phase, weekIndex, volumeKm, niveauCount, mode
   const remainingSlots = Math.max(0, niveauCount - sessions.length);
   const remainingKm = Math.max(0, volumeKm - usedKm);
   const eVariants = sessionsOfType(type, "E", phase === "gestion_forme_existante" ? "affutage" : phase);
+  const freeDays = dayOffsets.filter((d) => !usedDays.has(d));
   for (let i = 0; i < remainingSlots; i++) {
     const chosen = pickVariant(eVariants, weekIndex + i);
     if (!chosen) continue;
-    const day = dayOffsets[(sessions.length + i) % dayOffsets.length];
+    const day = freeDays[i] ?? dayOffsets[i % dayOffsets.length];
     sessions.push(toPlannedSession(chosen, remainingKm / remainingSlots, day));
+    usedDays.add(day);
   }
 
   return { sessions: sessions.sort((a, b) => a.dayOffset - b.dayOffset), zoneVolumeKm };
