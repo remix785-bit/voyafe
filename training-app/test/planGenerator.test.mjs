@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { generatePlan, computePhasePlan, ZONE_CAPS, recalculerApresAlea } from "../js/engines/planGenerator.js";
+import { generatePlan, computePhasePlan, ZONE_CAPS, recalculerApresAlea, elevationTierFor } from "../js/engines/planGenerator.js";
+import { SESSIONS_TRAIL } from "../js/catalog/sessionsTrail.js";
 
 test("computePhasePlan: moins de 6 semaines -> gestion de forme existante", () => {
   const plan = computePhasePlan(4, { type: "route", niveau: "intermediaire" });
@@ -75,6 +76,47 @@ test("generatePlan: chaque semaine a au moins une séance", () => {
   for (const week of plan.weeks) {
     assert.ok(week.sessions.length > 0, `semaine ${week.index} sans séance`);
   }
+});
+
+test("elevationTierFor: classe le palier de dénivelé selon le ratio m/km", () => {
+  assert.equal(elevationTierFor(3000, 50), "eleve"); // 60 m/km
+  assert.equal(elevationTierFor(1000, 50), "modere"); // 20 m/km
+  assert.equal(elevationTierFor(500, 50), "faible"); // 10 m/km
+  assert.equal(elevationTierFor(0, 50), null);
+});
+
+test("generatePlan: un objectif trail avec beaucoup de D+ privilégie des séances dénivelé soutenu en développement", () => {
+  const soutenuIds = new Set(SESSIONS_TRAIL.filter((s) => s.elevationTag === "soutenu").map((s) => s.id));
+
+  const planFortDenivele = generatePlan({
+    type: "trail",
+    distanceKm: 50,
+    deniveleM: 3500, // 70 m/km -> palier "eleve"
+    dateDebut: "2026-01-01",
+    dateCourse: "2026-06-15",
+    niveau: "intermediaire",
+    vdot: 45,
+  });
+  const planFaibleDenivele = generatePlan({
+    type: "trail",
+    distanceKm: 50,
+    deniveleM: 300, // 6 m/km -> palier "faible"
+    dateDebut: "2026-01-01",
+    dateCourse: "2026-06-15",
+    niveau: "intermediaire",
+    vdot: 45,
+  });
+
+  const countSoutenu = (plan) =>
+    plan.weeks
+      .filter((w) => w.phase === "developpement")
+      .flatMap((w) => w.sessions)
+      .filter((s) => soutenuIds.has(s.catalogId)).length;
+
+  assert.ok(
+    countSoutenu(planFortDenivele) > countSoutenu(planFaibleDenivele),
+    `attendu plus de séances "soutenu" avec fort D+ (${countSoutenu(planFortDenivele)}) qu'avec faible D+ (${countSoutenu(planFaibleDenivele)})`
+  );
 });
 
 test("recalculerApresAlea: réduit le volume et retire les séances T/I de la semaine affectée", () => {

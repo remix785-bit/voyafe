@@ -39,6 +39,36 @@ function pickVariant(candidates, index) {
   return candidates[index % candidates.length];
 }
 
+// Préférence de dénivelé (élévation) pour la sélection de séances trail en
+// phase développement (doc technique Section 4 / cadrage produit) : un
+// objectif avec beaucoup de D+/km doit privilégier des séances taguées
+// dénivelé plus exigeant (`elevationTag`), tout en gardant la rotation pour
+// éviter la monotonie.
+const ELEVATION_TIER_TAGS = {
+  eleve: ["soutenu", "progressif", "specifique"],
+  modere: ["progressif", "leger", "specifique"],
+  faible: ["leger", "plat"],
+};
+
+/** Palier de dénivelé (m/km) : eleve >= 30 m/km, modere >= 15 m/km, sinon faible. */
+export function elevationTierFor(deniveleM, distanceKm) {
+  if (!deniveleM || !distanceKm) return null;
+  const ratio = deniveleM / distanceKm;
+  if (ratio >= 30) return "eleve";
+  if (ratio >= 15) return "modere";
+  return "faible";
+}
+
+/** Comme pickVariant, mais priorise les séances dont l'elevationTag colle au palier de D+ de l'objectif. */
+function pickVariantWithElevation(candidates, index, tier) {
+  if (candidates.length === 0) return null;
+  if (!tier) return pickVariant(candidates, index);
+  const preferredTags = ELEVATION_TIER_TAGS[tier] ?? [];
+  const preferred = candidates.filter((c) => preferredTags.includes(c.elevationTag));
+  const pool = preferred.length > 0 ? preferred : candidates;
+  return pickVariant(pool, index);
+}
+
 function weeksBetween(dateDebut, dateCourse) {
   const ms = new Date(dateCourse) - new Date(dateDebut);
   return Math.max(1, Math.round(ms / (7 * 24 * 3600 * 1000)));
@@ -107,14 +137,20 @@ function sessionsPerWeek(niveau) {
  * l'espacement des séances de qualité (>=48h) et un footing de récup après
  * une séance dure.
  */
-function buildWeekSessions({ type, phase, weekIndex, volumeKm, niveauCount, mode }) {
+function buildWeekSessions({ type, phase, weekIndex, volumeKm, niveauCount, mode, deniveleM, distanceKm }) {
   const sessions = [];
   const catalog = catalogFor(type);
   const dayOffsets = [];
   const step = niveauCount > 1 ? Math.floor(6 / (niveauCount - 1)) || 1 : 0;
   for (let i = 0; i < niveauCount; i++) dayOffsets.push(Math.min(6, i * step));
 
-  const longue = pickVariant(sessionsOfType(type, "longue", phase === "gestion_forme_existante" ? "affutage" : phase), weekIndex);
+  const elevationTier = type === "trail" && phase === "developpement" ? elevationTierFor(deniveleM, distanceKm) : null;
+
+  const longue = pickVariantWithElevation(
+    sessionsOfType(type, "longue", phase === "gestion_forme_existante" ? "affutage" : phase),
+    weekIndex,
+    elevationTier
+  );
   const includeQuality = phase !== "base" || weekIndex % 2 === 1;
   const qualityZones = [];
   if (phase === "developpement") {
@@ -142,7 +178,7 @@ function buildWeekSessions({ type, phase, weekIndex, volumeKm, niveauCount, mode
   for (const zone of qualityZones) {
     const catalogType = zone;
     const variants = sessionsOfType(type, catalogType, phase === "gestion_forme_existante" ? "affutage" : phase);
-    const chosen = pickVariant(variants, weekIndex + zone.charCodeAt(0));
+    const chosen = pickVariantWithElevation(variants, weekIndex + zone.charCodeAt(0), elevationTier);
     if (!chosen) continue;
     const desiredKm = Math.min(volumeKm * zoneFractionTarget[zone], volumeKm * ZONE_CAPS[zone]);
     const day = dayOffsets[dayIdx % dayOffsets.length];
@@ -171,7 +207,7 @@ function buildWeekSessions({ type, phase, weekIndex, volumeKm, niveauCount, mode
   const eVariants = sessionsOfType(type, "E", phase === "gestion_forme_existante" ? "affutage" : phase);
   const freeDays = dayOffsets.filter((d) => !usedDays.has(d));
   for (let i = 0; i < remainingSlots; i++) {
-    const chosen = pickVariant(eVariants, weekIndex + i);
+    const chosen = pickVariantWithElevation(eVariants, weekIndex + i, elevationTier);
     if (!chosen) continue;
     const day = freeDays[i] ?? dayOffsets[i % dayOffsets.length];
     sessions.push(toPlannedSession(chosen, remainingKm / remainingSlots, day));
@@ -202,7 +238,7 @@ function toPlannedSession(catalogSession, targetVolumeKm, dayOffset) {
  * }} objectif
  */
 export function generatePlan(objectif) {
-  const { type, niveau, dateCourse } = objectif;
+  const { type, niveau, dateCourse, deniveleM, distanceKm } = objectif;
   const dateDebut = objectif.dateDebut ?? new Date().toISOString().slice(0, 10);
   const totalWeeks = weeksBetween(dateDebut, dateCourse);
   const phasePlan = computePhasePlan(totalWeeks, { type, niveau });
@@ -221,6 +257,8 @@ export function generatePlan(objectif) {
       volumeKm,
       niveauCount,
       mode: phasePlan.mode,
+      deniveleM,
+      distanceKm,
     });
     const startDate = addDays(dateDebut, globalIndex * 7);
     return {
