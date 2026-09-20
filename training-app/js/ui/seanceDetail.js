@@ -78,9 +78,19 @@ export async function renderSeanceDetail(params, container) {
         </div>
       </form>
       <div style="margin-top:12px">
-        <button id="btn-alea" class="btn btn-secondary">Marquer manquée (blessure/maladie/voyage)</button>
+        <form id="form-alea">
+          <label for="alea-raison">Séance manquée — motif</label>
+          <select id="alea-raison" name="raison">
+            <option value="blessure">Blessure</option>
+            <option value="maladie">Maladie</option>
+            <option value="voyage">Voyage</option>
+            <option value="autre">Autre</option>
+          </select>
+          <button type="submit" class="btn btn-secondary" style="margin-top:8px">Marquer manquée et recalculer le plan</button>
+        </form>
       </div>
       <p id="status-msg" class="muted" style="font-size:0.8rem"></p>
+      <div id="alea-result"></div>
     `)}
   `;
 
@@ -97,10 +107,25 @@ export async function renderSeanceDetail(params, container) {
     container.querySelector("#status-msg").textContent = "Séance enregistrée.";
   });
 
-  container.querySelector("#btn-alea").addEventListener("click", async () => {
-    const raison = prompt("Raison (blessure / maladie / voyage) :", "blessure");
-    if (!raison) return;
+  container.querySelector("#form-alea").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const raison = new FormData(e.target).get("raison");
+    const avant = await repo.listSeancesByPlan(seance.planId);
+    const avantByid = new Map(avant.map((s) => [s.id, s.targetVolumeKm]));
+
     await repo.marquerAlea(seance.id, raison);
+
+    const apres = await repo.listSeancesByPlan(seance.planId);
+    const memeSemaine = apres.filter((s) => s.weekIndex === seance.weekIndex);
+    const modifiees = memeSemaine.filter((s) => avantByid.get(s.id) !== s.targetVolumeKm);
+
     container.querySelector("#status-msg").textContent = "Séance marquée manquée, le reste du plan a été recalculé.";
+    container.querySelector("#alea-result").innerHTML = `
+      <p class="muted" style="font-size:0.8rem">
+        Recalcul (motif : ${escapeHtml(raison)}) — ${modifiees.length} séance(s) ajustée(s) (volume réduit) sur la semaine ${
+      seance.weekIndex + 1
+    }. Les séances de seuil/intervalle de cette semaine ont été retirées du programme.
+      </p>
+    `;
   });
 }
