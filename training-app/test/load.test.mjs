@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   sessionLoad,
+  renfoSessionLoad,
   acwr,
   acwrRiskLevel,
   ctlAtlTsb,
@@ -18,6 +19,26 @@ test("sessionLoad: distance * facteur d'intensité", () => {
 test("sessionLoad: TRIMP-like utilisé quand FC disponible", () => {
   const load = sessionLoad({ durationMin: 60, avgHr: 150, maxHr: 190, restHr: 50 });
   assert.ok(load > 0);
+});
+
+test("renfoSessionLoad: RPE * durée", () => {
+  assert.equal(renfoSessionLoad({ rpe: 6, dureeMin: 30 }), 180);
+  assert.equal(renfoSessionLoad({}), 0);
+  assert.equal(renfoSessionLoad({ rpe: 5 }), 0);
+});
+
+test("renfoSessionLoad: une séance de renfo loggée influence l'ACWR/CTL", () => {
+  const runLoads = buildFlatLoads(28, 5);
+  const { ratio: ratioSansRenfo } = acwr(runLoads, runLoads[27].date);
+  const { ctl: ctlSansRenfo } = latestLoadState(runLoads);
+
+  const renfoLoad = renfoSessionLoad({ rpe: 7, dureeMin: 40 });
+  const withRenfo = runLoads.map((d, i) => (i === 27 ? { ...d, load: d.load + renfoLoad } : d));
+  const { ratio: ratioAvecRenfo } = acwr(withRenfo, withRenfo[27].date);
+  const { ctl: ctlAvecRenfo } = latestLoadState(withRenfo);
+
+  assert.ok(ratioAvecRenfo > ratioSansRenfo, "l'ACWR devrait augmenter avec la charge de renfo");
+  assert.ok(ctlAvecRenfo > ctlSansRenfo, "le CTL devrait augmenter avec la charge de renfo");
 });
 
 function buildFlatLoads(days, load) {

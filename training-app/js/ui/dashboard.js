@@ -1,5 +1,6 @@
 import * as repo from "../data/repo.js";
-import { sessionLoad, acwr, acwrRiskLevel, latestLoadState, ACWR_SAFE_MIN, ACWR_SAFE_MAX } from "../engines/load.js";
+import { sessionLoad, renfoSessionLoad, acwr, acwrRiskLevel, latestLoadState, ACWR_SAFE_MIN, ACWR_SAFE_MAX } from "../engines/load.js";
+import { nextRetestWindow } from "../engines/vdot.js";
 import { escapeHtml, formatDateFr, daysUntil, zoneTag, badge, emptyState, card } from "./components.js";
 
 async function buildDailyLoads() {
@@ -16,7 +17,26 @@ async function buildDailyLoads() {
     const load = sessionLoad({ distanceKm, intensityFactor: intensityFactorFor(s.type) });
     byDate.set(s.date, (byDate.get(s.date) ?? 0) + load);
   }
+
+  const renfoLogs = await repo.listRenfoLogs();
+  for (const r of renfoLogs) {
+    const load = renfoSessionLoad({ rpe: r.rpe, dureeMin: r.dureeMin });
+    byDate.set(r.date, (byDate.get(r.date) ?? 0) + load);
+  }
+
   return [...byDate.entries()].map(([date, load]) => ({ date, load }));
+}
+
+const SEANCES_MANQUEES_ALERTE_SEUIL = 2;
+const FENETRE_ALERTE_JOURS = 14;
+
+async function seancesManqueesRecentes() {
+  const plans = await Promise.all((await repo.listObjectifs()).map((o) => repo.getPlanForObjectif(o.id)));
+  const validPlans = plans.filter(Boolean);
+  const allSeances = (await Promise.all(validPlans.map((p) => repo.listSeancesByPlan(p.id)))).flat();
+  const seuilDate = new Date();
+  seuilDate.setDate(seuilDate.getDate() - FENETRE_ALERTE_JOURS);
+  return allSeances.filter((s) => s.status === "manquee" && new Date(s.date) >= seuilDate);
 }
 
 function intensityFactorFor(type) {
@@ -50,6 +70,13 @@ export async function renderDashboard(params, container) {
   const riskLevel = acwrRiskLevel(ratio);
   const { ctl, atl, tsb } = latestLoadState(dailyLoads);
   const seanceDuJour = await findSeanceDuJour();
+  const seancesManquees = await seancesManqueesRecentes();
+  const dernierResultat = await repo.currentVdotResultat();
+  let retestDepasse = false;
+  if (dernierResultat) {
+    const { maxDate } = nextRetestWindow(dernierResultat.date);
+    retestDepasse = new Date() > maxDate;
+  }
 
   const objectifCard = objectifPrincipal
     ? card(`
@@ -77,6 +104,23 @@ export async function renderDashboard(params, container) {
     <p class="muted" style="font-size:0.78rem">Zone sûre indicative : ${ACWR_SAFE_MIN}–${ACWR_SAFE_MAX}. Calculé à partir des séances marquées réalisées.</p>
   `);
 
+  const alerteManqueesCard =
+    seancesManquees.length >= SEANCES_MANQUEES_ALERTE_SEUIL
+      ? card(`
+          <h3>${badge("Alerte", "danger")} Séances manquées</h3>
+          <p>${seancesManquees.length} séances manquées ces ${FENETRE_ALERTE_JOURS} derniers jours — envisage d'ajuster ton plan.</p>
+          <a class="btn btn-secondary" href="#/seance?id=${seancesManquees[0].id}">Revoir une séance manquée</a>
+        `)
+      : "";
+
+  const retestCard = retestDepasse
+    ? card(`
+        <h3>${badge("À faire", "warning")} Retest VDOT</h3>
+        <p>La fenêtre de retest recommandée est dépassée.</p>
+        <a class="btn btn-secondary" href="#/profil">Enregistrer un nouveau test</a>
+      `)
+    : "";
+
   const seanceCard = seanceDuJour
     ? card(`
         <h3>Séance du jour</h3>
@@ -90,7 +134,9 @@ export async function renderDashboard(params, container) {
   container.innerHTML = `
     <h1 class="visually-hidden">Dashboard</h1>
     ${objectifCard}
+    ${alerteManqueesCard}
     ${chargeCard}
+    ${retestCard}
     ${seanceCard}
   `;
 }

@@ -24,6 +24,17 @@ export function sessionLoad(session) {
 }
 
 /**
+ * Charge d'une séance de renfo loggée : RPE * durée (méthode cohérente avec
+ * le TRIMP-like des séances de course, sans FC disponible pour du renfo).
+ * @param {{rpe?: number, dureeMin?: number}} renfoLog
+ */
+export function renfoSessionLoad(renfoLog) {
+  const { rpe, dureeMin } = renfoLog;
+  if (!rpe || !dureeMin) return 0;
+  return Math.round(rpe * dureeMin * 10) / 10;
+}
+
+/**
  * ACWR = charge aiguë (moyenne 7j) / charge chronique (moyenne 28j).
  * @param {{date: string, load: number}[]} dailyLoads triés ou non, une entrée par jour
  * @param {string|Date} onDate date de calcul
