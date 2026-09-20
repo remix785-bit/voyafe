@@ -67,8 +67,26 @@ export function acwrRiskLevel(ratio) {
 export const CTL_TIME_CONSTANT_DAYS = 42;
 export const ATL_TIME_CONSTANT_DAYS = 7;
 
+// Remplit les jours sans séance (load 0) entre le premier et le dernier jour
+// de l'historique : l'EWMA doit décroître à chaque jour calendaire, pas
+// seulement aux jours où une charge a été enregistrée.
+function fillDailyGaps(dailyLoads) {
+  const byDate = new Map(dailyLoads.map((d) => [toDateKey(d.date), d.load]));
+  const dates = [...byDate.keys()].sort();
+  if (dates.length === 0) return [];
+  const filled = [];
+  const cursor = new Date(dates[0]);
+  const end = new Date(dates[dates.length - 1]);
+  while (cursor <= end) {
+    const key = toDateKey(cursor);
+    filled.push({ date: key, load: byDate.get(key) ?? 0 });
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return filled;
+}
+
 function ewma(dailyLoads, timeConstantDays) {
-  const sorted = [...dailyLoads].sort((a, b) => new Date(a.date) - new Date(b.date));
+  const sorted = fillDailyGaps(dailyLoads);
   const alpha = 1 / timeConstantDays;
   let value = 0;
   const series = [];
