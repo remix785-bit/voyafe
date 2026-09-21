@@ -1,23 +1,8 @@
 import * as repo from "../data/repo.js";
-import { sessionLoad, renfoSessionLoad, acwr } from "../engines/load.js";
+import { acwr } from "../engines/load.js";
 import { dailyMacroNeeds, fuelingCarbsPerHour, hydrationNeeds } from "../engines/nutrition.js";
 import { escapeHtml, formatDateFr, card, emptyState, badge } from "./components.js";
-
-async function buildDailyLoads() {
-  const plans = (await Promise.all((await repo.listObjectifs()).map((o) => repo.getPlanForObjectif(o.id)))).filter(Boolean);
-  const allSeances = (await Promise.all(plans.map((p) => repo.listSeancesByPlan(p.id)))).flat();
-  const byDate = new Map();
-  for (const s of allSeances) {
-    if (s.status !== "realisee" && s.status !== "modifiee") continue;
-    const distanceKm = s.log?.realiseKm ?? s.targetVolumeKm;
-    byDate.set(s.date, (byDate.get(s.date) ?? 0) + sessionLoad({ distanceKm }));
-  }
-  const renfoLogs = await repo.listRenfoLogs();
-  for (const r of renfoLogs) {
-    byDate.set(r.date, (byDate.get(r.date) ?? 0) + renfoSessionLoad({ rpe: r.rpe, dureeMin: r.dureeMin }));
-  }
-  return [...byDate.entries()].map(([date, load]) => ({ date, load }));
-}
+import { buildDailyLoads } from "./monitoring.js";
 
 function joursAvant(dateCourse) {
   const now = new Date();
