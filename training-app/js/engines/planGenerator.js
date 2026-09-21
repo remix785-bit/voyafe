@@ -6,6 +6,12 @@
 
 import { SESSIONS_ROUTE } from "../catalog/sessionsRoute.js";
 import { SESSIONS_TRAIL } from "../catalog/sessionsTrail.js";
+import { elevationTierFor } from "./gap.js";
+import { evaluateObjectifFit } from "./objectifFit.js";
+
+// Ré-export pour compatibilité (elevationTierFor vit maintenant dans gap.js,
+// utilisé aussi bien par le calage objectif que par la sélection trail).
+export { elevationTierFor };
 
 // Fenêtres de préparation utiles (doc technique Section 2).
 export const PREP_WINDOW_WEEKS = { route: 18, trail: 22 };
@@ -50,15 +56,6 @@ const ELEVATION_TIER_TAGS = {
   faible: ["leger", "plat"],
 };
 
-/** Palier de dénivelé (m/km) : eleve >= 30 m/km, modere >= 15 m/km, sinon faible. */
-export function elevationTierFor(deniveleM, distanceKm) {
-  if (!deniveleM || !distanceKm) return null;
-  const ratio = deniveleM / distanceKm;
-  if (ratio >= 30) return "eleve";
-  if (ratio >= 15) return "modere";
-  return "faible";
-}
-
 /** Comme pickVariant, mais priorise les séances dont l'elevationTag colle au palier de D+ de l'objectif. */
 function pickVariantWithElevation(candidates, index, tier) {
   if (candidates.length === 0) return null;
@@ -74,19 +71,33 @@ function weeksBetween(dateDebut, dateCourse) {
   return Math.max(1, Math.round(ms / (7 * 24 * 3600 * 1000)));
 }
 
+// Affûtage calibré sur la priorité de la course (doc technique Section 10) :
+// Priorité A (objectif principal) affûtage le plus long et le plus marqué ;
+// B intermédiaire (comportement historique, priorité par défaut) ; C
+// minimal — la course s'intègre dans l'entraînement continu.
+const TAPER_WEEKS_DELTA_BY_PRIORITE = { A: 1, B: 0, C: -1 };
+export const AFFUTAGE_VOLUME_MULTIPLIER_BY_PRIORITE = { A: 0.5, B: 0.6, C: 0.85 };
+
+function taperWeeksFor(totalWeeks, priorite) {
+  const base = totalWeeks <= 10 ? 1 : totalWeeks <= 16 ? 2 : 3;
+  const delta = TAPER_WEEKS_DELTA_BY_PRIORITE[priorite] ?? 0;
+  return Math.max(0, base + delta);
+}
+
 /**
  * Découpe le nombre total de semaines en phases (base/développement/affûtage).
  * Base plus longue si niveau débutant. Développement plus long en trail
- * (accumulation progressive du dénivelé).
+ * (accumulation progressive du dénivelé). `priorite` (A/B/C, doc Section 10)
+ * calibre la durée de l'affûtage.
  */
-export function computePhasePlan(totalWeeks, { type, niveau }) {
+export function computePhasePlan(totalWeeks, { type, niveau, priorite = "B" }) {
   if (totalWeeks < MIN_WEEKS_FOR_FULL_CYCLE) {
     return {
       mode: "gestion_forme_existante",
       phases: [{ name: "affutage", weeks: totalWeeks }],
     };
   }
-  const taperWeeks = totalWeeks <= 10 ? 1 : totalWeeks <= 16 ? 2 : 3;
+  const taperWeeks = taperWeeksFor(totalWeeks, priorite);
   const remaining = totalWeeks - taperWeeks;
 
   let baseShare = niveau === "debutant" ? 0.45 : niveau === "avance" ? 0.3 : 0.38;
@@ -146,7 +157,7 @@ function volumeFactorForWeek(indexInPhase, phaseTotalWeeks) {
   return { factor, decharge };
 }
 
-const PHASE_VOLUME_MULTIPLIER = { base: 1.0, developpement: 1.15, affutage: 0.6 };
+const PHASE_VOLUME_MULTIPLIER = { base: 1.0, developpement: 1.15 };
 
 /**
  * Plan < 6 semaines (doc technique Section 2) : "gestion de forme existante"
@@ -166,12 +177,32 @@ function sessionsPerWeek(niveau) {
   return { debutant: 3, intermediaire: 4, avance: 6 }[niveau] ?? 4;
 }
 
+// Fraction du volume hebdo dévolue à la sortie longue, modulée par l'axe de
+// travail (doc technique Section 6) : "endurance" pousse la sortie longue et
+// l'E, "vitesse" la réduit légèrement au profit des zones de qualité, valeur
+// historique inchangée pour "equilibre" (défaut).
+const LONGUE_FRACTION_BY_AXE = { endurance: 0.34, equilibre: 0.28, vitesse: 0.24 };
+
 /**
  * Construit les séances d'une semaine en respectant les plafonds de zone,
  * l'espacement des séances de qualité (>=48h) et un footing de récup après
  * une séance dure.
  */
-function buildWeekSessions({ type, phase, weekIndex, volumeKm, niveauCount, mode, deniveleM, distanceKm, decharge }) {
+function buildWeekSessions({
+  type,
+  phase,
+  weekIndex,
+  volumeKm,
+  niveauCount,
+  mode,
+  deniveleM,
+  distanceKm,
+  decharge,
+  niveau,
+  axeTravail = "equilibre",
+  specificiteLongue = 0,
+  ultraBackToBack = false,
+}) {
   const sessions = [];
   const catalog = catalogFor(type);
   const dayOffsets = [];
@@ -188,12 +219,23 @@ function buildWeekSessions({ type, phase, weekIndex, volumeKm, niveauCount, mode
   const includeQuality = phase !== "base" || weekIndex % 2 === 1;
   const qualityZones = [];
   if (phase === "developpement") {
-    qualityZones.push(weekIndex % 2 === 0 ? "T" : "I");
-    if (niveauCount >= 5) qualityZones.push("R");
+    if (axeTravail === "vitesse") {
+      qualityZones.push(weekIndex % 2 === 0 ? "I" : "R");
+      qualityZones.push("T");
+    } else if (axeTravail === "endurance") {
+      qualityZones.push("T");
+    } else {
+      qualityZones.push(weekIndex % 2 === 0 ? "T" : "I");
+      if (niveauCount >= 5) qualityZones.push("R");
+    }
   } else if (phase === "affutage") {
     qualityZones.push(weekIndex % 2 === 0 ? "T" : "R");
-  } else if (phase === "base" && includeQuality) {
-    qualityZones.push("R");
+  } else if (phase === "base") {
+    // Axe "vitesse" : côtes/R systématiques en base. Axe "endurance" :
+    // volume pur, pas de qualité en base. "equilibre" : comportement
+    // historique (une semaine sur deux).
+    const baseQuality = axeTravail === "vitesse" ? true : axeTravail === "endurance" ? false : includeQuality;
+    if (baseQuality) qualityZones.push("R");
   } else if (phase === "gestion_forme_existante") {
     // Maintien + "spécificité légère" (doc technique Section 2) : une
     // séance de qualité modérée par semaine, retirée lors de la dernière
@@ -210,8 +252,29 @@ function buildWeekSessions({ type, phase, weekIndex, volumeKm, niveauCount, mode
 
   if (longue) {
     const day = dayOffsets[dayOffsets.length - 1] ?? 6;
-    sessions.push(toPlannedSession(longue, volumeKm * 0.28, day));
+    const longueFraction = LONGUE_FRACTION_BY_AXE[axeTravail] ?? LONGUE_FRACTION_BY_AXE.equilibre;
+    const longueKm = volumeKm * longueFraction;
+    sessions.push(
+      toPlannedSession(longue, longueKm, day, {
+        niveau,
+        elevationTier,
+        pctAllureObjectif: phase !== "base" ? specificiteLongue : 0,
+      })
+    );
     usedDays.add(day);
+
+    // Sorties back-to-back ultra (doc technique Section 5) : exception
+    // délibérée à l'espacement de 48h, pour simuler la fatigue accumulée
+    // d'une course très longue. Occasionnelle (pas toutes les semaines) et
+    // jamais en semaine de décharge.
+    if (ultraBackToBack && phase === "developpement" && !decharge && weekIndex % 3 === 1) {
+      const backToBack = catalog.find((s) => s.id === "trail_longue_back_to_back") ?? null;
+      const day2 = day > 0 ? day - 1 : Math.min(6, day + 1);
+      if (backToBack && day2 !== day && !usedDays.has(day2)) {
+        sessions.push(toPlannedSession(backToBack, longueKm * 0.5, day2, { niveau, elevationTier }));
+        usedDays.add(day2);
+      }
+    }
   }
 
   for (const zone of qualityZones) {
@@ -225,7 +288,7 @@ function buildWeekSessions({ type, phase, weekIndex, volumeKm, niveauCount, mode
       dayIdx++;
       continue;
     }
-    sessions.push(toPlannedSession(chosen, desiredKm, day));
+    sessions.push(toPlannedSession(chosen, desiredKm, day, { niveau, elevationTier }));
     zoneVolumeKm[zone] += desiredKm;
     usedDays.add(day);
     lastQualityDay = day;
@@ -256,17 +319,48 @@ function buildWeekSessions({ type, phase, weekIndex, volumeKm, niveauCount, mode
   return { sessions: sessions.sort((a, b) => a.dayOffset - b.dayOffset), zoneVolumeKm };
 }
 
-function toPlannedSession(catalogSession, targetVolumeKm, dayOffset) {
+// Run/walk pour débutants (doc technique Section 5) : sur une pente
+// raide, alterner course et marche rapide en montée est plus efficace
+// énergétiquement qu'un débutant courant en continu, et réduit le risque
+// de blessure. Ne s'applique qu'aux séances en côte (elevationTag
+// "soutenu") pour un profil débutant, ou pour tout niveau sur le palier
+// de D+ le plus exigeant de l'objectif.
+function shouldSuggestRunWalk(catalogSession, { niveau, elevationTier } = {}) {
+  if (catalogSession.elevationTag !== "soutenu") return false;
+  return niveau === "debutant" || elevationTier === "eleve";
+}
+
+function toPlannedSession(catalogSession, targetVolumeKm, dayOffset, context = {}) {
+  const { niveau, elevationTier, pctAllureObjectif = 0 } = context;
+  const roundedVolume = Math.round(targetVolumeKm * 10) / 10;
+  let structure = catalogSession.structure;
+  if (pctAllureObjectif > 0) {
+    const kmAllureObjectif = Math.round(roundedVolume * pctAllureObjectif * 10) / 10;
+    structure = [
+      ...structure,
+      {
+        bloc: "allure_objectif",
+        zone: "M",
+        description: `~${kmAllureObjectif} km (${Math.round(pctAllureObjectif * 100)}%) à allure objectif — spécificité course (doc Section 6)`,
+      },
+    ];
+  }
   return {
     catalogId: catalogSession.id,
     label: catalogSession.label,
     type: catalogSession.type,
     zone: catalogSession.zone,
-    structure: catalogSession.structure,
-    targetVolumeKm: Math.round(targetVolumeKm * 10) / 10,
+    structure,
+    targetVolumeKm: roundedVolume,
     dayOffset,
+    pctAllureObjectif: pctAllureObjectif > 0 ? pctAllureObjectif : undefined,
+    runWalkSuggested: shouldSuggestRunWalk(catalogSession, { niveau, elevationTier }) || undefined,
   };
 }
+
+// Objectifs "ultra" (au-delà du marathon, doc technique Section 5) : seuil
+// en distance route équivalente.
+const ULTRA_DISTANCE_KM_THRESHOLD = 42.195;
 
 /**
  * Génère un plan complet pour un objectif.
@@ -274,16 +368,23 @@ function toPlannedSession(catalogSession, targetVolumeKm, dayOffset) {
  *   type: 'route'|'trail', distanceKm: number, deniveleM?: number,
  *   dateCourse: string|Date, dateDebut?: string|Date,
  *   niveau: 'debutant'|'intermediaire'|'avance', vdot?: number,
+ *   tempsViseS?: number, priorite?: 'A'|'B'|'C', axeTravail?: 'vitesse'|'equilibre'|'endurance',
  * }} objectif
  */
 export function generatePlan(objectif) {
-  const { type, niveau, dateCourse, deniveleM, distanceKm } = objectif;
+  const { type, niveau, dateCourse, deniveleM, distanceKm, priorite = "B", axeTravail = "equilibre" } = objectif;
   const dateDebut = objectif.dateDebut ?? new Date().toISOString().slice(0, 10);
   const totalWeeks = weeksBetween(dateDebut, dateCourse);
-  const phasePlan = computePhasePlan(totalWeeks, { type, niveau });
+  const phasePlan = computePhasePlan(totalWeeks, { type, niveau, priorite });
   const phaseWeeks = expandPhaseWeeks(phasePlan);
   const baseVolume = VOLUME_BASE_KM_BY_NIVEAU[niveau] ?? VOLUME_BASE_KM_BY_NIVEAU.intermediaire;
   const niveauCount = sessionsPerWeek(niveau);
+  const ultraBackToBack = type === "trail" && distanceKm > ULTRA_DISTANCE_KM_THRESHOLD;
+
+  const objectifFit = objectif.tempsViseS
+    ? evaluateObjectifFit({ distanceKm, tempsViseS: objectif.tempsViseS, deniveleM, type }, objectif.vdot)
+    : null;
+  const specificiteLongue = objectifFit?.specificiteLongue ?? 0;
 
   const weeks = phaseWeeks.map((pw, globalIndex) => {
     const { factor, decharge } =
@@ -291,7 +392,11 @@ export function generatePlan(objectif) {
         ? maintenanceVolumeFactor(pw.indexInPhase, pw.phaseTotalWeeks)
         : volumeFactorForWeek(pw.indexInPhase, pw.phaseTotalWeeks);
     const phaseMultiplier =
-      phasePlan.mode === "gestion_forme_existante" ? 1 : PHASE_VOLUME_MULTIPLIER[pw.phase] ?? 1;
+      phasePlan.mode === "gestion_forme_existante"
+        ? 1
+        : pw.phase === "affutage"
+        ? AFFUTAGE_VOLUME_MULTIPLIER_BY_PRIORITE[priorite] ?? AFFUTAGE_VOLUME_MULTIPLIER_BY_PRIORITE.B
+        : PHASE_VOLUME_MULTIPLIER[pw.phase] ?? 1;
     const volumeKm = Math.round(baseVolume * phaseMultiplier * factor);
     const { sessions, zoneVolumeKm } = buildWeekSessions({
       type,
@@ -303,6 +408,10 @@ export function generatePlan(objectif) {
       deniveleM,
       distanceKm,
       decharge,
+      niveau,
+      axeTravail,
+      specificiteLongue,
+      ultraBackToBack,
     });
     const startDate = addDays(dateDebut, globalIndex * 7);
     return {
@@ -327,6 +436,9 @@ export function generatePlan(objectif) {
     dateCourse: new Date(dateCourse).toISOString().slice(0, 10),
     phases: phasePlan.phases,
     prepWindowWarning: prepWindowWarning(totalWeeks, type),
+    priorite,
+    axeTravail,
+    objectifFit,
     weeks,
   };
 }

@@ -189,6 +189,137 @@ test("generatePlan: avertit quand la fenêtre est sous le référentiel de prép
   assert.equal(suffisante.prepWindowWarning, null);
 });
 
+test("computePhasePlan: priorité A allonge l'affûtage, priorité C le réduit (Section 10)", () => {
+  const a = computePhasePlan(18, { type: "route", niveau: "intermediaire", priorite: "A" });
+  const b = computePhasePlan(18, { type: "route", niveau: "intermediaire", priorite: "B" });
+  const c = computePhasePlan(18, { type: "route", niveau: "intermediaire", priorite: "C" });
+  const taper = (p) => p.phases.find((ph) => ph.name === "affutage").weeks;
+  assert.ok(taper(a) > taper(b), `A (${taper(a)}) devrait être > B (${taper(b)})`);
+  assert.ok(taper(c) < taper(b), `C (${taper(c)}) devrait être < B (${taper(b)})`);
+});
+
+test("generatePlan: priorité A réduit plus fortement le volume d'affûtage que priorité C", () => {
+  const base = { type: "route", distanceKm: 42.195, dateDebut: "2026-01-01", dateCourse: "2026-05-10", niveau: "intermediaire", vdot: 48 };
+  const planA = generatePlan({ ...base, priorite: "A" });
+  const planC = generatePlan({ ...base, priorite: "C" });
+  const lastVolume = (plan) => plan.weeks[plan.weeks.length - 1].targetVolumeKm;
+  assert.ok(lastVolume(planA) < lastVolume(planC), `A (${lastVolume(planA)}) devrait être < C (${lastVolume(planC)})`);
+});
+
+test("generatePlan: expose le niveau de calage objectif (Atteint/Ambitieux/Très ambitieux) quand un temps visé est fourni", () => {
+  const plan = generatePlan({
+    type: "route",
+    distanceKm: 42.195,
+    tempsViseS: 3 * 3600,
+    dateDebut: "2026-01-01",
+    dateCourse: "2026-05-10",
+    niveau: "intermediaire",
+    vdot: 38, // forme nettement en dessous de l'allure visée -> très ambitieux
+  });
+  assert.ok(plan.objectifFit);
+  assert.equal(plan.objectifFit.niveau, "tres_ambitieux");
+
+  const planSansTemps = generatePlan({
+    type: "route",
+    distanceKm: 42.195,
+    dateDebut: "2026-01-01",
+    dateCourse: "2026-05-10",
+    niveau: "intermediaire",
+    vdot: 48,
+  });
+  assert.equal(planSansTemps.objectifFit, null);
+});
+
+test("generatePlan: un objectif 'très ambitieux' intègre une part d'allure objectif plus grande dans la sortie longue qu'un objectif 'atteint'", () => {
+  const buildPlan = (vdot) =>
+    generatePlan({
+      type: "route",
+      distanceKm: 42.195,
+      tempsViseS: 3 * 3600 + 30 * 60,
+      dateDebut: "2026-01-01",
+      dateCourse: "2026-05-10",
+      niveau: "intermediaire",
+      vdot,
+    });
+  const planAtteint = buildPlan(50);
+  const planTresAmbitieux = buildPlan(35);
+  assert.equal(planAtteint.objectifFit.niveau, "atteint");
+  assert.equal(planTresAmbitieux.objectifFit.niveau, "tres_ambitieux");
+
+  const maxPct = (plan) => {
+    const longues = plan.weeks.filter((w) => w.phase === "developpement").flatMap((w) => w.sessions).filter((s) => s.type === "longue");
+    return Math.max(0, ...longues.map((s) => s.pctAllureObjectif ?? 0));
+  };
+  assert.ok(maxPct(planTresAmbitieux) > maxPct(planAtteint));
+});
+
+test("generatePlan: axe de travail 'vitesse' pousse plus de séances I/R qu'axe 'endurance' en développement", () => {
+  const buildPlan = (axeTravail) =>
+    generatePlan({
+      type: "route",
+      distanceKm: 21.1,
+      dateDebut: "2026-01-01",
+      dateCourse: "2026-06-01",
+      niveau: "avance",
+      vdot: 48,
+      axeTravail,
+    });
+  const countIR = (plan) =>
+    plan.weeks.filter((w) => w.phase === "developpement").flatMap((w) => w.sessions).filter((s) => s.type === "I" || s.type === "R").length;
+  const vitesse = buildPlan("vitesse");
+  const endurance = buildPlan("endurance");
+  assert.ok(countIR(vitesse) > countIR(endurance), `vitesse (${countIR(vitesse)}) devrait être > endurance (${countIR(endurance)})`);
+});
+
+function weeksWithConsecutiveLongueDays(plan) {
+  return plan.weeks.filter((w) => {
+    const longueDays = w.sessions.filter((s) => s.type === "longue").map((s) => s.dayOffset);
+    return longueDays.length >= 2 && longueDays.some((d) => longueDays.includes(d + 1));
+  });
+}
+
+test("generatePlan: un objectif ultra trail place occasionnellement des sorties longues back-to-back en développement", () => {
+  const plan = generatePlan({
+    type: "trail",
+    distanceKm: 80,
+    deniveleM: 4000,
+    dateDebut: "2026-01-01",
+    dateCourse: "2026-09-01",
+    niveau: "intermediaire",
+    vdot: 45,
+  });
+  assert.ok(weeksWithConsecutiveLongueDays(plan).length > 0, "attendu au moins une semaine avec deux sorties longues consécutives pour un objectif ultra");
+
+  const planCourt = generatePlan({
+    type: "trail",
+    distanceKm: 25,
+    deniveleM: 1500,
+    dateDebut: "2026-01-01",
+    dateCourse: "2026-09-01",
+    niveau: "intermediaire",
+    vdot: 45,
+  });
+  assert.equal(
+    weeksWithConsecutiveLongueDays(planCourt).length,
+    0,
+    "pas de sorties longues consécutives attendues pour un objectif non-ultra"
+  );
+});
+
+test("generatePlan: suggère le run/walk sur les séances en côte pour un profil débutant", () => {
+  const plan = generatePlan({
+    type: "trail",
+    distanceKm: 30,
+    deniveleM: 2000,
+    dateDebut: "2026-01-01",
+    dateCourse: "2026-07-01",
+    niveau: "debutant",
+    vdot: 35,
+  });
+  const runWalk = plan.weeks.flatMap((w) => w.sessions).filter((s) => s.runWalkSuggested);
+  assert.ok(runWalk.length > 0, "attendu au moins une séance suggérant le run/walk pour un profil débutant");
+});
+
 test("recalculerApresAlea: réduit le volume et retire les séances T/I de la semaine affectée", () => {
   const plan = generatePlan({
     type: "route",

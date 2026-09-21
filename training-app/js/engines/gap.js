@@ -64,3 +64,17 @@ export function averageGrade(distanceM, elevationGainM = 0, elevationLossM = 0) 
   if (distanceM <= 0) return 0;
   return (elevationGainM - elevationLossM) / distanceM;
 }
+
+/**
+ * Palier de dénivelé (m/km) d'un objectif : eleve >= 30 m/km, modere >= 15
+ * m/km, sinon faible. Utilisé pour orienter la sélection de séances (D+
+ * concentré vs. réparti, doc technique Section 5) et l'amplification de
+ * spécificité allure (Section 6).
+ */
+export function elevationTierFor(deniveleM, distanceKm) {
+  if (!deniveleM || !distanceKm) return null;
+  const ratio = deniveleM / distanceKm;
+  if (ratio >= 30) return "eleve";
+  if (ratio >= 15) return "modere";
+  return "faible";
+}

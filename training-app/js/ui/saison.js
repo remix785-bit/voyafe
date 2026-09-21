@@ -50,7 +50,7 @@ export async function renderSaison(params, container) {
         </select>
 
         <label for="distanceKm">Distance (km)</label>
-        <input id="distanceKm" name="distanceKm" type="number" step="0.1" min="0" required />
+        <input id="distanceKm" name="distanceKm" type="number" step="0.001" min="0" required />
 
         <label for="deniveleM">Dénivelé positif (m, trail)</label>
         <input id="deniveleM" name="deniveleM" type="number" step="10" min="0" />
@@ -58,11 +58,28 @@ export async function renderSaison(params, container) {
         <label for="dateCourse">Date de la course</label>
         <input id="dateCourse" name="dateCourse" type="date" required />
 
+        <label for="tempsViseHms">Temps visé (h:mm:ss, optionnel)</label>
+        <input id="tempsViseHms" name="tempsViseHms" type="text" placeholder="Ex: 3:30:00" pattern="\\d{1,2}:\\d{2}(:\\d{2})?" />
+
         <label for="niveau">Niveau</label>
         <select id="niveau" name="niveau">
           <option value="debutant">Débutant</option>
           <option value="intermediaire" selected>Intermédiaire</option>
           <option value="avance">Avancé</option>
+        </select>
+
+        <label for="axeTravail">Axe de travail</label>
+        <select id="axeTravail" name="axeTravail">
+          <option value="equilibre" selected>Équilibre</option>
+          <option value="vitesse">Vitesse (fort en vitesse, à consolider en endurance)</option>
+          <option value="endurance">Endurance (fort en endurance, à consolider en vitesse)</option>
+        </select>
+
+        <label for="priorite">Priorité de la course</label>
+        <select id="priorite" name="priorite">
+          <option value="A">A — objectif principal (affûtage long et marqué)</option>
+          <option value="B" selected>B — course secondaire (affûtage intermédiaire)</option>
+          <option value="C">C — course d'entraînement (affûtage minimal)</option>
         </select>
 
         <label style="display:flex;align-items:center;gap:8px;flex-direction:row;">
@@ -91,9 +108,22 @@ export async function renderSaison(params, container) {
       dateCourse: data.get("dateCourse"),
       dateDebut: new Date().toISOString().slice(0, 10),
       niveau: data.get("niveau"),
+      axeTravail: data.get("axeTravail"),
+      priorite: data.get("priorite"),
+      tempsViseS: parseHms(data.get("tempsViseHms")),
       principal,
     });
     if (principal) await repo.setObjectifPrincipal(saison.id, created.id);
     await renderSaison(params, container);
   });
+}
+
+/** Parse un temps "h:mm:ss" ou "mm:ss" saisi en formulaire, en secondes. */
+function parseHms(str) {
+  if (!str) return null;
+  const parts = String(str).trim().split(":").map(Number);
+  if (parts.some((p) => Number.isNaN(p))) return null;
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return null;
 }
