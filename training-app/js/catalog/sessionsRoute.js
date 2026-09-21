@@ -50,6 +50,25 @@ export const SESSIONS_ROUTE = [
     ],
   },
   {
+    id: "route_longue_progressive",
+    type: "longue",
+    zone: "E",
+    label: "Sortie longue progressive",
+    phases: ["base", "developpement"],
+    structure: [
+      { bloc: "corps_1", zone: "E", description: "Première moitié en allure E facile" },
+      { bloc: "corps_2", zone: "E", description: "Seconde moitié en accélérant progressivement, sans dépasser allure M" },
+    ],
+  },
+  {
+    id: "route_longue_vallonnee",
+    type: "longue",
+    zone: "E",
+    label: "Sortie longue vallonnée",
+    phases: ["base", "developpement"],
+    structure: [{ bloc: "corps", zone: "E", description: "Sortie longue sur parcours vallonné, allure E au ressenti" }],
+  },
+  {
     id: "route_seuil_continu",
     type: "T",
     zone: "T",
@@ -70,6 +89,18 @@ export const SESSIONS_ROUTE = [
     structure: [
       { bloc: "echauffement", zone: "E", description: "15-20 min" },
       { bloc: "corps", zone: "T", description: "4-6 x 1200-1600 m allure T, récup 1 min trot" },
+      { bloc: "retour_calme", zone: "E", description: "10 min" },
+    ],
+  },
+  {
+    id: "route_seuil_progressif",
+    type: "T",
+    zone: "T",
+    label: "Tempo progressif",
+    phases: ["developpement"],
+    structure: [
+      { bloc: "echauffement", zone: "E", description: "15 min" },
+      { bloc: "corps", zone: "T", description: "25-30 min continu, allure démarrant à E+ et progressant vers T" },
       { bloc: "retour_calme", zone: "E", description: "10 min" },
     ],
   },
@@ -98,6 +129,18 @@ export const SESSIONS_ROUTE = [
     ],
   },
   {
+    id: "route_intervalles_longs",
+    type: "I",
+    zone: "I",
+    label: "Intervalles longs VO2max",
+    phases: ["developpement"],
+    structure: [
+      { bloc: "echauffement", zone: "E", description: "20 min + gammes" },
+      { bloc: "corps", zone: "I", description: "3-5 x 1200-1600 m allure I, récup trot 3-4 min" },
+      { bloc: "retour_calme", zone: "E", description: "10-15 min" },
+    ],
+  },
+  {
     id: "route_repetitions_vitesse",
     type: "R",
     zone: "R",
@@ -122,11 +165,39 @@ export const SESSIONS_ROUTE = [
     ],
   },
   {
+    id: "route_repetitions_400",
+    type: "R",
+    zone: "R",
+    label: "Répétitions 400 m",
+    phases: ["base", "developpement", "affutage"],
+    structure: [
+      { bloc: "echauffement", zone: "E", description: "20 min + gammes + lignes droites" },
+      { bloc: "corps", zone: "R", description: "6-10 x 400 m allure R, récup complète trottée/marchée" },
+      { bloc: "retour_calme", zone: "E", description: "10 min" },
+    ],
+  },
+  {
     id: "route_footing_recuperation",
     type: "recuperation",
     zone: "E",
     label: "Footing de récupération",
     phases: ["base", "developpement", "affutage"],
     structure: [{ bloc: "corps", zone: "E", description: "20-35 min très facile, plus court qu'un footing E standard" }],
+  },
+  {
+    id: "route_recuperation_alternee",
+    type: "recuperation",
+    zone: "E",
+    label: "Footing de récupération avec marche",
+    phases: ["base", "developpement", "affutage"],
+    structure: [{ bloc: "corps", zone: "E", description: "15-25 min très facile, alternance course/marche possible" }],
+  },
+  {
+    id: "route_recuperation_active",
+    type: "recuperation",
+    zone: "E",
+    label: "Décrassage actif",
+    phases: ["developpement", "affutage"],
+    structure: [{ bloc: "corps", zone: "E", description: "20-30 min très facile, quelques accélérations courtes (foulées) en fin" }],
   },
 ];
