@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { SESSIONS_ROUTE } from "../js/catalog/sessionsRoute.js";
 import { SESSIONS_TRAIL } from "../js/catalog/sessionsTrail.js";
+import { RENFO_EXERCISES, RENFO_CATEGORIES } from "../js/catalog/renfo.js";
 
 // Doc technique Section 4 : chaque type de séance doit offrir au moins 3
 // variantes réelles (pas de doublons sous un nom différent) pour casser la
@@ -39,6 +40,28 @@ for (const [name, catalog] of [
     }
   });
 }
+
+test("catalogue renfo : couverture large (30-35 exercices) sur les 4 catégories", () => {
+  assert.ok(RENFO_EXERCISES.length >= 30, `catalogue renfo trop restreint : ${RENFO_EXERCISES.length} exercices`);
+  assert.ok(RENFO_EXERCISES.length <= 35, `catalogue renfo au-delà de la cible : ${RENFO_EXERCISES.length} exercices`);
+  const ids = new Set(RENFO_EXERCISES.map((e) => e.id));
+  assert.equal(ids.size, RENFO_EXERCISES.length, "ids en double dans le catalogue renfo");
+  for (const categorie of Object.keys(RENFO_CATEGORIES)) {
+    const count = RENFO_EXERCISES.filter((e) => e.categorie === categorie).length;
+    assert.ok(count >= 4, `catégorie ${categorie} sous-représentée : ${count} exercice(s)`);
+  }
+});
+
+test("catalogue renfo : le renfo lourd et la pliométrie sont identifiés et bien représentés", () => {
+  const lourd = RENFO_EXERCISES.filter((e) => e.type === "lourd");
+  const pliometrie = RENFO_EXERCISES.filter((e) => e.type === "pliometrie");
+  assert.ok(lourd.length >= 5, `renfo lourd sous-représenté : ${lourd.length} exercice(s)`);
+  assert.ok(pliometrie.length >= 4, `pliométrie sous-représentée : ${pliometrie.length} exercice(s)`);
+  assert.ok(
+    RENFO_EXERCISES.every((e) => typeof e.type === "string" && e.type.length > 0),
+    "chaque exercice de renfo doit avoir un champ type"
+  );
+});
 
 test("catalogue route: le seuil (T) couvre à la fois le tempo continu et les cruise intervals", () => {
   const thresholdVariants = SESSIONS_ROUTE.filter((s) => s.type === "T");

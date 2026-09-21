@@ -1,6 +1,8 @@
 import * as repo from "../data/repo.js";
-import { RENFO_CATEGORIES, RENFO_EXERCISES, renfoByCategorie } from "../catalog/renfo.js";
+import { RENFO_CATEGORIES, RENFO_TYPES, RENFO_EXERCISES } from "../catalog/renfo.js";
 import { escapeHtml, formatDateFr, card, emptyState, badge } from "./components.js";
+
+const TYPE_BADGE_LEVEL = { lourd: "warning", pliometrie: "danger", isometrique: "muted", dynamique: "muted", mobilite: "muted" };
 
 function categorieOptions(selected) {
   return `
@@ -11,12 +13,21 @@ function categorieOptions(selected) {
   `;
 }
 
+function typeOptions(selected) {
+  return `
+    <option value="" ${!selected ? "selected" : ""}>Tous types</option>
+    ${Object.entries(RENFO_TYPES)
+      .map(([key, label]) => `<option value="${key}" ${key === selected ? "selected" : ""}>${escapeHtml(label)}</option>`)
+      .join("")}
+  `;
+}
+
 function exerciceRow(ex, checked) {
   return `
     <label class="session-row" style="cursor:pointer">
       <span>
         <input type="checkbox" name="exercice" value="${ex.id}" ${checked ? "checked" : ""} style="width:auto;margin-right:8px" />
-        ${escapeHtml(ex.nom)}${ex.excentrique ? " " + badge("Excentrique", "warning") : ""}
+        ${escapeHtml(ex.nom)} ${badge(RENFO_TYPES[ex.type] ?? ex.type, TYPE_BADGE_LEVEL[ex.type] ?? "muted")}${ex.excentrique ? " " + badge("Excentrique", "warning") : ""}
         <br><span class="meta">${escapeHtml(RENFO_CATEGORIES[ex.categorie])} · niveau ${escapeHtml(ex.niveau)}${
           ex.materiel !== "aucun" ? ` · ${escapeHtml(ex.materiel)}` : ""
         }</span>
@@ -38,7 +49,10 @@ function logRow(log) {
 
 export async function renderRenfo(params, container) {
   const categorieFiltre = params.categorie ?? "";
-  const exercices = categorieFiltre ? renfoByCategorie(categorieFiltre) : RENFO_EXERCISES;
+  const typeFiltre = params.type ?? "";
+  const exercices = RENFO_EXERCISES.filter(
+    (ex) => (!categorieFiltre || ex.categorie === categorieFiltre) && (!typeFiltre || ex.type === typeFiltre)
+  );
   const logs = await repo.listRenfoLogs();
 
   container.innerHTML = `
@@ -46,6 +60,8 @@ export async function renderRenfo(params, container) {
       <h2>Renforcement musculaire</h2>
       <label for="filtre-categorie">Filtrer par catégorie</label>
       <select id="filtre-categorie">${categorieOptions(categorieFiltre)}</select>
+      <label for="filtre-type">Filtrer par type</label>
+      <select id="filtre-type">${typeOptions(typeFiltre)}</select>
     `)}
     ${card(`
       <h3>Logger une séance de renfo</h3>
@@ -81,9 +97,17 @@ export async function renderRenfo(params, container) {
     `)}
   `;
 
-  container.querySelector("#filtre-categorie").addEventListener("change", (e) => {
-    window.location.hash = `#/renfo${e.target.value ? `?categorie=${e.target.value}` : ""}`;
-  });
+  function navigateFiltres() {
+    const params = new URLSearchParams();
+    const categorie = container.querySelector("#filtre-categorie").value;
+    const type = container.querySelector("#filtre-type").value;
+    if (categorie) params.set("categorie", categorie);
+    if (type) params.set("type", type);
+    const query = params.toString();
+    window.location.hash = `#/renfo${query ? `?${query}` : ""}`;
+  }
+  container.querySelector("#filtre-categorie").addEventListener("change", navigateFiltres);
+  container.querySelector("#filtre-type").addEventListener("change", navigateFiltres);
 
   container.querySelector("#form-renfo").addEventListener("submit", async (e) => {
     e.preventDefault();

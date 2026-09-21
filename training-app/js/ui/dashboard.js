@@ -1,47 +1,8 @@
 import * as repo from "../data/repo.js";
-import { sessionLoad, renfoSessionLoad, acwr, acwrRiskLevel, latestLoadState, ACWR_SAFE_MIN, ACWR_SAFE_MAX, signauxSurentrainement } from "../engines/load.js";
+import { acwr, acwrRiskLevel, latestLoadState, ACWR_SAFE_MIN, ACWR_SAFE_MAX } from "../engines/load.js";
 import { nextRetestWindow } from "../engines/vdot.js";
 import { escapeHtml, formatDateFr, daysUntil, zoneTag, badge, emptyState, card } from "./components.js";
-
-async function buildDailyLoads() {
-  const plans = await Promise.all((await repo.listObjectifs()).map((o) => repo.getPlanForObjectif(o.id)));
-  const validPlans = plans.filter(Boolean);
-  const allSeances = (
-    await Promise.all(validPlans.map((p) => repo.listSeancesByPlan(p.id)))
-  ).flat();
-
-  const byDate = new Map();
-  for (const s of allSeances) {
-    if (s.status !== "realisee" && s.status !== "modifiee") continue;
-    const distanceKm = s.log?.realiseKm ?? s.targetVolumeKm;
-    const load = sessionLoad({ distanceKm, intensityFactor: intensityFactorFor(s.type) });
-    byDate.set(s.date, (byDate.get(s.date) ?? 0) + load);
-  }
-
-  const renfoLogs = await repo.listRenfoLogs();
-  for (const r of renfoLogs) {
-    const load = renfoSessionLoad({ rpe: r.rpe, dureeMin: r.dureeMin });
-    byDate.set(r.date, (byDate.get(r.date) ?? 0) + load);
-  }
-
-  return [...byDate.entries()].map(([date, load]) => ({ date, load }));
-}
-
-const SEANCES_MANQUEES_ALERTE_SEUIL = 2;
-const FENETRE_ALERTE_JOURS = 14;
-
-async function seancesManqueesRecentes() {
-  const plans = await Promise.all((await repo.listObjectifs()).map((o) => repo.getPlanForObjectif(o.id)));
-  const validPlans = plans.filter(Boolean);
-  const allSeances = (await Promise.all(validPlans.map((p) => repo.listSeancesByPlan(p.id)))).flat();
-  const seuilDate = new Date();
-  seuilDate.setDate(seuilDate.getDate() - FENETRE_ALERTE_JOURS);
-  return allSeances.filter((s) => s.status === "manquee" && new Date(s.date) >= seuilDate);
-}
-
-function intensityFactorFor(type) {
-  return { T: 1.3, I: 1.5, R: 1.4, longue: 1.1, E: 1, recuperation: 0.7 }[type] ?? 1;
-}
+import { buildDailyLoads, seancesManqueesRecentes, surentrainementSignal, SEANCES_MANQUEES_ALERTE_SEUIL, FENETRE_ALERTE_JOURS } from "./monitoring.js";
 
 function riskBadge(level) {
   if (level === "risque_surcharge") return badge("ACWR élevé — risque de surcharge", "danger");
@@ -71,8 +32,7 @@ export async function renderDashboard(params, container) {
   const { ctl, atl, tsb } = latestLoadState(dailyLoads);
   const seanceDuJour = await findSeanceDuJour();
   const seancesManquees = await seancesManqueesRecentes();
-  const journal = await repo.listJournal();
-  const surentrainement = signauxSurentrainement(journal);
+  const surentrainement = await surentrainementSignal();
   const dernierResultat = await repo.currentVdotResultat();
   let retestDepasse = false;
   if (dernierResultat) {

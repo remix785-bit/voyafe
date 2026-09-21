@@ -1,15 +1,28 @@
 import * as repo from "../data/repo.js";
 import { escapeHtml, formatDateFr, card, emptyState, badge } from "./components.js";
+import { semaineActuelle } from "./monitoring.js";
 
-function objectifRow(o) {
+const FIT_LEVEL_BADGE = { atteint: "ok", ambitieux: "warning", tres_ambitieux: "danger" };
+const PRIORITE_LABEL = { A: "Priorité A", B: "Priorité B", C: "Priorité C" };
+
+function objectifRow(o, plan) {
   return `
     <div class="session-row" style="cursor:default">
-      <span>${o.principal ? badge("Principal", "ok") + " " : ""}${escapeHtml(o.nom)}
+      <span>${o.principal ? badge("Principal", "ok") + " " : badge("Secondaire", "muted") + " "}${escapeHtml(o.nom)}
         <br><span class="meta">${o.type === "trail" ? "Trail" : "Route"} · ${escapeHtml(String(o.distanceKm))} km${
           o.deniveleM ? ` · ${escapeHtml(String(o.deniveleM))} m D+` : ""
-        } · ${formatDateFr(o.dateCourse)}</span>
+        } · ${formatDateFr(o.dateCourse)} · ${escapeHtml(PRIORITE_LABEL[o.priorite] ?? "Priorité B")}</span>
+        <br><span class="meta">
+          ${
+            plan
+              ? `${badge("Plan généré", "ok")} semaine ${semaineActuelle(plan)}/${plan.totalWeeks}${
+                  plan.objectifFit ? ` · ${badge(plan.objectifFit.label, FIT_LEVEL_BADGE[plan.objectifFit.niveau] ?? "muted")}` : ""
+                }`
+              : badge("Pas encore de plan", "warning")
+          }
+        </span>
       </span>
-      <a class="btn btn-secondary btn-small" href="#/plan?objectifId=${o.id}">Plan</a>
+      <a class="btn btn-secondary btn-small" href="#/plan?objectifId=${o.id}">${plan ? "Plan" : "Générer un plan"}</a>
     </div>
   `;
 }
@@ -27,13 +40,14 @@ async function ensureSaison() {
 export async function renderSaison(params, container) {
   const saison = await ensureSaison();
   const objectifs = await repo.listObjectifs(saison.id);
+  const plans = await Promise.all(objectifs.map((o) => repo.getPlanForObjectif(o.id)));
 
   container.innerHTML = `
     ${card(`
       <h2>${escapeHtml(saison.nom)}</h2>
       ${
         objectifs.length > 0
-          ? objectifs.map(objectifRow).join("")
+          ? objectifs.map((o, i) => objectifRow(o, plans[i])).join("")
           : emptyState("Aucun objectif pour cette saison.")
       }
     `)}
