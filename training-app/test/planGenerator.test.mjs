@@ -119,6 +119,45 @@ test("generatePlan: un objectif trail avec beaucoup de D+ privilégie des séanc
   );
 });
 
+test("generatePlan: la cadence de décharge ne dépasse pas 4 semaines entre base et développement", () => {
+  const plan = generatePlan({
+    type: "route",
+    distanceKm: 42.195,
+    dateDebut: "2026-01-01",
+    dateCourse: "2026-05-10", // ~18 semaines, débutant -> base plus longue
+    niveau: "debutant",
+    vdot: 38,
+  });
+  const buildWeeks = plan.weeks.filter((w) => w.phase === "base" || w.phase === "developpement");
+  const decharges = buildWeeks.filter((w) => w.decharge).map((w) => w.index);
+  assert.ok(decharges.length >= 2, `attendu plusieurs décharges, trouvé ${decharges.length}`);
+  for (let i = 1; i < decharges.length; i++) {
+    const gap = decharges[i] - decharges[i - 1];
+    assert.ok(gap <= 4, `écart entre décharges base/développement de ${gap} semaines (> 4) : ${decharges}`);
+  }
+});
+
+test("generatePlan: plan court (<6 semaines) reste en mode maintien, sans ramp-up base/développement", () => {
+  const plan = generatePlan({
+    type: "route",
+    distanceKm: 10,
+    dateDebut: "2026-01-01",
+    dateCourse: "2026-01-29", // 4 semaines
+    niveau: "intermediaire",
+    vdot: 45,
+  });
+  assert.equal(plan.mode, "gestion_forme_existante");
+  const volumes = plan.weeks.map((w) => w.targetVolumeKm);
+  // Pas de vraie montée en charge : le volume ne doit jamais dépasser la
+  // semaine de référence de plus de quelques %, jusqu'à l'affûtage anticipé.
+  const ref = volumes[0];
+  for (let i = 0; i < volumes.length - 1; i++) {
+    assert.ok(volumes[i] <= ref * 1.05, `semaine ${i} en hausse (${volumes[i]} vs réf ${ref}) : ramp-up inattendu en mode maintien`);
+  }
+  // Affûtage anticipé sur la dernière semaine.
+  assert.ok(plan.weeks[plan.weeks.length - 1].targetVolumeKm < ref, "dernière semaine attendue en affûtage (volume réduit)");
+});
+
 test("recalculerApresAlea: réduit le volume et retire les séances T/I de la semaine affectée", () => {
   const plan = generatePlan({
     type: "route",
