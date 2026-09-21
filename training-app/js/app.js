@@ -8,6 +8,8 @@ import { renderRenfo } from "./ui/renfo.js";
 import { renderJournal } from "./ui/journal.js";
 import { renderStrava } from "./ui/strava.js";
 import { renderHistorique } from "./ui/historique.js";
+import { renderNutrition } from "./ui/nutrition.js";
+import { renderPacing } from "./ui/pacing.js";
 
 registerRoute("dashboard", renderDashboard);
 registerRoute("saison", renderSaison);
@@ -18,6 +20,8 @@ registerRoute("renfo", renderRenfo);
 registerRoute("journal", renderJournal);
 registerRoute("strava", renderStrava);
 registerRoute("historique", renderHistorique);
+registerRoute("nutrition", renderNutrition);
+registerRoute("pacing", renderPacing);
 setNotFound(() => `<div class="card"><p>Page introuvable.</p></div>`);
 
 const screen = document.getElementById("app-screen");
