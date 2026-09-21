@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { generatePlan, computePhasePlan, ZONE_CAPS, recalculerApresAlea, elevationTierFor } from "../js/engines/planGenerator.js";
+import {
+  generatePlan,
+  computePhasePlan,
+  ZONE_CAPS,
+  PREP_WINDOW_WEEKS,
+  recalculerApresAlea,
+  elevationTierFor,
+} from "../js/engines/planGenerator.js";
 import { SESSIONS_TRAIL } from "../js/catalog/sessionsTrail.js";
 
 test("computePhasePlan: moins de 6 semaines -> gestion de forme existante", () => {
@@ -156,6 +163,30 @@ test("generatePlan: plan court (<6 semaines) reste en mode maintien, sans ramp-u
   }
   // Affûtage anticipé sur la dernière semaine.
   assert.ok(plan.weeks[plan.weeks.length - 1].targetVolumeKm < ref, "dernière semaine attendue en affûtage (volume réduit)");
+});
+
+test("generatePlan: avertit quand la fenêtre est sous le référentiel de préparation utile (18 route / 22 trail)", () => {
+  const courte = generatePlan({
+    type: "trail",
+    distanceKm: 50,
+    deniveleM: 2000,
+    dateDebut: "2026-01-01",
+    dateCourse: "2026-05-01", // ~17 semaines < 22
+    niveau: "intermediaire",
+    vdot: 45,
+  });
+  assert.ok(courte.prepWindowWarning, "attendu un avertissement de fenêtre courte");
+  assert.equal(courte.prepWindowWarning.idealWeeks, PREP_WINDOW_WEEKS.trail);
+
+  const suffisante = generatePlan({
+    type: "route",
+    distanceKm: 42.195,
+    dateDebut: "2026-01-01",
+    dateCourse: "2026-05-15", // ~19 semaines >= 18
+    niveau: "intermediaire",
+    vdot: 45,
+  });
+  assert.equal(suffisante.prepWindowWarning, null);
 });
 
 test("recalculerApresAlea: réduit le volume et retire les séances T/I de la semaine affectée", () => {

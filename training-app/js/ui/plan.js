@@ -57,6 +57,7 @@ export async function renderPlan(params, container) {
       ${
         plan
           ? `<p class="muted" style="font-size:0.78rem">Plan généré le ${formatDateFr(plan.generatedAt)} — ${plan.totalWeeks} semaines (${plan.mode === "gestion_forme_existante" ? "gestion de forme existante" : "cycle complet"}).</p>
+             ${plan.prepWindowWarning ? `<p class="muted" style="font-size:0.78rem">${badge("Fenêtre courte", "warning")} ${escapeHtml(plan.prepWindowWarning.message)}</p>` : ""}
              <button id="btn-regenerer" class="btn btn-secondary">Régénérer le plan</button>`
           : `<button id="btn-generer" class="btn">Générer le plan</button>`
       }

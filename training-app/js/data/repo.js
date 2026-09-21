@@ -82,6 +82,7 @@ export async function generateAndSavePlan(objectif) {
     dateDebut: generated.dateDebut,
     dateCourse: generated.dateCourse,
     phases: generated.phases,
+    prepWindowWarning: generated.prepWindowWarning,
   };
   await db.put("plans", planRecord);
 

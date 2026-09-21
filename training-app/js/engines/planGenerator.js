@@ -326,7 +326,29 @@ export function generatePlan(objectif) {
     dateDebut,
     dateCourse: new Date(dateCourse).toISOString().slice(0, 10),
     phases: phasePlan.phases,
+    prepWindowWarning: prepWindowWarning(totalWeeks, type),
     weeks,
+  };
+}
+
+/**
+ * Compare la fenêtre disponible à la fenêtre de préparation utile de
+ * référence (doc technique Section 2 : ~18 semaines route, ~22 semaines
+ * trail). Retourne un avertissement si la fenêtre réelle est nettement plus
+ * courte (le plan doit alors comprimer les phases), sans influer sur le
+ * découpage lui-même (déjà géré par computePhasePlan).
+ */
+export function prepWindowWarning(totalWeeks, type) {
+  const ideal = PREP_WINDOW_WEEKS[type] ?? PREP_WINDOW_WEEKS.route;
+  if (totalWeeks >= ideal) return null;
+  const manqueSemaines = ideal - totalWeeks;
+  return {
+    idealWeeks: ideal,
+    totalWeeks,
+    manqueSemaines,
+    message: `Fenêtre de préparation (${totalWeeks} semaines) sous la référence recommandée pour ${
+      type === "trail" ? "un trail" : "une course route"
+    } (${ideal} semaines) — les phases ont été comprimées en conséquence.`,
   };
 }
 
