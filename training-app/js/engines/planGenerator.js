@@ -105,18 +105,38 @@ export function computePhasePlan(totalWeeks, { type, niveau }) {
   };
 }
 
-/** Étend le plan de phases en une liste plate {phase, indexInPhase}. */
+/**
+ * Étend le plan de phases en une liste plate {phase, indexInPhase}.
+ * `buildIndex` est un compteur CONTINU à travers base+développement (il
+ * n'est pas remis à zéro aux changements de phase), pour que la cadence de
+ * décharge (toutes les 3-4 semaines, doc technique Section 3) ne soit pas
+ * cassée par une transition de phase. L'affûtage a sa propre réduction de
+ * volume (PHASE_VOLUME_MULTIPLIER) et garde un cycle local.
+ */
 function expandPhaseWeeks(phasePlan) {
   const weeks = [];
+  let buildIndex = 0;
+  const buildWeeksTotal = phasePlan.phases
+    .filter((p) => p.name !== "affutage")
+    .reduce((s, p) => s + p.weeks, 0);
   for (const phase of phasePlan.phases) {
     for (let i = 0; i < phase.weeks; i++) {
-      weeks.push({ phase: phase.name, indexInPhase: i, phaseTotalWeeks: phase.weeks });
+      if (phase.name === "affutage") {
+        weeks.push({ phase: phase.name, indexInPhase: i, phaseTotalWeeks: phase.weeks });
+      } else {
+        weeks.push({
+          phase: phase.name,
+          indexInPhase: buildIndex,
+          phaseTotalWeeks: buildWeeksTotal,
+        });
+        buildIndex++;
+      }
     }
   }
   return weeks;
 }
 
-/** Facteur de volume + drapeau décharge pour une semaine donnée d'une phase. */
+/** Facteur de volume + drapeau décharge pour une semaine donnée d'un bloc. */
 function volumeFactorForWeek(indexInPhase, phaseTotalWeeks) {
   const blockLen = phaseTotalWeeks >= 4 ? 4 : 3;
   const factors = blockLen === 4 ? BLOCK_FACTORS_4W : BLOCK_FACTORS_3W;
@@ -128,6 +148,20 @@ function volumeFactorForWeek(indexInPhase, phaseTotalWeeks) {
 
 const PHASE_VOLUME_MULTIPLIER = { base: 1.0, developpement: 1.15, affutage: 0.6 };
 
+/**
+ * Plan < 6 semaines (doc technique Section 2) : "gestion de forme existante"
+ * — maintien du volume (PAS de ramp-up base/développement), avec un
+ * affûtage anticipé sur les 1-2 dernières semaines. Contrairement à
+ * `volumeFactorForWeek`, il n'y a pas de montée en charge : le facteur
+ * reste ~plat puis redescend en fin de plan.
+ */
+function maintenanceVolumeFactor(indexInPhase, phaseTotalWeeks) {
+  const remaining = phaseTotalWeeks - indexInPhase;
+  if (remaining <= 1) return { factor: 0.65, decharge: true }; // dernière semaine : affûtage anticipé
+  if (remaining === 2 && phaseTotalWeeks >= 3) return { factor: 0.85, decharge: false };
+  return { factor: 1.0, decharge: false };
+}
+
 function sessionsPerWeek(niveau) {
   return { debutant: 3, intermediaire: 4, avance: 6 }[niveau] ?? 4;
 }
@@ -137,7 +171,7 @@ function sessionsPerWeek(niveau) {
  * l'espacement des séances de qualité (>=48h) et un footing de récup après
  * une séance dure.
  */
-function buildWeekSessions({ type, phase, weekIndex, volumeKm, niveauCount, mode, deniveleM, distanceKm }) {
+function buildWeekSessions({ type, phase, weekIndex, volumeKm, niveauCount, mode, deniveleM, distanceKm, decharge }) {
   const sessions = [];
   const catalog = catalogFor(type);
   const dayOffsets = [];
@@ -160,6 +194,11 @@ function buildWeekSessions({ type, phase, weekIndex, volumeKm, niveauCount, mode
     qualityZones.push(weekIndex % 2 === 0 ? "T" : "R");
   } else if (phase === "base" && includeQuality) {
     qualityZones.push("R");
+  } else if (phase === "gestion_forme_existante") {
+    // Maintien + "spécificité légère" (doc technique Section 2) : une
+    // séance de qualité modérée par semaine, retirée lors de la dernière
+    // semaine (affûtage anticipé, cf. maintenanceVolumeFactor).
+    if (!decharge) qualityZones.push(weekIndex % 2 === 0 ? "T" : "R");
   }
 
   const zoneVolumeKm = { T: 0, I: 0, R: 0 };
@@ -247,8 +286,12 @@ export function generatePlan(objectif) {
   const niveauCount = sessionsPerWeek(niveau);
 
   const weeks = phaseWeeks.map((pw, globalIndex) => {
-    const { factor, decharge } = volumeFactorForWeek(pw.indexInPhase, pw.phaseTotalWeeks);
-    const phaseMultiplier = PHASE_VOLUME_MULTIPLIER[pw.phase] ?? 1;
+    const { factor, decharge } =
+      phasePlan.mode === "gestion_forme_existante"
+        ? maintenanceVolumeFactor(pw.indexInPhase, pw.phaseTotalWeeks)
+        : volumeFactorForWeek(pw.indexInPhase, pw.phaseTotalWeeks);
+    const phaseMultiplier =
+      phasePlan.mode === "gestion_forme_existante" ? 1 : PHASE_VOLUME_MULTIPLIER[pw.phase] ?? 1;
     const volumeKm = Math.round(baseVolume * phaseMultiplier * factor);
     const { sessions, zoneVolumeKm } = buildWeekSessions({
       type,
@@ -259,6 +302,7 @@ export function generatePlan(objectif) {
       mode: phasePlan.mode,
       deniveleM,
       distanceKm,
+      decharge,
     });
     const startDate = addDays(dateDebut, globalIndex * 7);
     return {
@@ -282,7 +326,29 @@ export function generatePlan(objectif) {
     dateDebut,
     dateCourse: new Date(dateCourse).toISOString().slice(0, 10),
     phases: phasePlan.phases,
+    prepWindowWarning: prepWindowWarning(totalWeeks, type),
     weeks,
+  };
+}
+
+/**
+ * Compare la fenêtre disponible à la fenêtre de préparation utile de
+ * référence (doc technique Section 2 : ~18 semaines route, ~22 semaines
+ * trail). Retourne un avertissement si la fenêtre réelle est nettement plus
+ * courte (le plan doit alors comprimer les phases), sans influer sur le
+ * découpage lui-même (déjà géré par computePhasePlan).
+ */
+export function prepWindowWarning(totalWeeks, type) {
+  const ideal = PREP_WINDOW_WEEKS[type] ?? PREP_WINDOW_WEEKS.route;
+  if (totalWeeks >= ideal) return null;
+  const manqueSemaines = ideal - totalWeeks;
+  return {
+    idealWeeks: ideal,
+    totalWeeks,
+    manqueSemaines,
+    message: `Fenêtre de préparation (${totalWeeks} semaines) sous la référence recommandée pour ${
+      type === "trail" ? "un trail" : "une course route"
+    } (${ideal} semaines) — les phases ont été comprimées en conséquence.`,
   };
 }
 
