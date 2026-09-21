@@ -6,6 +6,7 @@
 import * as db from "./db.js";
 import { generatePlan, recalculerApresAlea } from "../engines/planGenerator.js";
 import { vdotFromPerformance } from "../engines/vdot.js";
+import { renfoExcentriqueConflicts } from "../engines/load.js";
 
 export async function listSaisons() {
   return db.getAll("saisons");
@@ -32,6 +33,8 @@ export async function createObjectif(data) {
     principal: false,
     type: "route",
     niveau: "intermediaire",
+    priorite: "B",
+    axeTravail: "equilibre",
     ...data,
   };
   await db.put("objectifs", record);
@@ -69,6 +72,9 @@ export async function generateAndSavePlan(objectif) {
     dateCourse: objectif.dateCourse,
     dateDebut: objectif.dateDebut,
     niveau: objectif.niveau,
+    tempsViseS: objectif.tempsViseS,
+    priorite: objectif.priorite,
+    axeTravail: objectif.axeTravail,
     vdot,
   });
 
@@ -83,6 +89,9 @@ export async function generateAndSavePlan(objectif) {
     dateCourse: generated.dateCourse,
     phases: generated.phases,
     prepWindowWarning: generated.prepWindowWarning,
+    priorite: generated.priorite,
+    axeTravail: generated.axeTravail,
+    objectifFit: generated.objectifFit,
   };
   await db.put("plans", planRecord);
 
@@ -103,6 +112,8 @@ export async function generateAndSavePlan(objectif) {
         zone: session.zone,
         structure: session.structure,
         targetVolumeKm: session.targetVolumeKm,
+        pctAllureObjectif: session.pctAllureObjectif ?? null,
+        runWalkSuggested: session.runWalkSuggested ?? false,
         status: "planifiee",
         log: null,
       };
@@ -141,11 +152,27 @@ export async function logSeance(id, log) {
   return seance;
 }
 
+// Boucle adaptative (doc technique Section 11) : une séance manquée isolée
+// ne justifie généralement pas de recalcul (la reprendre ou l'omettre
+// suffit). Seule une série de séances manquées ou une coupure prolongée
+// doit déclencher une réévaluation — reprendre directement au niveau
+// pré-coupure exposerait à un pic ACWR. Seuils choisis : >=3 séances
+// manquées sur les 14 derniers jours (série), ou une coupure explicitement
+// déclarée d'au moins 5 jours sans courir.
+export const SERIE_MANQUEES_SEUIL = 3;
+export const SERIE_MANQUEES_FENETRE_JOURS = 14;
+export const COUPURE_JOURS_SEUIL = 5;
+
 /**
- * Marque une séance comme manquée pour un aléa (blessure/maladie/voyage) et
- * déclenche le recalcul du reste du plan (cadrage produit Section 9).
+ * Marque une séance comme manquée pour un aléa (blessure/maladie/voyage).
+ * Ne recalcule le reste du plan que si le critère de "série" ou de
+ * "coupure prolongée" est atteint (doc technique Section 11) ; une séance
+ * isolée est simplement marquée manquée, sans réduction de charge.
+ * @param {string} seanceId
+ * @param {string} raison
+ * @param {{coupureJours?: number}} [options]
  */
-export async function marquerAlea(seanceId, raison) {
+export async function marquerAlea(seanceId, raison, options = {}) {
   const seance = await db.get("seances", seanceId);
   seance.status = "manquee";
   seance.log = { aleaRaison: raison };
@@ -153,17 +180,31 @@ export async function marquerAlea(seanceId, raison) {
 
   const plan = await db.get("plans", seance.planId);
   const seances = await listSeancesByPlan(plan.id);
-  const generated = {
-    weeks: groupSeancesByWeek(seances),
-  };
-  const adjusted = recalculerApresAlea(generated, seance.weekIndex, { raison, semainesReduites: 1 });
-  const affectedWeek = adjusted.weeks.find((w) => w.index === seance.weekIndex);
-  if (affectedWeek) {
-    for (const s of affectedWeek.sessions) {
+
+  const seuilDate = new Date(seance.date);
+  seuilDate.setDate(seuilDate.getDate() - SERIE_MANQUEES_FENETRE_JOURS);
+  const manqueesRecentes = seances.filter((s) => s.status === "manquee" && new Date(s.date) >= seuilDate && new Date(s.date) <= new Date(seance.date));
+  const coupureJours = options.coupureJours ?? 0;
+  const estSerie = manqueesRecentes.length >= SERIE_MANQUEES_SEUIL;
+  const estCoupureProlongee = coupureJours >= COUPURE_JOURS_SEUIL;
+  const recalcule = estSerie || estCoupureProlongee;
+
+  if (!recalcule) {
+    return { seance, recalcule: false, isole: true, manqueesRecentes: manqueesRecentes.length };
+  }
+
+  const generated = { weeks: groupSeancesByWeek(seances) };
+  const semainesReduites = estCoupureProlongee ? Math.max(1, Math.ceil(coupureJours / 7)) : 1;
+  const adjusted = recalculerApresAlea(generated, seance.weekIndex, { raison, semainesReduites });
+  const affectedWeekIndexes = new Set();
+  for (let i = seance.weekIndex; i < seance.weekIndex + semainesReduites; i++) affectedWeekIndexes.add(i);
+  for (const w of adjusted.weeks) {
+    if (!affectedWeekIndexes.has(w.index)) continue;
+    for (const s of w.sessions) {
       await db.put("seances", s);
     }
   }
-  return seance;
+  return { seance, recalcule: true, isole: false, estSerie, estCoupureProlongee, manqueesRecentes: manqueesRecentes.length };
 }
 
 function groupSeancesByWeek(seances) {
@@ -218,6 +259,17 @@ export async function currentVdot() {
 export async function currentVdotResultat() {
   const resultats = await listResultats();
   return resultats[resultats.length - 1] ?? null;
+}
+
+/**
+ * Séances de qualité (T/I/R) ou sorties longues planifiées dans les
+ * `delaiHeures` suivant une date de renfo excentrique — délai de sécurité
+ * doc technique Section 9.
+ */
+export async function seancesEnConflitAvecRenfoExcentrique(renfoDate, delaiHeures = 48) {
+  const plans = (await Promise.all((await listObjectifs()).map((o) => getPlanForObjectif(o.id)))).filter(Boolean);
+  const allSeances = (await Promise.all(plans.map((p) => listSeancesByPlan(p.id)))).flat();
+  return renfoExcentriqueConflicts(renfoDate, allSeances, delaiHeures);
 }
 
 export async function listRenfoLogs() {

@@ -22,11 +22,12 @@ export const RENFO_EXERCISES = [
 
   { id: "specifique_mollets_debout", categorie: "specifique_course", nom: "Extensions mollets debout", niveau: "debutant", materiel: "aucun" },
   { id: "specifique_mollets_genou_flechi", categorie: "specifique_course", nom: "Extensions mollets genou fléchi", niveau: "intermediaire", materiel: "aucun" },
-  { id: "specifique_ischios_nordic", categorie: "specifique_course", nom: "Nordic hamstring curl", niveau: "avance", materiel: "aucun" },
+  { id: "specifique_ischios_nordic", categorie: "specifique_course", nom: "Nordic hamstring curl", niveau: "avance", materiel: "aucun", excentrique: true },
   { id: "specifique_ischios_pont", categorie: "specifique_course", nom: "Pont fessier unipodal", niveau: "intermediaire", materiel: "aucun" },
   { id: "specifique_fessiers_hip_thrust", categorie: "specifique_course", nom: "Hip thrust", niveau: "intermediaire", materiel: "banc" },
-  { id: "specifique_quadriceps_excentrique", categorie: "specifique_course", nom: "Squat bulgare excentrique lent (descente)", niveau: "avance", materiel: "banc" },
-  { id: "specifique_quadriceps_step_down", categorie: "specifique_course", nom: "Step-down excentrique", niveau: "intermediaire", materiel: "step" },
+  { id: "specifique_quadriceps_excentrique", categorie: "specifique_course", nom: "Squat bulgare excentrique lent (descente)", niveau: "avance", materiel: "banc", excentrique: true },
+  { id: "specifique_quadriceps_step_down", categorie: "specifique_course", nom: "Step-down excentrique", niveau: "intermediaire", materiel: "step", excentrique: true },
+  { id: "specifique_mollets_excentrique", categorie: "specifique_course", nom: "Descente de mollets excentrique (drop calf raise)", niveau: "intermediaire", materiel: "step", excentrique: true },
 
   { id: "mobilite_hanches", categorie: "mobilite", nom: "Mobilité hanches (90/90)", niveau: "debutant", materiel: "aucun" },
   { id: "mobilite_chevilles", categorie: "mobilite", nom: "Mobilité chevilles (dorsiflexion genou au mur)", niveau: "debutant", materiel: "aucun" },

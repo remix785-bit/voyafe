@@ -123,6 +123,51 @@ export function ctlAtlTsb(dailyLoads) {
   return { ctlSeries, atlSeries, tsbSeries };
 }
 
+// Renfo excentrique et délai de sécurité (doc technique Section 9) : le
+// travail excentrique induit des microlésions comparables à une descente
+// technique — il ne doit pas être placé juste avant une séance de qualité
+// ou une sortie longue, avec un délai de récupération d'au moins 48h.
+const SEANCES_QUALITE_TYPES = new Set(["T", "I", "R", "longue"]);
+
+/**
+ * Séances de qualité/longue planifiées dans les `delaiHeures` suivant une
+ * séance de renfo excentrique donnée (conflit de délai de sécurité).
+ * @param {string|Date} renfoDate
+ * @param {{date: string, type: string}[]} seances
+ * @param {number} [delaiHeures]
+ */
+export function renfoExcentriqueConflicts(renfoDate, seances, delaiHeures = 48) {
+  const renfoTime = new Date(renfoDate).getTime();
+  const delaiMs = delaiHeures * 3600 * 1000;
+  return seances.filter((s) => {
+    if (!SEANCES_QUALITE_TYPES.has(s.type)) return false;
+    const deltaMs = new Date(s.date).getTime() - renfoTime;
+    return deltaMs >= 0 && deltaMs < delaiMs;
+  });
+}
+
+// Signaux de surentraînement convergents (doc technique Section 7/11) : au
+// delà du ratio ACWR, une récupération insuffisante se lit dans le suivi
+// subjectif quotidien — RPE en hausse + sommeil dégradé sur plusieurs jours
+// de la même fenêtre. Seuils choisis par défaut : RPE >= 7/10, qualité de
+// sommeil <= 2/5, sur au moins 3 jours dans une fenêtre glissante de 5
+// jours — un déclencheur volontairement plus réactif que la décharge
+// calendaire (3-4 semaines), pour anticiper une décharge quand ces signaux
+// convergent avant l'échéance programmée.
+export function signauxSurentrainement(journalEntries, options = {}) {
+  const { windowDays = 5, rpeSeuil = 7, sommeilSeuil = 2, minJoursConvergents = 3 } = options;
+  const seuilDate = new Date();
+  seuilDate.setDate(seuilDate.getDate() - windowDays);
+  const convergentes = journalEntries.filter(
+    (e) => new Date(e.date) >= seuilDate && (e.rpe ?? 0) >= rpeSeuil && e.sommeilQualite != null && e.sommeilQualite <= sommeilSeuil
+  );
+  return {
+    detecte: convergentes.length >= minJoursConvergents,
+    joursConvergents: convergentes.length,
+    entries: convergentes,
+  };
+}
+
 /** Dernière valeur CTL/ATL/TSB de la série, ou zéros si vide. */
 export function latestLoadState(dailyLoads) {
   if (dailyLoads.length === 0) return { ctl: 0, atl: 0, tsb: 0 };

@@ -16,7 +16,7 @@ function exerciceRow(ex, checked) {
     <label class="session-row" style="cursor:pointer">
       <span>
         <input type="checkbox" name="exercice" value="${ex.id}" ${checked ? "checked" : ""} style="width:auto;margin-right:8px" />
-        ${escapeHtml(ex.nom)}
+        ${escapeHtml(ex.nom)}${ex.excentrique ? " " + badge("Excentrique", "warning") : ""}
         <br><span class="meta">${escapeHtml(RENFO_CATEGORIES[ex.categorie])} · niveau ${escapeHtml(ex.niveau)}${
           ex.materiel !== "aucun" ? ` · ${escapeHtml(ex.materiel)}` : ""
         }</span>
@@ -89,19 +89,29 @@ export async function renderRenfo(params, container) {
     e.preventDefault();
     const data = new FormData(e.target);
     const exerciceIds = data.getAll("exercice");
-    const exerciceDetails = exerciceIds
-      .map((id) => RENFO_EXERCISES.find((ex) => ex.id === id))
-      .filter(Boolean)
-      .map((ex) => ({ id: ex.id, nom: ex.nom, categorie: ex.categorie }));
+    const exerciceObjs = exerciceIds.map((id) => RENFO_EXERCISES.find((ex) => ex.id === id)).filter(Boolean);
+    const exerciceDetails = exerciceObjs.map((ex) => ({ id: ex.id, nom: ex.nom, categorie: ex.categorie, excentrique: !!ex.excentrique }));
+    const date = data.get("date");
 
     await repo.addRenfoLog({
-      date: data.get("date"),
+      date,
       exercices: exerciceDetails,
       dureeMin: parseFloat(data.get("dureeMin")),
       rpe: parseInt(data.get("rpe"), 10),
       notes: data.get("notes") ?? "",
     });
     await renderRenfo(params, container);
-    container.querySelector("#renfo-msg").textContent = "Séance de renfo enregistrée.";
+
+    const aExcentrique = exerciceObjs.some((ex) => ex.excentrique);
+    let msg = "Séance de renfo enregistrée.";
+    if (aExcentrique) {
+      const conflits = await repo.seancesEnConflitAvecRenfoExcentrique(date);
+      if (conflits.length > 0) {
+        msg += ` ${badge("Attention", "danger")} renfo excentrique à moins de 48h d'une séance de qualité/sortie longue (${conflits
+          .map((c) => formatDateFr(c.date))
+          .join(", ")}) — le délai de récupération recommandé n'est pas respecté.`;
+      }
+    }
+    container.querySelector("#renfo-msg").innerHTML = msg;
   });
 }

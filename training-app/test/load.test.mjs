@@ -9,6 +9,8 @@ import {
   latestLoadState,
   ACWR_SAFE_MIN,
   ACWR_SAFE_MAX,
+  renfoExcentriqueConflicts,
+  signauxSurentrainement,
 } from "../js/engines/load.js";
 
 test("sessionLoad: distance * facteur d'intensité", () => {
@@ -92,3 +94,33 @@ function addDays(date, days) {
   d.setDate(d.getDate() + days);
   return d.toISOString().slice(0, 10);
 }
+
+test("renfoExcentriqueConflicts: détecte une séance de qualité dans les 48h suivant le renfo", () => {
+  const seances = [
+    { date: "2026-03-02", type: "T" }, // 24h après
+    { date: "2026-03-05", type: "I" }, // 96h après, hors délai
+    { date: "2026-03-01", type: "E" }, // même type non concerné
+  ];
+  const conflicts = renfoExcentriqueConflicts("2026-03-01", seances);
+  assert.equal(conflicts.length, 1);
+  assert.equal(conflicts[0].date, "2026-03-02");
+});
+
+test("renfoExcentriqueConflicts: aucun conflit si les séances de qualité sont assez éloignées", () => {
+  const seances = [{ date: "2026-03-10", type: "longue" }];
+  assert.equal(renfoExcentriqueConflicts("2026-03-01", seances).length, 0);
+});
+
+test("signauxSurentrainement: détecte une convergence RPE élevé + sommeil dégradé", () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const entries = [0, 1, 2].map((i) => ({ date: addDays(today, -i), rpe: 8, sommeilQualite: 1 }));
+  const result = signauxSurentrainement(entries);
+  assert.equal(result.detecte, true);
+  assert.equal(result.joursConvergents, 3);
+});
+
+test("signauxSurentrainement: pas de détection si peu de jours convergents", () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const entries = [{ date: today, rpe: 8, sommeilQualite: 1 }];
+  assert.equal(signauxSurentrainement(entries).detecte, false);
+});

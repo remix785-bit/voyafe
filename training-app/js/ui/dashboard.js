@@ -1,5 +1,5 @@
 import * as repo from "../data/repo.js";
-import { sessionLoad, renfoSessionLoad, acwr, acwrRiskLevel, latestLoadState, ACWR_SAFE_MIN, ACWR_SAFE_MAX } from "../engines/load.js";
+import { sessionLoad, renfoSessionLoad, acwr, acwrRiskLevel, latestLoadState, ACWR_SAFE_MIN, ACWR_SAFE_MAX, signauxSurentrainement } from "../engines/load.js";
 import { nextRetestWindow } from "../engines/vdot.js";
 import { escapeHtml, formatDateFr, daysUntil, zoneTag, badge, emptyState, card } from "./components.js";
 
@@ -71,6 +71,8 @@ export async function renderDashboard(params, container) {
   const { ctl, atl, tsb } = latestLoadState(dailyLoads);
   const seanceDuJour = await findSeanceDuJour();
   const seancesManquees = await seancesManqueesRecentes();
+  const journal = await repo.listJournal();
+  const surentrainement = signauxSurentrainement(journal);
   const dernierResultat = await repo.currentVdotResultat();
   let retestDepasse = false;
   if (dernierResultat) {
@@ -78,6 +80,8 @@ export async function renderDashboard(params, container) {
     retestDepasse = new Date() > maxDate;
   }
 
+  const planPrincipal = objectifPrincipal ? await repo.getPlanForObjectif(objectifPrincipal.id) : null;
+  const FIT_LEVEL_BADGE = { atteint: "ok", ambitieux: "warning", tres_ambitieux: "danger" };
   const objectifCard = objectifPrincipal
     ? card(`
         <h2>${escapeHtml(objectifPrincipal.nom)}</h2>
@@ -89,6 +93,11 @@ export async function renderDashboard(params, container) {
           <div class="label">jours restants</div>
         </div>
         <p class="muted">Course le ${formatDateFr(objectifPrincipal.dateCourse)}</p>
+        ${
+          planPrincipal?.objectifFit
+            ? `<p>Calage objectif : ${badge(planPrincipal.objectifFit.label, FIT_LEVEL_BADGE[planPrincipal.objectifFit.niveau] ?? "muted")}</p>`
+            : ""
+        }
         <a class="btn btn-secondary" href="#/plan?objectifId=${objectifPrincipal.id}">Voir le plan</a>
       `)
     : card(emptyState("Aucun objectif principal défini.", `<a class="btn" href="#/saison">Créer un objectif</a>`));
@@ -113,6 +122,14 @@ export async function renderDashboard(params, container) {
         `)
       : "";
 
+  const surentrainementCard = surentrainement.detecte
+    ? card(`
+        <h3>${badge("Signaux convergents", "danger")} Risque de surentraînement</h3>
+        <p>RPE élevé et sommeil dégradé sur ${surentrainement.joursConvergents} jours récents — envisage une décharge anticipée plutôt que d'attendre la décharge programmée.</p>
+        <a class="btn btn-secondary" href="#/journal">Voir le journal</a>
+      `)
+    : "";
+
   const retestCard = retestDepasse
     ? card(`
         <h3>${badge("À faire", "warning")} Retest VDOT</h3>
@@ -135,6 +152,7 @@ export async function renderDashboard(params, container) {
     <h1 class="visually-hidden">Dashboard</h1>
     ${objectifCard}
     ${alerteManqueesCard}
+    ${surentrainementCard}
     ${chargeCard}
     ${retestCard}
     ${seanceCard}

@@ -53,6 +53,11 @@ export async function renderSeanceDetail(params, container) {
       <p>Volume cible : <strong>${seance.targetVolumeKm} km</strong></p>
       ${zoneInfo ? `<p>Allure cible zone ${escapeHtml(seance.zone)} : <strong>${zoneInfo.fastPace} – ${zoneInfo.slowPace}</strong></p>` : ""}
       ${gapHtml}
+      ${
+        seance.runWalkSuggested
+          ? `<p class="muted" style="font-size:0.8rem">Run/walk conseillé sur cette séance en côte (profil débutant et/ou pente raide) : alterner course et marche rapide en montée, plus efficace énergétiquement et moins risqué.</p>`
+          : ""
+      }
     `)}
     ${card(`<h3>Structure</h3>${structureList(seance.structure)}`)}
     ${card(`
@@ -86,7 +91,9 @@ export async function renderSeanceDetail(params, container) {
             <option value="voyage">Voyage</option>
             <option value="autre">Autre</option>
           </select>
-          <button type="submit" class="btn btn-secondary" style="margin-top:8px">Marquer manquée et recalculer le plan</button>
+          <label for="alea-coupure">Coupure sans courir (jours, si applicable)</label>
+          <input id="alea-coupure" name="coupureJours" type="number" min="0" step="1" placeholder="0" />
+          <button type="submit" class="btn btn-secondary" style="margin-top:8px">Marquer manquée</button>
         </form>
       </div>
       <p id="status-msg" class="muted" style="font-size:0.8rem"></p>
@@ -109,23 +116,32 @@ export async function renderSeanceDetail(params, container) {
 
   container.querySelector("#form-alea").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const raison = new FormData(e.target).get("raison");
-    const avant = await repo.listSeancesByPlan(seance.planId);
-    const avantByid = new Map(avant.map((s) => [s.id, s.targetVolumeKm]));
+    const data = new FormData(e.target);
+    const raison = data.get("raison");
+    const coupureJours = data.get("coupureJours") ? parseInt(data.get("coupureJours"), 10) : 0;
 
-    await repo.marquerAlea(seance.id, raison);
+    const result = await repo.marquerAlea(seance.id, raison, { coupureJours });
 
-    const apres = await repo.listSeancesByPlan(seance.planId);
-    const memeSemaine = apres.filter((s) => s.weekIndex === seance.weekIndex);
-    const modifiees = memeSemaine.filter((s) => avantByid.get(s.id) !== s.targetVolumeKm);
-
-    container.querySelector("#status-msg").textContent = "Séance marquée manquée, le reste du plan a été recalculé.";
-    container.querySelector("#alea-result").innerHTML = `
-      <p class="muted" style="font-size:0.8rem">
-        Recalcul (motif : ${escapeHtml(raison)}) — ${modifiees.length} séance(s) ajustée(s) (volume réduit) sur la semaine ${
-      seance.weekIndex + 1
-    }. Les séances de seuil/intervalle de cette semaine ont été retirées du programme.
-      </p>
-    `;
+    if (!result.recalcule) {
+      container.querySelector("#status-msg").textContent = "Séance marquée manquée.";
+      container.querySelector("#alea-result").innerHTML = `
+        <p class="muted" style="font-size:0.8rem">
+          Séance isolée (motif : ${escapeHtml(raison)}) — pas de recalcul du plan. La reprendre ou l'omettre suffit
+          (${result.manqueesRecentes} séance(s) manquée(s) sur les 14 derniers jours, sous le seuil de série).
+        </p>
+      `;
+    } else {
+      container.querySelector("#status-msg").textContent = "Série de séances manquées / coupure détectée : le plan a été recalculé.";
+      container.querySelector("#alea-result").innerHTML = `
+        <p class="muted" style="font-size:0.8rem">
+          ${
+            result.estCoupureProlongee
+              ? `Coupure prolongée déclarée (${coupureJours} jours)`
+              : `Série de ${result.manqueesRecentes} séances manquées sur les 14 derniers jours`
+          } — réévaluation du niveau de reprise (volume réduit, séances de seuil/intervalle retirées) pour éviter un pic ACWR.
+          Un retest VDOT est recommandé avant de reprendre la charge prévue si la coupure est significative.
+        </p>
+      `;
+    }
   });
 }

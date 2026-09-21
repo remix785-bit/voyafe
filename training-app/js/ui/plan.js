@@ -1,6 +1,8 @@
 import * as repo from "../data/repo.js";
 import { escapeHtml, formatDateFr, zoneTag, badge, emptyState, card } from "./components.js";
 
+const FIT_LEVEL_BADGE = { atteint: "ok", ambitieux: "warning", tres_ambitieux: "danger" };
+
 const STATUS_BADGE = {
   planifiee: null,
   realisee: () => badge("Réalisée", "ok"),
@@ -57,6 +59,13 @@ export async function renderPlan(params, container) {
       ${
         plan
           ? `<p class="muted" style="font-size:0.78rem">Plan généré le ${formatDateFr(plan.generatedAt)} — ${plan.totalWeeks} semaines (${plan.mode === "gestion_forme_existante" ? "gestion de forme existante" : "cycle complet"}).</p>
+             <p class="muted" style="font-size:0.78rem">Priorité ${escapeHtml(plan.priorite ?? "B")} · Axe de travail : ${escapeHtml(plan.axeTravail ?? "équilibre")}</p>
+             ${
+               plan.objectifFit
+                 ? `<p>Calage objectif : ${badge(plan.objectifFit.label, FIT_LEVEL_BADGE[plan.objectifFit.niveau] ?? "muted")}
+                    <span class="muted" style="font-size:0.78rem">(VDOT actuel ${plan.objectifFit.vdotActuel} vs. VDOT requis ${plan.objectifFit.vdotRequis})</span></p>`
+                 : ""
+             }
              ${plan.prepWindowWarning ? `<p class="muted" style="font-size:0.78rem">${badge("Fenêtre courte", "warning")} ${escapeHtml(plan.prepWindowWarning.message)}</p>` : ""}
              <button id="btn-regenerer" class="btn btn-secondary">Régénérer le plan</button>`
           : `<button id="btn-generer" class="btn">Générer le plan</button>`
