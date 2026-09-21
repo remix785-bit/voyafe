@@ -50,7 +50,7 @@ export async function renderSaison(params, container) {
         </select>
 
         <label for="distanceKm">Distance (km)</label>
-        <input id="distanceKm" name="distanceKm" type="number" step="0.1" min="0" required />
+        <input id="distanceKm" name="distanceKm" type="number" step="0.001" min="0" required />
 
         <label for="deniveleM">Dénivelé positif (m, trail)</label>
         <input id="deniveleM" name="deniveleM" type="number" step="10" min="0" />
