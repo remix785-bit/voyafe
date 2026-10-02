@@ -1,0 +1,173 @@
+<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Veille concurrentielle</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout : poste de lecture. Colonne de filtres à gauche, recherche en tête, fil d'items daté en dessous. */
+:root{
+  --bg:#eef1f3; --panel:#fbfcfc; --ink:#14232b; --muted:#5b6c75; --line:#d5dce0;
+  --accent:#0f6b6e; --accent-ink:#ffffff; --signal:#c8472b; --chip:#e1e8eb;
+  --f-display:"Familjen Grotesk","Helvetica Neue",Arial,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f1a20; --panel:#16252d; --ink:#e6eef1; --muted:#8fa3ad; --line:#2a3d47;
+  --accent:#4fb8bb; --accent-ink:#0b1519; --signal:#ee8a6d; --chip:#223540; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1a20; --panel:#16252d; --ink:#e6eef1; --muted:#8fa3ad; --line:#2a3d47;
+  --accent:#4fb8bb; --accent-ink:#0b1519; --signal:#ee8a6d; --chip:#223540; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--f-body);margin:0;padding-inline:16px;padding-block:20px 48px}
+.wrap{max-width:1120px;margin:0 auto;display:grid;gap:20px}
+header{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:end;justify-content:space-between}
+h1{font:700 30px/1.1 var(--f-display);margin:0;letter-spacing:-.01em}
+.sub{color:var(--muted);font:400 12px var(--f-mono);margin-top:6px}
+button,.btn{font:500 14px var(--f-body);border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:9px 14px;border-radius:6px;cursor:pointer}
+button:hover,.btn:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+button:disabled{opacity:.5;cursor:default}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.search{display:grid;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+input[type=search],select{font:400 15px var(--f-body);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:10px 12px;min-width:0}
+input[type=search]{flex:1 1 260px}
+.answer{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:6px;padding:14px 16px;white-space:pre-wrap;overflow-wrap:anywhere}
+.answer a{color:var(--accent);font:500 12px var(--f-mono);text-decoration:none;border-bottom:1px solid currentColor}
+.answer .lbl{display:block;font:500 11px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+main{display:grid;grid-template-columns:230px minmax(0,1fr);gap:20px;align-items:start}
+@media(max-width:760px){main{grid-template-columns:1fr}}
+aside{display:grid;gap:14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+aside label{font:500 11px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:grid;gap:6px}
+aside select{width:100%}
+.stats{font:400 12px var(--f-mono);color:var(--muted)}
+.feed{display:grid;gap:0;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.src{font:700 13px var(--f-display);padding:10px 16px;background:var(--chip);display:flex;justify-content:space-between;gap:8px}
+.src span{font:400 12px var(--f-mono);color:var(--muted)}
+.item{padding:12px 16px;border-top:1px solid var(--line);display:grid;gap:4px;min-width:0}
+.item h3{margin:0;font:500 15px/1.35 var(--f-body);overflow-wrap:anywhere}
+.item a.t{color:var(--ink);text-decoration:none}
+.item a.t:hover{color:var(--accent);text-decoration:underline}
+.meta{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font:400 12px var(--f-mono);color:var(--muted)}
+.co{background:var(--chip);color:var(--ink);padding:1px 7px;border-radius:4px;font:500 12px var(--f-mono)}
+.nc{font-style:italic}
+.empty{padding:28px 20px;color:var(--muted);display:grid;gap:8px}
+.empty b{color:var(--ink);font:700 18px var(--f-display)}
+code{font:400 13px var(--f-mono);background:var(--chip);padding:1px 5px;border-radius:4px}
+.msg{font:400 13px var(--f-mono);color:var(--muted)} .msg.err{color:var(--signal)}
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Veille concurrentielle</h1>
+      <div class="sub" id="count">chargement…</div>
+    </div>
+    <div class="row">
+      <button id="run" class="primary" type="button">Lancer la veille</button>
+      <label class="btn" for="file">Importer LinkedIn (.json)</label>
+      <input id="file" type="file" accept=".json" hidden>
+    </div>
+  </header>
+  <div class="msg" id="status" role="status"></div>
+
+  <section class="search" aria-label="Recherche">
+    <div class="row">
+      <input id="q" type="search" placeholder="Une entreprise, un sujet… ou une question pour Claude" autocomplete="off">
+      <button id="ask" class="primary" type="button">Demander à Claude</button>
+    </div>
+    <div class="msg">Le champ filtre la liste en direct. « Demander à Claude » répond à partir des items affichés, avec des renvois [n] vers les articles.</div>
+  </section>
+  <div id="answer" hidden class="answer" aria-live="polite"></div>
+
+  <main>
+    <aside>
+      <label>Source<select id="fSource"><option value="">Toutes</option></select></label>
+      <label>Type<select id="fKind"><option value="">Tout</option><option value="media">Médias</option><option value="linkedin">LinkedIn</option></select></label>
+      <label>Entreprise<select id="fCo"><option value="">Toutes</option></select></label>
+      <div class="stats" id="stats"></div>
+    </aside>
+    <div class="feed" id="feed"></div>
+  </main>
+</div>
+
+<script>
+(function(){
+  const $=id=>document.getElementById(id);
+  let items=[], shown=[];
+  const safeUrl=u=>/^https?:\/\//i.test(u||'')?u:'';
+  const setStatus=(t,err)=>{const s=$('status');s.textContent=t||'';s.className='msg'+(err?' err':'')};
+  const api=async(p,o)=>{const r=await fetch(p,o);const j=await r.json();if(!r.ok)throw new Error(j.error||r.status);return j};
+  const post=(p,b)=>api(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+  const norm=s=>(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+  function fillSelect(sel,vals){const cur=sel.value;const first=sel.options[0];sel.textContent='';sel.appendChild(first);
+    vals.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;sel.appendChild(o)});sel.value=vals.includes(cur)?cur:''}
+  function filtered(){
+    const q=norm($('q').value).split(/\s+/).filter(Boolean),s=$('fSource').value,k=$('fKind').value,c=$('fCo').value;
+    return items.filter(i=>(!s||i.source===s)&&(!k||i.kind===k)&&(!c||(i.companies||[]).includes(c))&&
+      q.every(w=>norm([i.title,i.source,(i.companies||[]).join(' '),i.text].join(' ')).includes(w)));
+  }
+  function el(t,c,tx){const e=document.createElement(t);if(c)e.className=c;if(tx!=null)e.textContent=tx;return e}
+  function render(){
+    shown=filtered();
+    $('count').textContent=`${items.length} items · ${new Set(items.map(i=>i.source)).size} sources`;
+    $('stats').textContent=`${shown.length} affichés`;
+    const feed=$('feed');feed.textContent='';
+    if(!items.length){const d=el('div','empty');d.appendChild(el('b',null,'Aucune donnée pour l’instant'));
+      d.appendChild(el('div',null,'Cliquez sur « Lancer la veille » : les 48 sources sont lues et les nouveautés apparaissent ici.'));feed.appendChild(d);return}
+    if(!shown.length){const d=el('div','empty');d.appendChild(el('b',null,'Aucun résultat'));d.appendChild(el('div',null,'Modifiez la recherche ou les filtres.'));feed.appendChild(d);return}
+    const groups=new Map();shown.forEach((i,n)=>{i._n=n+1;if(!groups.has(i.source))groups.set(i.source,[]);groups.get(i.source).push(i)});
+    for(const [s,list] of groups){
+      const h=el('div','src',s);h.appendChild(el('span',null,list.length+' item'+(list.length>1?'s':'')));feed.appendChild(h);
+      for(const i of list){
+        const it=el('div','item'),h3=el('h3');const u=safeUrl(i.url);
+        if(u){const a=el('a','t',i.title);a.href=u;a.target='_blank';a.rel='noopener';h3.appendChild(a)}else h3.textContent=i.title;
+        it.appendChild(h3);const m=el('div','meta');m.appendChild(el('span',null,'['+i._n+']'));
+        if(i.date)m.appendChild(el('span',null,i.date));
+        if(i.tab)m.appendChild(el('span',null,i.tab));
+        if((i.companies||[]).length)i.companies.forEach(c=>m.appendChild(el('span','co',c)));else if(i.kind==='media')m.appendChild(el('span','nc','entreprise non identifiée'));
+        if(!u)m.appendChild(el('span',null,'URL non capturée'));
+        it.appendChild(m);feed.appendChild(it);
+      }
+    }
+  }
+  async function load(){
+    items=await api('/api/items');
+    fillSelect($('fSource'),[...new Set(items.map(i=>i.source))].sort((a,b)=>a.localeCompare(b)));
+    fillSelect($('fCo'),[...new Set(items.flatMap(i=>i.companies||[]))].sort((a,b)=>a.localeCompare(b)));
+    render();
+  }
+  async function poll(){
+    const s=await api('/api/status');
+    setStatus(s.message,/^Erreur/.test(s.message));
+    if(s.running){$('run').disabled=true;setTimeout(poll,1500);return}
+    $('run').disabled=false;await load();
+    if(s.errors&&s.errors.length)setStatus(s.message+' Inaccessibles : '+s.errors.map(e=>e.split(' : ')[0]).join(', '));
+  }
+  $('run').addEventListener('click',async()=>{
+    try{$('run').disabled=true;setStatus('Collecte en cours…');await post('/api/run',{});poll()}
+    catch(e){setStatus(e.message,true);$('run').disabled=false}
+  });
+  $('file').addEventListener('change',async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;
+    try{const r=await post('/api/linkedin',{posts:JSON.parse(await f.text())});setStatus(r.new+' nouveaux posts LinkedIn.');await load()}
+    catch(err){setStatus('Import LinkedIn impossible : '+err.message,true)}});
+
+  async function ask(){
+    const q=$('q').value.trim(); if(!q)return;
+    if(!shown.length){setStatus('Aucun item à interroger : élargissez les filtres.',true);return}
+    const pool=shown.slice(0,150);
+    const ctx=pool.map(i=>`[${i._n}] ${i.source} | ${i.date||'date ?'} | ${(i.companies||[]).join(', ')||'entreprise ?'} | ${i.title}${i.kind==='linkedin'&&i.text?' — '+i.text.slice(0,200).replace(/\s+/g,' '):''}`).join('\n');
+    const box=$('answer');box.hidden=false;box.textContent='Recherche…';$('ask').disabled=true;
+    try{
+      const r=await post('/api/ask',{question:q,context:ctx});
+      box.textContent='';box.appendChild(el('span','lbl','Claude · '+pool.length+' items analysés'));
+      r.text.split(/(\[\d+\])/).forEach(p=>{const m=p.match(/^\[(\d+)\]$/);const it=m&&pool.find(x=>x._n===+m[1]);
+        if(it&&safeUrl(it.url)){const a=el('a',null,p);a.href=safeUrl(it.url);a.target='_blank';a.rel='noopener';a.title=it.title;box.appendChild(a)}else box.appendChild(document.createTextNode(p))});
+    }catch(e){box.textContent='Erreur : '+e.message}
+    finally{$('ask').disabled=false}
+  }
+  $('q').addEventListener('input',render);
+  $('q').addEventListener('keydown',e=>{if(e.key==='Enter')ask()});
+  ['fSource','fKind','fCo'].forEach(id=>$(id).addEventListener('change',render));
+  $('ask').addEventListener('click',ask);
+  load().then(poll).catch(e=>setStatus('Serveur injoignable : '+e.message,true));
+})();
+</script>

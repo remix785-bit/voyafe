@@ -2,6 +2,14 @@
 
 Extraction pure des **nouveautés** (médias + LinkedIn), sans tri de pertinence. Python 3.9+, aucune dépendance.
 
+## Site avec bouton « Lancer » (recommandé)
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...   # pour « Demander à Claude » (optionnel : modèle via VEILLE_MODEL)
+python server.py                      # puis http://127.0.0.1:8765
+```
+Le bouton **Lancer la veille** collecte les sources, déduplique et affiche les nouveautés. Le champ de recherche filtre en direct ; **Demander à Claude** répond à partir des items affichés avec des renvois [n]. LinkedIn : import du JSON de `linkedin_console.js` (bouton dédié). À lancer sur votre machine (accès Internet requis).
+
+## Ligne de commande
 ```bash
 python veille.py run                              # 7 flux RSS + sources DOM → outputs/veille-AAAA-MM-JJ.md
 python veille.py run --only "DAF Mag" --dry-run   # test sur une source, sans toucher l'historique
