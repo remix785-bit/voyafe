@@ -1,0 +1,2 @@
+# Entreprises à repérer dans les titres/extraits (une par ligne, # = commentaire).
+# Optionnel : sans liste, tous les items sortent avec « Entreprises citées : non identifiée ».
